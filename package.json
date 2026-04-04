@@ -1,0 +1,12 @@
+{
+  "name": "zwift-route-recommender",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build-routes": "node bundle-routes.mjs",
+    "serve": "npx serve ."
+  },
+  "dependencies": {
+    "zwift-data": "latest"
+  }
+}

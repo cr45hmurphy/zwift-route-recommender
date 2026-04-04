@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zwift Route Recommender</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Auth Screen ── -->
+  <div id="auth-screen">
+    <div class="auth-card">
+      <h1>Zwift Route Recommender</h1>
+      <p>Sign in with your Xert account to get route recommendations based on your current fitness.</p>
+      <div id="auth-error" class="auth-error"></div>
+      <form id="auth-form">
+        <label for="auth-username">Xert Username</label>
+        <input type="email" id="auth-username" placeholder="your@email.com" required autocomplete="username">
+
+        <label for="auth-password">Password</label>
+        <input type="password" id="auth-password" required autocomplete="current-password">
+
+        <button type="submit" id="auth-btn" class="btn-primary">Sign in</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── App ── -->
+  <div id="app">
+
+    <header>
+      <span class="header-title">Zwift Route Recommender</span>
+      <div class="header-actions">
+        <span id="last-updated"></span>
+        <button id="refresh-btn" class="btn-secondary">↻ Refresh</button>
+        <button id="logout-btn" class="btn-secondary">Sign out</button>
+      </div>
+    </header>
+
+    <main>
+
+      <div id="app-error" class="app-error"></div>
+      <div id="loading" class="loading-overlay" style="display:none">Fetching your Xert data…</div>
+
+      <!-- Status -->
+      <section>
+        <div id="status-card">
+          <div class="status-meta">
+            <span id="freshness-badge" class="freshness-badge">—</span>
+            <span class="stat-pill">FTP <strong id="stat-ftp">—</strong></span>
+            <span class="stat-pill">Weight <strong id="stat-weight">—</strong></span>
+          </div>
+
+          <div class="buckets">
+            <div class="bucket-row">
+              <span class="bucket-label" id="bar-label-low">Low</span>
+              <div class="bucket-bar-track">
+                <div class="bucket-bar-fill" id="bar-fill-low" style="width:0%"></div>
+              </div>
+              <span class="bucket-values" id="bar-values-low">—</span>
+            </div>
+            <div class="bucket-row">
+              <span class="bucket-label" id="bar-label-high">High</span>
+              <div class="bucket-bar-track">
+                <div class="bucket-bar-fill" id="bar-fill-high" style="width:0%"></div>
+              </div>
+              <span class="bucket-values" id="bar-values-high">—</span>
+            </div>
+            <div class="bucket-row">
+              <span class="bucket-label" id="bar-label-peak">Peak</span>
+              <div class="bucket-bar-track">
+                <div class="bucket-bar-fill" id="bar-fill-peak" style="width:0%"></div>
+              </div>
+              <span class="bucket-values" id="bar-values-peak">—</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Recommendation -->
+      <section id="recommendation">
+        <div class="rec-title" id="rec-title">—</div>
+        <div class="rec-subtitle" id="rec-subtitle"></div>
+        <div class="wotd" id="wotd" style="display:none"></div>
+      </section>
+
+      <!-- Routes -->
+      <section id="routes-section">
+        <h2>Recommended Routes</h2>
+        <div class="route-grid" id="route-grid"></div>
+
+        <div id="other-options">
+          <button id="other-toggle">▼ Other options</button>
+          <div id="other-list"></div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section>
+        <div id="settings">
+          <h3>Settings</h3>
+          <div class="settings-field">
+            <label for="settings-username">Xert Username</label>
+            <input type="email" id="settings-username" placeholder="your@email.com" autocomplete="username">
+          </div>
+          <div class="settings-field">
+            <label for="settings-password">Password</label>
+            <input type="password" id="settings-password" placeholder="update to re-authenticate" autocomplete="current-password">
+          </div>
+          <button id="refresh-btn-settings" class="btn-secondary" onclick="document.getElementById('refresh-btn').click()">↻ Refresh Data</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
