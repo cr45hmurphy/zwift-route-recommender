@@ -3,9 +3,9 @@
 // Run: node proxy.js
 // Then point your app at http://localhost:3000 instead of https://www.xertonline.com
 
-const http  = require('http');
-const https = require('https');
-const url   = require('url');
+import http  from 'http';
+import https from 'https';
+import url   from 'url';
 
 const PORT        = 3000;
 const TARGET_HOST = 'www.xertonline.com';
