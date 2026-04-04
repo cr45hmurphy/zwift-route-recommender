@@ -267,6 +267,73 @@ section { margin-bottom: 32px; }
 
 .wotd strong { color: var(--text); }
 
+/* ── Time Controls ───────────────────────────────── */
+
+#time-section {
+  background: var(--bg-section);
+  border: 1px solid var(--border);
+  padding: 16px 24px;
+}
+
+#time-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.time-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.time-control-row label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+#time-available {
+  width: 140px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+#time-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 50px;
+}
+
+#avg-speed {
+  width: 60px;
+  padding: 4px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-family: inherit;
+  outline: none;
+  text-align: center;
+}
+
+#avg-speed:focus { border-color: var(--accent); }
+
+.time-unit {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+#time-summary {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 /* ── Route Cards ─────────────────────────────────── */
 
 #routes-section h2 {
@@ -361,6 +428,33 @@ section { margin-bottom: 32px; }
   margin-top: auto;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+}
+
+.route-card.route-over-time {
+  opacity: 0.45;
+}
+
+.route-card.route-over-time:hover {
+  opacity: 0.7;
+}
+
+.time-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 2px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.time-tag.fits-time {
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.time-tag.over-time {
+  background: var(--red-dim);
+  color: var(--red);
 }
 
 /* ── Other Options ───────────────────────────────── */

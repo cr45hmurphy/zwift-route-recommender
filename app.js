@@ -3,6 +3,12 @@ import { routes } from './routes.js';
 import { worldName } from './routes.js';
 import { detectBucket, rankRoutes } from './scorer.js';
 
+// ── Constants ─────────────────────────────────────
+
+// Rough XSS generation rate per bucket type (XSS per hour).
+// Used only for time-based planning estimates — not precise.
+const XSS_RATE = { low: 65, high: 90, peak: 50, recovery: 40 };
+
 // ── State ─────────────────────────────────────────
 
 let state = {
@@ -97,6 +103,7 @@ async function refresh(username, password) {
 function renderAll() {
   renderStatus();
   renderRecommendation();
+  renderTimeSummary();
   renderRoutes();
   renderLastUpdated();
 }
@@ -128,9 +135,10 @@ function renderBucketBar(name, current, target, highlighted) {
   document.getElementById(`bar-label-${name}`).classList.toggle('highlighted', highlighted);
 
   const valEl = document.getElementById(`bar-values-${name}`);
-  valEl.innerHTML = `${current.toFixed(1)} / ${target.toFixed(1)}`;
+  valEl.title = 'Training load vs daily target';
+  valEl.innerHTML = `TL ${current.toFixed(1)} · ${target.toFixed(1)}`;
   if (deficit > 0) {
-    valEl.innerHTML += ` <span class="deficit">-${deficit.toFixed(1)}</span>`;
+    valEl.innerHTML += ` <span class="deficit">−${deficit.toFixed(1)}</span>`;
   }
 }
 
@@ -146,9 +154,9 @@ function renderRecommendation() {
   };
 
   const subtitles = {
-    low:      `You're ${(d.targetXSS.low - d.tl.low).toFixed(1)} XSS short of your aerobic target — a long flat ride will help.`,
-    high:     `You're ${(d.targetXSS.high - d.tl.high).toFixed(1)} XSS short of your threshold target — a climbing route will help.`,
-    peak:     `You're ${(d.targetXSS.peak - d.tl.peak).toFixed(1)} XSS short of your peak power target — a short punchy route will help.`,
+    low:      `Your aerobic training load is ${(d.targetXSS.low - d.tl.low).toFixed(1)} XSS below your daily target — a long flat ride will help.`,
+    high:     `Your threshold training load is ${(d.targetXSS.high - d.tl.high).toFixed(1)} XSS below your daily target — a climbing route will help.`,
+    peak:     `Your peak power training load is ${(d.targetXSS.peak - d.tl.peak).toFixed(1)} XSS below your daily target — a short punchy route will help.`,
     recovery: 'All buckets at or above target. Take it easy — flat and short today.',
   };
 
@@ -183,7 +191,20 @@ function routeCardHTML(route, compact) {
   const gr    = route.distance > 0 ? (route.elevation / route.distance).toFixed(1) : '—';
   const world = worldName(route.world);
   const reason = routeReason(route, state.bucket);
-  const cls   = compact ? 'route-card compact' : 'route-card';
+
+  const { minutes: timeMin, speed } = getTimeSettings();
+  const estMin  = estimateRouteMinutes(route, speed);
+  const overTime = estMin > timeMin;
+  const overBy   = estMin - timeMin;
+
+  const timeTag = overTime
+    ? `<span class="time-tag over-time">~${formatMinutes(estMin)} · +${formatMinutes(overBy)}</span>`
+    : `<span class="time-tag fits-time">~${formatMinutes(estMin)}</span>`;
+
+  const cls = [
+    compact ? 'route-card compact' : 'route-card',
+    overTime ? 'route-over-time' : '',
+  ].filter(Boolean).join(' ');
 
   const links = [
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
@@ -201,6 +222,7 @@ function routeCardHTML(route, compact) {
         <span class="route-stat"><strong>${route.distance.toFixed(1)}</strong> km</span>
         <span class="route-stat"><strong>${route.elevation}</strong> m</span>
         <span class="gradient-badge">${gr} m/km</span>
+        ${timeTag}
       </div>
       ${reason ? `<div class="route-reason">${reason}</div>` : ''}
       ${links ? `<div class="route-links">${links}</div>` : ''}
@@ -229,6 +251,48 @@ function routeReason(route, bucket) {
     return 'High gradient ratio for PP development';
   }
   return '';
+}
+
+function getTimeSettings() {
+  const minutes = parseInt(document.getElementById('time-available')?.value || '60', 10);
+  const speed   = parseFloat(document.getElementById('avg-speed')?.value  || '28');
+  return { minutes, speed };
+}
+
+function estimateRouteMinutes(route, speedKmh) {
+  const baseMin  = (route.distance / speedKmh) * 60;
+  const climbMin = (route.elevation / 600) * 60; // rough: 600m elevation added per hour
+  return Math.round(baseMin + climbMin);
+}
+
+function formatMinutes(min) {
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function renderTimeSummary() {
+  if (!state.trainingData) return;
+  const d = state.trainingData;
+  const b = state.bucket;
+  const { minutes: timeMin } = getTimeSettings();
+
+  const xssRate      = XSS_RATE[b] ?? 65;
+  const estimatedXss = Math.round((timeMin / 60) * xssRate);
+  const targetXss    = (b !== 'recovery') ? d.targetXSS[b] : null;
+
+  const el = document.getElementById('time-summary');
+  if (!el) return;
+
+  if (b === 'recovery' || !targetXss) {
+    el.textContent = `With ${timeMin} min available, an easy spin is plenty today.`;
+  } else {
+    const fillPct = Math.round(estimatedXss / targetXss * 100);
+    el.textContent =
+      `With ${timeMin} min at your pace, you'd generate roughly ${estimatedXss} XSS` +
+      ` — about ${fillPct}% of your ${targetXss.toFixed(0)} ${b} target.`;
+  }
 }
 
 function renderLastUpdated() {
@@ -281,6 +345,17 @@ function freshnessClass(status) {
 document.getElementById('auth-form').addEventListener('submit', handleLogin);
 document.getElementById('refresh-btn').addEventListener('click', handleRefresh);
 document.getElementById('logout-btn').addEventListener('click', handleLogout);
+
+document.getElementById('time-available').addEventListener('input', () => {
+  const val = document.getElementById('time-available').value;
+  document.getElementById('time-label').textContent = `${val} min`;
+  if (state.trainingData) { renderTimeSummary(); renderRoutes(); }
+});
+
+document.getElementById('avg-speed').addEventListener('change', () => {
+  if (state.trainingData) renderRoutes();
+});
+
 document.getElementById('other-toggle').addEventListener('click', () => {
   const list   = document.getElementById('other-list');
   const toggle = document.getElementById('other-toggle');

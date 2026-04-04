@@ -4,7 +4,8 @@
 const FLAT_DISTANCE_TARGET  = 40;   // km   — routes at/above this get full distance points
 const FLAT_GRADIENT_MAX     = 15;   // m/km — routes above this lose flatness points
 
-const CLIMB_ELEVATION_TARGET = 800; // m    — routes at/above this get full elevation points
+const CLIMB_ELEVATION_TARGET = 800;  // m    — routes at/above this get full elevation points
+const CLIMB_ELEVATION_BIG    = 1000; // m    — routes at/above this get the gradient bonus regardless of gradient ratio
 const CLIMB_DISTANCE_TARGET  = 25;  // km   — routes at/above this get full distance points
 const CLIMB_GRADIENT_MIN     = 8;   // m/km — lower bound of the "good climbing" band
 const CLIMB_GRADIENT_MAX     = 25;  // m/km — upper bound of the "good climbing" band
@@ -53,8 +54,10 @@ export function scoreRoute(route, bucket) {
   if (bucket === 'high') {
     const elevationScore = Math.min(elevation / CLIMB_ELEVATION_TARGET, 1) * 50;
     const distanceScore  = Math.min(distance / CLIMB_DISTANCE_TARGET, 1) * 30;
-    const midGradient    = (gradientRatio >= CLIMB_GRADIENT_MIN && gradientRatio <= CLIMB_GRADIENT_MAX) ? 20 : 0;
-    return Math.round(elevationScore + distanceScore + midGradient);
+    const bigClimb    = elevation >= CLIMB_ELEVATION_BIG ? 20 : 0;
+    const midGradient = (gradientRatio >= CLIMB_GRADIENT_MIN && gradientRatio <= CLIMB_GRADIENT_MAX) ? 20 : 0;
+    const gradientBonus = Math.max(bigClimb, midGradient);
+    return Math.round(elevationScore + distanceScore + gradientBonus);
   }
 
   if (bucket === 'peak') {

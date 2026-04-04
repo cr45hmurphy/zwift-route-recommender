@@ -1,7 +1,9 @@
 // xert.js — Xert API wrapper
 // All requests route through the local proxy at localhost:3000.
 
-const PROXY_BASE   = 'http://localhost:3000';
+const PROXY_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'http://localhost:3000'
+  : '/.netlify/functions/xert-proxy';
 const TOKEN_KEY    = 'xert_token';
 const TOKEN_TS_KEY = 'xert_token_ts';
 const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour

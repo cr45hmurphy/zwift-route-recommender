@@ -85,6 +85,23 @@
         <div class="wotd" id="wotd" style="display:none"></div>
       </section>
 
+      <!-- Time Available -->
+      <section id="time-section">
+        <div id="time-controls">
+          <div class="time-control-row">
+            <label for="time-available">Time available</label>
+            <input type="range" id="time-available" min="20" max="180" step="10" value="60">
+            <span id="time-label">60 min</span>
+          </div>
+          <div class="time-control-row">
+            <label for="avg-speed">Avg speed</label>
+            <input type="number" id="avg-speed" min="15" max="50" value="28" step="1">
+            <span class="time-unit">km/h</span>
+          </div>
+        </div>
+        <div id="time-summary"></div>
+      </section>
+
       <!-- Routes -->
       <section id="routes-section">
         <h2>Recommended Routes</h2>
