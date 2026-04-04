@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Xert API Test</title>
+  <style>
+    body { font-family: monospace; max-width: 700px; margin: 40px auto; padding: 0 20px; background: #111; color: #eee; }
+    h1 { font-size: 1.1rem; color: #aaa; }
+    label { display: block; margin-bottom: 6px; color: #aaa; font-size: 0.85rem; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; background: #222; border: 1px solid #444; color: #eee; font-family: monospace; margin-bottom: 16px; }
+    button { padding: 10px 24px; background: #e47000; color: #fff; border: none; cursor: pointer; font-family: monospace; font-size: 1rem; margin-right: 8px; }
+    button:hover { background: #c46000; }
+    button.secondary { background: #333; }
+    button.secondary:hover { background: #444; }
+    #result { margin-top: 24px; padding: 16px; background: #1a1a1a; border: 1px solid #333; white-space: pre-wrap; font-size: 0.82rem; min-height: 80px; }
+    .pass { color: #4caf50; }
+    .fail { color: #f44336; }
+    .info { color: #aaa; }
+    .label { color: #888; }
+    .value { color: #fff; }
+  </style>
+</head>
+<body>
+  <h1>xert.js — live API test</h1>
+  <p style="color:#888;font-size:0.85rem;">Requires <code>node proxy.js</code> running on port 3000.</p>
+
+  <label>Xert Username</label>
+  <input type="text" id="username" placeholder="your@email.com">
+
+  <label>Xert Password</label>
+  <input type="password" id="password">
+
+  <button onclick="runTest()">Authenticate + fetch training_info</button>
+  <button class="secondary" onclick="clearAndRun()">Clear token + re-auth</button>
+
+  <div id="result"><span class="info">Result will appear here...</span></div>
+
+  <script type="module">
+    import { authenticate, fetchTrainingInfo, parseTrainingData, clearToken, hasToken } from './xert.js';
+
+    window.runTest = async function() {
+      const result   = document.getElementById('result');
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      result.innerHTML = '<span class="info">Fetching...</span>';
+
+      try {
+        const raw    = await fetchTrainingInfo(username, password);
+        const parsed = parseTrainingData(raw);
+
+        const deficits = {
+          low:  (parsed.targetXSS.low  - parsed.tl.low).toFixed(1),
+          high: (parsed.targetXSS.high - parsed.tl.high).toFixed(1),
+          peak: (parsed.targetXSS.peak - parsed.tl.peak).toFixed(1),
+        };
+
+        result.innerHTML = `<span class="pass">SUCCESS</span>
+
+<span class="label">Status:</span>      <span class="value">${parsed.status}</span>
+<span class="label">Weight:</span>      <span class="value">${parsed.weight} kg</span>
+<span class="label">FTP:</span>         <span class="value">${parsed.signature.ftp} W</span>
+<span class="label">LTP:</span>         <span class="value">${parsed.signature.ltp} W</span>
+<span class="label">HIE:</span>         <span class="value">${parsed.signature.hie} kJ</span>
+<span class="label">PP:</span>          <span class="value">${parsed.signature.pp} W</span>
+
+<span class="label">Training loads:</span>
+  Low:   ${parsed.tl.low.toFixed(1)}  (target ${parsed.targetXSS.low.toFixed(1)}, deficit ${deficits.low})
+  High:  ${parsed.tl.high.toFixed(1)}  (target ${parsed.targetXSS.high.toFixed(1)}, deficit ${deficits.high})
+  Peak:  ${parsed.tl.peak.toFixed(1)}  (target ${parsed.targetXSS.peak.toFixed(1)}, deficit ${deficits.peak})
+
+<span class="label">Workout of the Day:</span>
+  ${parsed.wotd.name ?? '(none)'} ${parsed.wotd.difficulty ? `— difficulty ${parsed.wotd.difficulty}` : ''}
+  ${parsed.wotd.description ?? ''}
+
+<span class="label">Token cached in localStorage:</span> ${hasToken() ? 'yes' : 'no'}`;
+
+      } catch (err) {
+        result.innerHTML = `<span class="fail">ERROR: ${err.message}</span>`;
+      }
+    };
+
+    window.clearAndRun = async function() {
+      clearToken();
+      await window.runTest();
+    };
+  </script>
+</body>
+</html>
