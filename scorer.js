@@ -12,7 +12,9 @@ const CLIMB_GRADIENT_MAX     = 25;  // m/km — upper bound of the "good climbin
 
 const PUNCH_GRADIENT_TARGET  = 30;  // m/km — routes at/above this get full punch points
 const PUNCH_DISTANCE_MAX     = 20;  // km   — routes below this get full short-route bonus
-const PUNCH_DISTANCE_CAP     = 15;  // km   — routes above this score 0 in PEAK (sustained climbers, not punchy)
+const PUNCH_ELEVATION_CAP    = 500; // m    — routes above this score 0 in PEAK (sustained climbers, not punchy)
+const RECOVERY_DISTANCE_MAX  = 30;  // km   — routes above this score near 0 in RECOVERY
+const RECOVERY_ELEVATION_MAX = 200; // m    — routes above this score near 0 in RECOVERY
 
 /**
  * detectBucket — determine which energy system needs work most.
@@ -46,10 +48,17 @@ export function scoreRoute(route, bucket) {
   const { distance, elevation } = route;
   const gradientRatio = distance > 0 ? elevation / distance : 0;
 
-  if (bucket === 'low' || bucket === 'recovery') {
+  if (bucket === 'low') {
     const distanceScore = Math.min(distance / FLAT_DISTANCE_TARGET, 1) * 60;
     const flatnessScore = Math.max(0, 1 - gradientRatio / FLAT_GRADIENT_MAX) * 40;
     return Math.round(distanceScore + flatnessScore);
+  }
+
+  if (bucket === 'recovery') {
+    const distancePenalty  = Math.max(0, 1 - Math.max(0, distance - RECOVERY_DISTANCE_MAX) / RECOVERY_DISTANCE_MAX);
+    const elevationPenalty = Math.max(0, 1 - Math.max(0, elevation - RECOVERY_ELEVATION_MAX) / RECOVERY_ELEVATION_MAX);
+    const flatnessScore    = Math.max(0, 1 - gradientRatio / FLAT_GRADIENT_MAX) * 100;
+    return Math.round(flatnessScore * distancePenalty * elevationPenalty);
   }
 
   if (bucket === 'high') {
@@ -62,7 +71,7 @@ export function scoreRoute(route, bucket) {
   }
 
   if (bucket === 'peak') {
-    if (distance > PUNCH_DISTANCE_CAP) return 0;
+    if (elevation > PUNCH_ELEVATION_CAP) return 0;
     const punchScore = Math.min(gradientRatio / PUNCH_GRADIENT_TARGET, 1) * 60;
     const shortScore = Math.max(0, 1 - distance / PUNCH_DISTANCE_MAX) * 40;
     return Math.round(punchScore + shortScore);

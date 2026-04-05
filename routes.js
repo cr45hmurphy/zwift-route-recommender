@@ -18,6 +18,30 @@ export const WORLD_NAMES = {
   scotland:        'Scotland',
 };
 
+// Zwift's fixed weekly guest world rotation. 0 = Sunday … 6 = Saturday.
+// Watopia is always available. Richmond, Bologna, Scotland, and Crit City are event-only.
+export const GUEST_WORLD_SCHEDULE = {
+  0: 'paris',
+  1: 'london',
+  2: 'makuri-islands',
+  3: 'france',
+  4: 'new-york',
+  5: 'innsbruck',
+  6: 'yorkshire',
+};
+
+export function todaysWorlds() {
+  const available = new Set(['watopia']);
+  const guest = GUEST_WORLD_SCHEDULE[new Date().getDay()];
+  if (guest) available.add(guest);
+  return available;
+}
+
+export function filterToAvailableWorlds(routes) {
+  const available = todaysWorlds();
+  return routes.filter(r => available.has(r.world));
+}
+
 export function worldName(slug) {
   return WORLD_NAMES[slug] ?? slug;
 }

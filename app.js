@@ -1,6 +1,6 @@
 import { authenticate, fetchTrainingInfo, parseTrainingData, clearToken, hasToken } from './xert.js';
 import { routes } from './routes.js';
-import { worldName } from './routes.js';
+import { filterToAvailableWorlds, todaysWorlds, worldName } from './routes.js';
 import { detectBucket, rankRoutes } from './scorer.js';
 
 // ── Constants ─────────────────────────────────────
@@ -16,6 +16,10 @@ const GRAD_TO_IMPERIAL = M_TO_FT / KM_TO_MI; // m/km → ft/mi ≈ 5.28
 
 function getUnits() {
   return localStorage.getItem('units') || 'metric';
+}
+
+function getTodayOnly() {
+  return localStorage.getItem('today-only') !== 'false';
 }
 
 function displayDist(km) {
@@ -39,10 +43,12 @@ function displayGrad(mPerKm) {
 // ── State ─────────────────────────────────────────
 
 let state = {
-  trainingData: null,
-  bucket:       null,
-  ranked:       [],
-  lastUpdated:  null,
+  trainingData:   null,
+  bucket:         null,
+  bucketOverride: null,
+  ranked:         [],
+  lastUpdated:    null,
+  todayOnly:      true,
 };
 
 // ── Init ──────────────────────────────────────────
@@ -60,6 +66,11 @@ async function init() {
     const speedInput = document.getElementById('avg-speed');
     speedInput.value = Math.round(parseFloat(speedInput.value) * KM_TO_MI);
   }
+
+  state.todayOnly = getTodayOnly();
+  document.getElementById('today-only-toggle').checked = state.todayOnly;
+  const worlds = [...todaysWorlds()].map(worldName).join(' · ');
+  document.getElementById('today-worlds-label').textContent = worlds;
 
   if (hasToken()) {
     showApp();
@@ -106,7 +117,14 @@ async function handleRefresh() {
 
 async function handleLogout() {
   clearToken();
-  state = { trainingData: null, bucket: null, ranked: [], lastUpdated: null };
+  state = {
+    trainingData:   null,
+    bucket:         null,
+    bucketOverride: null,
+    ranked:         [],
+    lastUpdated:    null,
+    todayOnly:      getTodayOnly(),
+  };
   showAuth();
 }
 
@@ -119,8 +137,12 @@ async function refresh(username, password) {
   try {
     const raw        = await fetchTrainingInfo(username, password);
     state.trainingData = parseTrainingData(raw);
-    state.bucket       = detectBucket(state.trainingData.tl, state.trainingData.targetXSS);
-    state.ranked       = rankRoutes(routes, state.bucket);
+    const rawBucket = detectBucket(state.trainingData.tl, state.trainingData.targetXSS);
+    const { bucket, overrideNote } = applyFreshnessOverride(rawBucket, state.trainingData.status);
+    state.bucket = bucket;
+    state.bucketOverride = overrideNote;
+    const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes) : routes;
+    state.ranked = rankRoutes(eligibleRoutes, state.bucket);
     state.lastUpdated  = new Date();
     localStorage.setItem('xert_last_updated', Date.now().toString());
     renderAll();
@@ -208,6 +230,14 @@ function renderRecommendation() {
       (d.wotd.description ? `<br>${d.wotd.description}` : '');
   } else {
     wotdEl.style.display = 'none';
+  }
+
+  const overrideEl = document.getElementById('override-note');
+  if (state.bucketOverride) {
+    overrideEl.textContent = state.bucketOverride;
+    overrideEl.style.display = 'block';
+  } else {
+    overrideEl.style.display = 'none';
   }
 }
 
@@ -419,6 +449,17 @@ function freshnessClass(status) {
   return 'fresh';
 }
 
+function applyFreshnessOverride(bucket, status) {
+  const s = (status ?? '').toLowerCase();
+  if (s.includes('very tired') || s.includes('detrain')) {
+    return { bucket: 'recovery', overrideNote: `Your Xert status is "${status}" — overriding to Recovery. Rest up.` };
+  }
+  if (s.includes('tired') && bucket !== 'recovery') {
+    return { bucket: 'recovery', overrideNote: `Your Xert status is "${status}" — biasing toward easier routes today.` };
+  }
+  return { bucket, overrideNote: null };
+}
+
 // ── Event wiring ──────────────────────────────────
 
 document.getElementById('auth-form').addEventListener('submit', handleLogin);
@@ -433,6 +474,16 @@ document.getElementById('time-available').addEventListener('input', () => {
 
 document.getElementById('avg-speed').addEventListener('change', () => {
   if (state.trainingData) renderRoutes();
+});
+
+document.getElementById('today-only-toggle').addEventListener('change', (e) => {
+  state.todayOnly = e.target.checked;
+  localStorage.setItem('today-only', state.todayOnly);
+  if (state.trainingData) {
+    const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes) : routes;
+    state.ranked = rankRoutes(eligibleRoutes, state.bucket);
+    renderRoutes();
+  }
 });
 
 document.getElementById('other-toggle').addEventListener('click', () => {

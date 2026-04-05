@@ -82,6 +82,7 @@
       <section id="recommendation">
         <div class="rec-title" id="rec-title">—</div>
         <div class="rec-subtitle" id="rec-subtitle"></div>
+        <div id="override-note" class="override-note" style="display:none"></div>
         <div class="wotd" id="wotd" style="display:none"></div>
       </section>
 
@@ -105,6 +106,13 @@
       <!-- Routes -->
       <section id="routes-section">
         <h2>Recommended Routes</h2>
+        <div id="world-filter-row">
+          <label class="world-filter-label">
+            <input type="checkbox" id="today-only-toggle" checked>
+            Today's worlds only
+          </label>
+          <span id="today-worlds-label" class="world-filter-hint"></span>
+        </div>
         <div class="route-grid" id="route-grid"></div>
 
         <div id="other-options">

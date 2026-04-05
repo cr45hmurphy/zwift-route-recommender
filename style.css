@@ -267,6 +267,16 @@ section { margin-bottom: 32px; }
 
 .wotd strong { color: var(--text); }
 
+.override-note {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--yellow);
+  background: var(--yellow-dim);
+  border: 1px solid var(--yellow);
+  padding: 8px 12px;
+  margin-top: 8px;
+}
+
 /* ── Time Controls ───────────────────────────────── */
 
 #time-section {
@@ -342,6 +352,34 @@ section { margin-bottom: 32px; }
   letter-spacing: 0.08em;
   color: var(--text-muted);
   margin-bottom: 16px;
+}
+
+#world-filter-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.world-filter-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.world-filter-label input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.world-filter-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 
 .route-grid {
