@@ -6,24 +6,12 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
-### Time-constrained recommendations
-The time slider currently dims over-budget routes. Should instead:
-- **Filter & re-rank:** routes within budget become the primary list, sorted by score
-- **Show efficiency:** each card displays "fills ~X% of your [bucket] target in ~Y min" so you can compare value at a glance
-- **"If you had more time" section:** over-budget routes collapse below the main list, nearest ones first, with a delta — e.g. "+12 min gets you Road to Sky (fills 78% of HIGH target)"
-- Note: for LOW bucket, time on saddle is the metric — longer routes within budget will always rank higher, which is correct
-
-### Imperial / metric toggle
-A simple unit selector (stored in localStorage) that converts all distance and elevation displays. Affects route cards (km → mi, m → ft), time estimates, and the status section. Pure frontend math — no API changes needed. Important for US riders whose mental model matches Zwift's own imperial display.
-
-### Today's worlds filter
-Zwift's guest world schedule is fixed and predictable. Filter routes to only show what's rideable today without owning all worlds. High value, no new API needed — just encode the schedule. Already partially flagged in `zwift-data` via world slugs.
-
-### Scoring: PEAK distance cap
-Alpe du Zwift and Road to Sky rank #2 and #3 in PEAK because their 83 m/km gradient maxes the punch score and they're short enough to get distance points. They're sustained climbers, not punchy efforts. Fix: routes >15 km lose punch points regardless of gradient ratio.
-
-### Scoring: RECOVERY stricter logic
-RECOVERY currently uses the same scoring as LOW. Should be stricter — cap distance at 30 km, penalise elevation >200 m — to surface genuinely easy spins rather than long flats.
+### Scoring: algorithm tuning pass
+The PEAK elevation cap (500m) and other thresholds are rough starting points. After accumulating real ride data, revisit:
+- `PUNCH_ELEVATION_CAP` — currently 500m; may need adjustment
+- `PUNCH_DISTANCE_MAX` — currently 20 km; still unused as the cap
+- Whether a combined distance+elevation filter is better than elevation alone
+- LOW scoring: long flat routes always win; consider rewarding routes near the rider's actual time budget
 
 ---
 
@@ -32,11 +20,8 @@ RECOVERY currently uses the same scoring as LOW. Should be stricter — cap dist
 ### W/kg difficulty contextualization
 FTP and weight are already in the Xert response. Compute watts per kg and annotate each route card with a personalized difficulty indicator (e.g. "Challenging / Moderate / Comfortable") based on gradient relative to the rider's W/kg. A 83 m/km climb is very different at 2.5 vs 4.5 W/kg. Zero new APIs needed.
 
-### Freshness-aware recommendations
-Status ("Tired", "Very Tired", "Fresh") is already displayed but ignored by the scoring logic. A Very Tired rider shouldn't be chasing a PEAK route even if that bucket is most depleted. Add a modifier: when status is Tired or worse, bias toward recovery and show a note explaining the override.
-
 ### Estimated ride time via W/kg
-Currently uses a fixed 28 km/h default speed. Replace with a personalized estimate derived from the rider's FTP/weight — higher W/kg = faster on climbs, slightly faster on flats. Makes time estimates specific to the rider rather than a generic average. Especially meaningful for climbing routes where pace varies a lot by fitness.
+Currently uses a fixed speed input. Replace with a personalized estimate derived from the rider's FTP/weight — higher W/kg = faster on climbs, slightly faster on flats. Makes time estimates specific to the rider rather than a generic average. Especially meaningful for climbing routes where pace varies a lot by fitness.
 
 ### Training load trend (local history)
 We fetch Xert data every session but discard previous values. Cache the last 7–10 fetches in localStorage and show a simple per-bucket trend: "Low TL up 12 pts this week ↑". No new API — just persist what we already have. Gives context the current snapshot alone can't provide.
@@ -62,7 +47,7 @@ Zwift has an unofficial events API (requires Zwift OAuth — separate from Xert 
 ### Equipment recommendations (frame/wheel)
 No live API — Zwift doesn't expose your garage. But can be a static recommendation system based on route characteristics, using Zwift Insider's published testing data:
 - Gradient >30 m/km → climbing frame
-- Flat/TT route → aero frame + deep wheels  
+- Flat/TT route → aero frame + deep wheels
 - Mixed → all-rounder
 No API needed, baked-in logic on the route card.
 
