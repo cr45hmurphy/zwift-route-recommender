@@ -12,6 +12,7 @@ const CLIMB_GRADIENT_MAX     = 25;  // m/km — upper bound of the "good climbin
 
 const PUNCH_GRADIENT_TARGET  = 30;  // m/km — routes at/above this get full punch points
 const PUNCH_DISTANCE_MAX     = 20;  // km   — routes below this get full short-route bonus
+const PUNCH_DISTANCE_CAP     = 15;  // km   — routes above this score 0 in PEAK (sustained climbers, not punchy)
 
 /**
  * detectBucket — determine which energy system needs work most.
@@ -61,6 +62,7 @@ export function scoreRoute(route, bucket) {
   }
 
   if (bucket === 'peak') {
+    if (distance > PUNCH_DISTANCE_CAP) return 0;
     const punchScore = Math.min(gradientRatio / PUNCH_GRADIENT_TARGET, 1) * 60;
     const shortScore = Math.max(0, 1 - distance / PUNCH_DISTANCE_MAX) * 40;
     return Math.round(punchScore + shortScore);

@@ -96,7 +96,7 @@
           <div class="time-control-row">
             <label for="avg-speed">Avg speed</label>
             <input type="number" id="avg-speed" min="15" max="50" value="28" step="1">
-            <span class="time-unit">km/h</span>
+            <span class="time-unit" id="speed-unit-label">km/h</span>
           </div>
         </div>
         <div id="time-summary"></div>
@@ -111,6 +111,11 @@
           <button id="other-toggle">▼ Other options</button>
           <div id="other-list"></div>
         </div>
+
+        <div id="more-time-options" style="display:none">
+          <button id="more-time-toggle">▼ If you had more time</button>
+          <div id="more-time-list"></div>
+        </div>
       </section>
 
       <!-- Settings -->
@@ -124,6 +129,13 @@
           <div class="settings-field">
             <label for="settings-password">Password</label>
             <input type="password" id="settings-password" placeholder="update to re-authenticate" autocomplete="current-password">
+          </div>
+          <div class="settings-field">
+            <label>Units</label>
+            <div class="unit-toggle">
+              <button id="units-metric" class="unit-btn active">km / m</button>
+              <button id="units-imperial" class="unit-btn">mi / ft</button>
+            </div>
           </div>
           <button id="refresh-btn-settings" class="btn-secondary" onclick="document.getElementById('refresh-btn').click()">↻ Refresh Data</button>
         </div>

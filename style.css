@@ -430,14 +430,6 @@ section { margin-bottom: 32px; }
   border-top: 1px solid var(--border);
 }
 
-.route-card.route-over-time {
-  opacity: 0.45;
-}
-
-.route-card.route-over-time:hover {
-  opacity: 0.7;
-}
-
 .time-tag {
   display: inline-block;
   font-size: 0.72rem;
@@ -457,13 +449,15 @@ section { margin-bottom: 32px; }
   color: var(--red);
 }
 
-/* ── Other Options ───────────────────────────────── */
+/* ── Other Options / More Time ───────────────────── */
 
-#other-options {
+#other-options,
+#more-time-options {
   margin-top: 20px;
 }
 
-#other-toggle {
+#other-toggle,
+#more-time-toggle {
   background: none;
   border: 1px solid var(--border);
   color: var(--text-muted);
@@ -474,18 +468,37 @@ section { margin-bottom: 32px; }
   text-align: left;
 }
 
-#other-toggle:hover { border-color: var(--accent); color: var(--accent); }
+#other-toggle:hover,
+#more-time-toggle:hover { border-color: var(--accent); color: var(--accent); }
 
-#other-list {
+#other-list,
+#more-time-list {
   display: none;
   margin-top: 12px;
-  display: none;
 }
 
-#other-list.open { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+#other-list.open,
+#more-time-list.open { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
 
 .route-card.compact { padding: 14px; }
 .route-card.compact .route-name { font-size: 0.88rem; }
+
+.xss-fill {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 2px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.no-routes {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 20px 0;
+  grid-column: 1 / -1;
+}
 
 /* ── Settings Footer ─────────────────────────────── */
 
@@ -530,6 +543,22 @@ section { margin-bottom: 32px; }
 
 .settings-field input:focus { border-color: var(--accent); }
 
+.unit-toggle { display: flex; gap: 4px; }
+
+.unit-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.unit-btn:hover { border-color: var(--accent); color: var(--accent); }
+.unit-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 /* ── Loading / Error states ──────────────────────── */
 
 .loading-overlay {
@@ -553,7 +582,8 @@ section { margin-bottom: 32px; }
 
 @media (max-width: 800px) {
   .route-grid,
-  #other-list.open {
+  #other-list.open,
+  #more-time-list.open {
     grid-template-columns: 1fr;
   }
 

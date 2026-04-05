@@ -9,6 +9,33 @@ import { detectBucket, rankRoutes } from './scorer.js';
 // Used only for time-based planning estimates — not precise.
 const XSS_RATE = { low: 65, high: 90, peak: 50, recovery: 40 };
 
+// Unit conversion factors (metric is the internal standard; these are display-only)
+const KM_TO_MI = 0.621371;
+const M_TO_FT  = 3.28084;
+const GRAD_TO_IMPERIAL = M_TO_FT / KM_TO_MI; // m/km → ft/mi ≈ 5.28
+
+function getUnits() {
+  return localStorage.getItem('units') || 'metric';
+}
+
+function displayDist(km) {
+  return getUnits() === 'imperial'
+    ? `${(km * KM_TO_MI).toFixed(1)} mi`
+    : `${km.toFixed(1)} km`;
+}
+
+function displayElev(m) {
+  return getUnits() === 'imperial'
+    ? `${Math.round(m * M_TO_FT)} ft`
+    : `${m} m`;
+}
+
+function displayGrad(mPerKm) {
+  return getUnits() === 'imperial'
+    ? `${(mPerKm * GRAD_TO_IMPERIAL).toFixed(1)} ft/mi`
+    : `${mPerKm} m/km`;
+}
+
 // ── State ─────────────────────────────────────────
 
 let state = {
@@ -23,6 +50,16 @@ let state = {
 async function init() {
   const ts = localStorage.getItem('xert_last_updated');
   if (ts) state.lastUpdated = new Date(parseInt(ts, 10));
+
+  // Restore saved unit preference (updates button state + speed label without re-rendering)
+  const savedUnit = getUnits();
+  document.getElementById('units-metric').classList.toggle('active', savedUnit === 'metric');
+  document.getElementById('units-imperial').classList.toggle('active', savedUnit === 'imperial');
+  document.getElementById('speed-unit-label').textContent = savedUnit === 'imperial' ? 'mph' : 'km/h';
+  if (savedUnit === 'imperial') {
+    const speedInput = document.getElementById('avg-speed');
+    speedInput.value = Math.round(parseFloat(speedInput.value) * KM_TO_MI);
+  }
 
   if (hasToken()) {
     showApp();
@@ -175,16 +212,33 @@ function renderRecommendation() {
 }
 
 function renderRoutes() {
-  const top5  = state.ranked.slice(0, 5);
-  const other = state.ranked.slice(5, 15);
+  const { minutes: timeMin, speed } = getTimeSettings();
 
-  document.getElementById('route-grid').innerHTML = top5.map(r => routeCardHTML(r, false)).join('');
+  const withinBudget = state.ranked.filter(r => estimateRouteMinutes(r, speed) <= timeMin);
+  const overBudget   = state.ranked
+    .filter(r => estimateRouteMinutes(r, speed) > timeMin)
+    .sort((a, b) => estimateRouteMinutes(a, speed) - estimateRouteMinutes(b, speed));
 
+  // Primary grid: top 5 within budget
+  document.getElementById('route-grid').innerHTML =
+    withinBudget.slice(0, 5).map(r => routeCardHTML(r, false)).join('') ||
+    '<p class="no-routes">No routes fit your time budget — check the "If you had more time" section below.</p>';
+
+  // Other options: within-budget overflow
   const otherList = document.getElementById('other-list');
-  otherList.innerHTML = other.map(r => routeCardHTML(r, true)).join('');
+  otherList.innerHTML = withinBudget.slice(5).map(r => routeCardHTML(r, true)).join('');
+  document.getElementById('other-toggle').textContent =
+    `▼ Other options (${withinBudget.slice(5).length} more)`;
+  document.getElementById('other-options').style.display =
+    withinBudget.length > 5 ? 'block' : 'none';
 
-  const toggle = document.getElementById('other-toggle');
-  toggle.textContent = `▼ Other options (${other.length} more)`;
+  // "If you had more time": over-budget routes
+  const moreSection = document.getElementById('more-time-options');
+  const moreList    = document.getElementById('more-time-list');
+  moreList.innerHTML = overBudget.map(r => routeCardHTML(r, true)).join('');
+  moreSection.style.display = overBudget.length ? 'block' : 'none';
+  document.getElementById('more-time-toggle').textContent =
+    `▼ If you had more time (${overBudget.length} routes)`;
 }
 
 function routeCardHTML(route, compact) {
@@ -198,13 +252,17 @@ function routeCardHTML(route, compact) {
   const overBy   = estMin - timeMin;
 
   const timeTag = overTime
-    ? `<span class="time-tag over-time">~${formatMinutes(estMin)} · +${formatMinutes(overBy)}</span>`
+    ? `<span class="time-tag over-time">~${formatMinutes(estMin)} · +${formatMinutes(overBy)} over</span>`
     : `<span class="time-tag fits-time">~${formatMinutes(estMin)}</span>`;
 
-  const cls = [
-    compact ? 'route-card compact' : 'route-card',
-    overTime ? 'route-over-time' : '',
-  ].filter(Boolean).join(' ');
+  const b = state.bucket;
+  const targetXss = (state.trainingData && b !== 'recovery') ? state.trainingData.targetXSS[b] : null;
+  const fillPct = targetXss ? Math.round((XSS_RATE[b] * estMin / 60) / targetXss * 100) : null;
+  const fillTag = fillPct !== null
+    ? `<span class="xss-fill">~${fillPct}% ${b} target</span>`
+    : '';
+
+  const cls = compact ? 'route-card compact' : 'route-card';
 
   const links = [
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
@@ -219,10 +277,11 @@ function routeCardHTML(route, compact) {
       </div>
       <div class="route-name">${route.name}</div>
       <div class="route-stats">
-        <span class="route-stat"><strong>${route.distance.toFixed(1)}</strong> km</span>
-        <span class="route-stat"><strong>${route.elevation}</strong> m</span>
-        <span class="gradient-badge">${gr} m/km</span>
+        <span class="route-stat">${displayDist(route.distance)}</span>
+        <span class="route-stat">${displayElev(route.elevation)}</span>
+        <span class="gradient-badge">${displayGrad(parseFloat(gr))}</span>
         ${timeTag}
+        ${fillTag}
       </div>
       ${reason ? `<div class="route-reason">${reason}</div>` : ''}
       ${links ? `<div class="route-links">${links}</div>` : ''}
@@ -254,8 +313,10 @@ function routeReason(route, bucket) {
 }
 
 function getTimeSettings() {
-  const minutes = parseInt(document.getElementById('time-available')?.value || '60', 10);
-  const speed   = parseFloat(document.getElementById('avg-speed')?.value  || '28');
+  const minutes    = parseInt(document.getElementById('time-available')?.value || '60', 10);
+  const rawSpeed   = parseFloat(document.getElementById('avg-speed')?.value || '28');
+  // Internal calculations always use km/h; convert from mph if user is in imperial
+  const speed = getUnits() === 'imperial' ? rawSpeed / KM_TO_MI : rawSpeed;
   return { minutes, speed };
 }
 
@@ -333,6 +394,24 @@ function hideError() {
   document.getElementById('app-error').style.display = 'none';
 }
 
+function applyUnits(unit) {
+  localStorage.setItem('units', unit);
+  document.getElementById('units-metric').classList.toggle('active', unit === 'metric');
+  document.getElementById('units-imperial').classList.toggle('active', unit === 'imperial');
+  document.getElementById('speed-unit-label').textContent = unit === 'imperial' ? 'mph' : 'km/h';
+
+  // Convert the displayed speed value between units
+  const speedInput  = document.getElementById('avg-speed');
+  const currentVal  = parseFloat(speedInput.value);
+  if (unit === 'imperial') {
+    speedInput.value = Math.round(currentVal * KM_TO_MI);
+  } else {
+    speedInput.value = Math.round(currentVal / KM_TO_MI);
+  }
+
+  if (state.trainingData) renderRoutes();
+}
+
 function freshnessClass(status) {
   const s = (status ?? '').toLowerCase();
   if (s.includes('very tired') || s.includes('detrain')) return 'very-tired';
@@ -360,7 +439,19 @@ document.getElementById('other-toggle').addEventListener('click', () => {
   const list   = document.getElementById('other-list');
   const toggle = document.getElementById('other-toggle');
   const open   = list.classList.toggle('open');
-  toggle.textContent = `${open ? '▲' : '▼'} Other options (${state.ranked.slice(5).length} more)`;
+  const count  = list.children.length;
+  toggle.textContent = `${open ? '▲' : '▼'} Other options (${count} more)`;
 });
+
+document.getElementById('more-time-toggle').addEventListener('click', () => {
+  const list   = document.getElementById('more-time-list');
+  const toggle = document.getElementById('more-time-toggle');
+  const open   = list.classList.toggle('open');
+  const count  = list.children.length;
+  toggle.textContent = `${open ? '▲' : '▼'} If you had more time (${count} routes)`;
+});
+
+document.getElementById('units-metric').addEventListener('click', () => applyUnits('metric'));
+document.getElementById('units-imperial').addEventListener('click', () => applyUnits('imperial'));
 
 init();
