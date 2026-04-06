@@ -1,7 +1,8 @@
 import { authenticate, fetchTrainingInfo, fetchActivitiesInRange, fetchActivityDetail, parseTrainingData, clearToken, hasToken } from './xert.js';
 import { routes } from './routes.js';
 import { filterToAvailableWorlds, todaysWorlds, worldName } from './routes.js';
-import { detectBucket, rankRoutes } from './scorer.js';
+import { getSegmentsForRoute } from './segments.js';
+import { analyzeTrainingDay, generateRideCue, rankRoutes } from './scorer.js';
 
 // ── Constants ─────────────────────────────────────
 
@@ -100,9 +101,11 @@ function displaySpeed(kmh) {
 
 let state = {
   trainingData:   null,
+  rawWotd:        null,
   dailySummary:   null,
   bucket:         null,
   bucketOverride: null,
+  wotdStructure:  'recovery',
   history:        [],
   ranked:         [],
   lastUpdated:    null,
@@ -181,9 +184,11 @@ async function handleLogout() {
   clearToken();
   state = {
     trainingData:   null,
+    rawWotd:        null,
     dailySummary:   null,
     bucket:         null,
     bucketOverride: null,
+    wotdStructure:  'recovery',
     history:        loadHistory(),
     ranked:         [],
     lastUpdated:    null,
@@ -202,14 +207,20 @@ async function refresh(username, password) {
   try {
     const raw = await fetchTrainingInfo(username, password);
     state.trainingData = parseTrainingData(raw);
+    state.rawWotd = raw?.wotd ?? null;
     const dailySummary = await fetchTodaysDailySummary(state.trainingData.targetXSS, username, password);
     state.dailySummary = dailySummary;
-    const rawBucket = detectBucket(state.dailySummary.completed, state.dailySummary.targets);
-    const { bucket, overrideNote } = applyFreshnessOverride(rawBucket, state.trainingData.status);
+    const { bucket: analyzedBucket, wotdStructure } = analyzeTrainingDay(
+      state.dailySummary.completed,
+      state.dailySummary.targets,
+      state.rawWotd
+    );
+    state.wotdStructure = wotdStructure;
+    const { bucket, overrideNote } = applyFreshnessOverride(analyzedBucket, state.trainingData.status);
     state.bucket = bucket;
     state.bucketOverride = overrideNote;
     const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes) : routes;
-    state.ranked = rankRoutes(eligibleRoutes, state.bucket);
+    state.ranked = enrichRoutes(rankRoutes(eligibleRoutes, state.bucket), state.bucket, state.wotdStructure);
     const now = Date.now();
     state.lastUpdated = new Date(now);
     state.history = recordHistorySnapshot(state.trainingData, now);
@@ -361,6 +372,19 @@ function renderRecommendation() {
   }
 }
 
+function enrichRoutes(rankedRoutes, bucket, wotdStructure) {
+  return rankedRoutes.map(route => {
+    const routeSegments = getSegmentsForRoute(route);
+    return {
+      ...route,
+      rideCue: generateRideCue(route, bucket, wotdStructure, routeSegments),
+      relevantClimbs: routeSegments.climbs.slice(0, 3),
+      relevantSprints: routeSegments.sprints,
+      segmentSource: routeSegments.source,
+    };
+  });
+}
+
 function renderRoutes() {
   const settings = getTimeSettings();
   const { minutes: timeMin } = settings;
@@ -427,6 +451,11 @@ function routeCardHTML(route, compact) {
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
     route.whatsOnZwiftUrl ? `<a href="${route.whatsOnZwiftUrl}" target="_blank" rel="noopener">What's on Zwift</a>` : '',
   ].filter(Boolean).join('');
+  const showSegmentRow = route.segmentSource !== 'world';
+  const segmentItems = [
+    ...(route.relevantClimbs ?? []).map(segment => segmentChipHTML(segment, 'climb')),
+    ...(route.relevantSprints ?? []).map(segment => segmentChipHTML(segment, 'sprint')),
+  ].join('');
 
   return `
     <div class="${cls}">
@@ -444,9 +473,23 @@ function routeCardHTML(route, compact) {
         ${impactTag}
         ${matchTag}
       </div>
+      ${route.rideCue ? `<div class="ride-cue"><span class="ride-cue-icon">🎯</span><span>${route.rideCue}</span></div>` : ''}
+      ${showSegmentRow && segmentItems ? `
+        <div class="segment-row">
+          <span class="segment-label">Segments on this route:</span>
+          <div class="segment-chips">${segmentItems}</div>
+        </div>` : ''}
       ${reason ? `<div class="route-reason">${reason}</div>` : ''}
       ${links ? `<div class="route-links">${links}</div>` : ''}
     </div>`;
+}
+
+function segmentChipHTML(segment, kind) {
+  const cls = `segment-chip ${kind}`;
+  if (segment.stravaSegmentUrl) {
+    return `<a class="${cls}" href="${segment.stravaSegmentUrl}" target="_blank" rel="noopener">${segment.name}</a>`;
+  }
+  return `<span class="${cls}">${segment.name}</span>`;
 }
 
 function routeReason(route, bucket) {
@@ -804,7 +847,7 @@ document.getElementById('today-only-toggle').addEventListener('change', (e) => {
   localStorage.setItem('today-only', state.todayOnly);
   if (state.trainingData) {
     const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes) : routes;
-    state.ranked = rankRoutes(eligibleRoutes, state.bucket);
+    state.ranked = enrichRoutes(rankRoutes(eligibleRoutes, state.bucket), state.bucket, state.wotdStructure);
     renderRoutes();
   }
 });

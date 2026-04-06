@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build-routes": "node bundle-routes.mjs",
+    "build-segments": "node bundle-routes.mjs",
     "serve": "npx serve ."
   },
   "dependencies": {

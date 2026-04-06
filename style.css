@@ -591,6 +591,74 @@ section { margin-bottom: 32px; }
   flex: 1;
 }
 
+.ride-cue {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+.ride-cue-icon {
+  line-height: 1;
+  transform: translateY(1px);
+}
+
+.segment-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.segment-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.segment-note {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.segment-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.segment-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  border: 1px solid transparent;
+}
+
+.segment-chip.climb {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #f6c08a;
+}
+
+.segment-chip.sprint {
+  background: var(--green-dim);
+  border-color: var(--green);
+  color: #b7e6b9;
+}
+
+a.segment-chip:hover {
+  text-decoration: none;
+  filter: brightness(1.08);
+}
+
 .route-links {
   display: flex;
   gap: 12px;

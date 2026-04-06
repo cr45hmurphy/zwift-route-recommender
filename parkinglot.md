@@ -19,6 +19,9 @@ The app now derives completed buckets from activity summary `xlss/xhss/xpss/xss`
 ### Route-card bucket attribution
 Current trust signals show estimated contribution toward the active bucket. If we want stronger auditability, add a more explicit per-route multi-bucket estimate (for example `+24 Low / +2 High / +0 Peak`) rather than only the active bucket summary.
 
+### Segment-aware ride cues
+Route cards currently show terrain-based bucket match. Next step: attach a plain-English ride cue to each card derived from the WOTD structure (`sustained_climb` / `repeated_punchy` / `sprint_power` / `aerobic_endurance` / `recovery`) and the segments available in that world. Cue tells the rider how to ride the route to generate the training stress Xert is prescribing, not just which route to pick. Implemented via `classifyWOTD()` + `generateRideCue()` in `scorer.js`, fed by a world-segment index in `segments.js`.
+
 ---
 
 ## Tier 2 — Good features, moderate effort
@@ -54,12 +57,18 @@ No API needed, baked-in logic on the route card.
 ### Workout-route pairing
 WOTD data already comes from Xert. Match the workout structure to a route — interval workout → route with repeated punchable climbs; long endurance block → flat loop; recovery spin → short flat. Bridges the gap between "do this workout" and "ride this route."
 
+### PR targeting via Strava segment links
+`zwift-data`'s segments export includes `stravaSegmentUrl` for most climbs and sprints. Surface these directly on route cards as tappable chips — climbs in orange, sprints in green. Rider can tap before their ride to check their current PR. Pairs naturally with ride cues: if the cue says "hit the Epic KOM at threshold," the Strava link is right there. No new API or auth required — pure static data from the already-bundled `segments-data.js`.
+
 ### Multi-bucket route scoring
 Current model picks one bucket and ranks against it. Better: score routes against all three buckets simultaneously, weighted by deficit size. A route that addresses your two most depleted systems ranks higher than one that nails only the biggest deficit. Foundation for the time-constrained optimization idea.
 
 ---
 
 ## Tier 3 — Longer term / needs more thought
+
+### Route-segment lookup table (manual, high precision)
+World-level segment association (all segments in Watopia shown for any Watopia route) is an approximation — some segments won't appear on a given route. Long-term, maintain a manual lookup: route slug → [segment slugs]. Roughly 50 key routes covers the most-ridden content. Would make ride cues and PR chips precise rather than approximate. Prerequisite: segment bundling (Tier 1) must be complete first. Build opportunistically — add entries as routes get ridden and verified.
 
 ### Route profiles (elevation graphs)
 Not available via any API. `zwift-data` has only totals (distance, elevation), not segment-level profiles. Zwift Insider has profile images per route — we already link to their pages. Options: link directly to ZwiftInsider profile page, or source a community dataset if one exists. Needed for proportional per-segment bucket attribution (see multi-bucket scoring above).
