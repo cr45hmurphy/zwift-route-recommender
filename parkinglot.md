@@ -7,11 +7,17 @@ Organized by priority tier. Top of each section = tackle first.
 ## Tier 1 — Next up (clear value, well-scoped)
 
 ### Scoring: algorithm tuning pass
-The PEAK elevation cap (500m) and other thresholds are rough starting points. After accumulating real ride data, revisit:
-- `PUNCH_ELEVATION_CAP` — currently 500m; may need adjustment
-- `PUNCH_DISTANCE_MAX` — currently 20 km; still unused as the cap
+The PEAK elevation cap and other thresholds are still heuristic starting points. After accumulating real ride data, revisit:
+- `PUNCH_ELEVATION_CAP` — currently 400m; may need adjustment
+- `PUNCH_DISTANCE_MAX` — currently 18 km; still heuristic
 - Whether a combined distance+elevation filter is better than elevation alone
 - LOW scoring: long flat routes always win; consider rewarding routes near the rider's actual time budget
+
+### Daily Summary fidelity pass
+The app now derives completed buckets from activity summary `xlss/xhss/xpss/xss`, which matches Xert closely in testing. Next refinement: confirm edge cases like multiple rides, imported rides, timezone boundaries, and any rounding/display differences with Xert's own UI.
+
+### Route-card bucket attribution
+Current trust signals show estimated contribution toward the active bucket. If we want stronger auditability, add a more explicit per-route multi-bucket estimate (for example `+24 Low / +2 High / +0 Peak`) rather than only the active bucket summary.
 
 ---
 
@@ -20,11 +26,8 @@ The PEAK elevation cap (500m) and other thresholds are rough starting points. Af
 ### W/kg difficulty contextualization
 FTP and weight are already in the Xert response. Compute watts per kg and annotate each route card with a personalized difficulty indicator (e.g. "Challenging / Moderate / Comfortable") based on gradient relative to the rider's W/kg. A 83 m/km climb is very different at 2.5 vs 4.5 W/kg. Zero new APIs needed.
 
-### Estimated ride time via W/kg
-Currently uses a fixed speed input. Replace with a personalized estimate derived from the rider's FTP/weight — higher W/kg = faster on climbs, slightly faster on flats. Makes time estimates specific to the rider rather than a generic average. Especially meaningful for climbing routes where pace varies a lot by fitness.
-
-### Training load trend (local history)
-We fetch Xert data every session but discard previous values. Cache the last 7–10 fetches in localStorage and show a simple per-bucket trend: "Low TL up 12 pts this week ↑". No new API — just persist what we already have. Gives context the current snapshot alone can't provide.
+### Weekly progress overview
+The app now has a compact Recent Progress panel. A stronger next step would be a fuller 7-day overview showing completed vs target totals across the week rather than just a small per-bucket daily trend strip.
 
 ### Favorite routes
 Let users star routes they enjoy. Starred routes get a visual indicator and a small score boost so they surface more often when they're a reasonable match. Pure localStorage, no API needed.
@@ -33,10 +36,7 @@ Let users star routes they enjoy. Starred routes get a visual indicator and a sm
 One-click copy of today's recommendation to clipboard. Plain text summary: route name, bucket, estimated time, XSS fill %, Xert status. Useful for sharing with a coach or dropping in a Zwift Discord. No API needed.
 
 ### "Last ridden" tracking
-Once the history cache exists, show "last ridden 18 days ago" on route cards. Give a small score boost to routes not ridden recently to add variety without the rider having to think about it.
-
-### Weekly training overview
-Builds on the history cache. A 7-day bar view showing actual training load vs target per bucket across the week. Puts today's recommendation in context — "you've been light on HIGH all week, not just today."
+Once activity history is being fetched more deliberately, show "last ridden 18 days ago" on route cards. Give a small score boost to routes not ridden recently to add variety without the rider having to think about it.
 
 ### Browser reminders
 Optional daily notification via the browser Notifications API. "Your Xert data is ready — check today's route." No backend needed, fully client-side.
@@ -79,6 +79,7 @@ Rather than labeling a route as "LOW" or "HIGH", estimate how much XSS each buck
 - Route cards have no visual differentiation between worlds. A small world colour tag could help scanability.
 - Mobile layout works but hasn't been tested on a real device.
 - HIE display: consider one decimal place since it's a smaller number than FTP.
+- The Recent Progress panel is clearer now, but a legend or tooltip may still help explain target track vs completed fill for first-time users.
 
 ## Operational
 - Token TTL is hardcoded to 1 hour in `xert.js`. Xert's actual TTL may differ — worth checking if users hit unexpected logouts.

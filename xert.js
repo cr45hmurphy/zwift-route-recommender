@@ -32,6 +32,33 @@ export function hasToken() {
   return loadToken() !== null;
 }
 
+async function fetchWithToken(path, options = {}) {
+  const token = loadToken();
+
+  if (!token) {
+    throw new Error('No token — supply credentials to re-authenticate.');
+  }
+
+  const res = await fetch(`${PROXY_BASE}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers ?? {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    throw new Error('Session expired. Please log in again.');
+  }
+
+  if (!res.ok) {
+    throw new Error(`Xert request failed (${res.status}) for ${path}`);
+  }
+
+  return res.json();
+}
+
 // --- Auth ---
 
 /**
@@ -104,6 +131,32 @@ export async function fetchTrainingInfo(username, password) {
   }
 
   return res.json();
+}
+
+export async function fetchActivitiesInRange(from, to, username, password) {
+  let token = loadToken();
+
+  if (!token) {
+    if (!username || !password) {
+      throw new Error('No token — supply credentials to re-authenticate.');
+    }
+    token = await authenticate(username, password);
+  }
+
+  return fetchWithToken(`/oauth/activity?from=${from}&to=${to}`);
+}
+
+export async function fetchActivityDetail(path, username, password) {
+  let token = loadToken();
+
+  if (!token) {
+    if (!username || !password) {
+      throw new Error('No token — supply credentials to re-authenticate.');
+    }
+    token = await authenticate(username, password);
+  }
+
+  return fetchWithToken(`/oauth/activity/${path}`);
 }
 
 // --- Data helpers ---

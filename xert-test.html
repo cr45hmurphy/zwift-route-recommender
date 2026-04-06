@@ -18,6 +18,9 @@
     .info { color: #aaa; }
     .label { color: #888; }
     .value { color: #fff; }
+    details { margin-top: 20px; }
+    summary { cursor: pointer; color: #aaa; }
+    pre { margin-top: 12px; padding: 16px; background: #161616; border: 1px solid #333; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.78rem; }
   </style>
 </head>
 <body>
@@ -34,16 +37,89 @@
   <button class="secondary" onclick="clearAndRun()">Clear token + re-auth</button>
 
   <div id="result"><span class="info">Result will appear here...</span></div>
+  <details id="raw-details" style="display:none">
+    <summary>Show raw training_info payload</summary>
+    <pre id="raw-json"></pre>
+  </details>
+  <details id="activity-details" style="display:none">
+    <summary>Show today's activity summaries</summary>
+    <pre id="activity-json"></pre>
+  </details>
 
   <script type="module">
     import { authenticate, fetchTrainingInfo, parseTrainingData, clearToken, hasToken } from './xert.js';
 
+    const PROXY_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+      ? 'http://localhost:3000'
+      : '/.netlify/functions/xert-proxy';
+    const TOKEN_KEY = 'xert_token';
+
+    function getStoredToken() {
+      return localStorage.getItem(TOKEN_KEY);
+    }
+
+    async function fetchWithToken(path) {
+      const token = getStoredToken();
+      if (!token) throw new Error('No stored token available for activity fetch.');
+
+      const res = await fetch(`${PROXY_BASE}${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Activity request failed (${res.status}) for ${path}`);
+      }
+
+      return res.json();
+    }
+
+    function todayRangeUtc() {
+      const now = new Date();
+      const start = new Date(now);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+      return {
+        from: Math.floor(start.getTime() / 1000),
+        to: Math.floor(end.getTime() / 1000),
+      };
+    }
+
+    async function fetchTodaysActivities() {
+      const { from, to } = todayRangeUtc();
+      const list = await fetchWithToken(`/oauth/activity?from=${from}&to=${to}`);
+      const activities = Array.isArray(list.activities) ? list.activities : [];
+
+      const detailed = [];
+      for (const activity of activities) {
+        if (!activity.path) continue;
+        const detail = await fetchWithToken(`/oauth/activity/${activity.path}`);
+        detailed.push({
+          path: activity.path,
+          name: activity.name,
+          activity_type: activity.activity_type,
+          start_date: activity.start_date,
+          summary: detail.summary ?? null,
+        });
+      }
+
+      return { from, to, count: detailed.length, activities: detailed };
+    }
+
     window.runTest = async function() {
       const result   = document.getElementById('result');
+      const rawDetails = document.getElementById('raw-details');
+      const rawJson = document.getElementById('raw-json');
+      const activityDetails = document.getElementById('activity-details');
+      const activityJson = document.getElementById('activity-json');
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
 
       result.innerHTML = '<span class="info">Fetching...</span>';
+      rawDetails.style.display = 'none';
+      rawJson.textContent = '';
+      activityDetails.style.display = 'none';
+      activityJson.textContent = '';
 
       try {
         const raw    = await fetchTrainingInfo(username, password);
@@ -75,8 +151,19 @@
 
 <span class="label">Token cached in localStorage:</span> ${hasToken() ? 'yes' : 'no'}`;
 
+        rawDetails.style.display = 'block';
+        rawJson.textContent = JSON.stringify(raw, null, 2);
+
+        const todaysActivities = await fetchTodaysActivities();
+        activityDetails.style.display = 'block';
+        activityJson.textContent = JSON.stringify(todaysActivities, null, 2);
+
       } catch (err) {
         result.innerHTML = `<span class="fail">ERROR: ${err.message}</span>`;
+        rawDetails.style.display = 'none';
+        rawJson.textContent = '';
+        activityDetails.style.display = 'none';
+        activityJson.textContent = '';
       }
     };
 

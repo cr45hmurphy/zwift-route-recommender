@@ -28,26 +28,22 @@
   <script type="module">
     import { scoreRoute, rankRoutes, detectBucket } from './scorer.js';
 
-    // --- Fixture routes (representative sample) ---
+    // --- Fixture routes (representative sample from current route data) ---
     const ROUTES = [
-      { name: "Tempus Fugit",         world: "watopia",       distance: 17.2, elevation: 41,  eventOnly: false, sports: ["cycling"] },
-      { name: "Flat Route",           world: "watopia",       distance: 10.2, elevation: 26,  eventOnly: false, sports: ["cycling"] },
-      { name: "Road to Sky",          world: "watopia",       distance: 13.9, elevation: 1159,eventOnly: false, sports: ["cycling"] },
-      { name: "Alpe du Zwift",        world: "watopia",       distance: 12.5, elevation: 1036,eventOnly: false, sports: ["cycling"] },
-      { name: "Innsbruck KOM",        world: "innsbruck",     distance: 13.0, elevation: 285, eventOnly: false, sports: ["cycling"] },
-      { name: "Lutscher",             world: "watopia",       distance: 30.5, elevation: 479, eventOnly: false, sports: ["cycling"] },
-      { name: "Hilly Route",          world: "watopia",       distance: 14.8, elevation: 280, eventOnly: false, sports: ["cycling"] },
-      { name: "Tour of Fire and Ice", world: "watopia",       distance: 42.2, elevation: 681, eventOnly: false, sports: ["cycling"] },
-      { name: "PRL Full",             world: "london",        distance: 107.6,elevation: 1358,eventOnly: false, sports: ["cycling"] },
-      { name: "London Classique",     world: "london",        distance: 13.7, elevation: 129, eventOnly: false, sports: ["cycling"] },
-      { name: "Downtown Titans",      world: "newyork",       distance: 7.8,  elevation: 101, eventOnly: false, sports: ["cycling"] },
-      { name: "Volcano Climb",        world: "watopia",       distance: 5.0,  elevation: 170, eventOnly: false, sports: ["cycling"] },
-      { name: "Three Sisters",        world: "watopia",       distance: 23.6, elevation: 505, eventOnly: false, sports: ["cycling"] },
-      { name: "The Pretzel",          world: "watopia",       distance: 70.5, elevation: 1349,eventOnly: false, sports: ["cycling"] },
-      { name: "Titans Grove",         world: "watopia",       distance: 19.4, elevation: 303, eventOnly: false, sports: ["cycling"] },
-      { name: "Richmond UCI Circuit", world: "richmond",      distance: 16.1, elevation: 133, eventOnly: false, sports: ["cycling"] },
-      { name: "Event Only Route",     world: "watopia",       distance: 50.0, elevation: 200, eventOnly: true,  sports: ["cycling"] },
-      { name: "Running Route",        world: "watopia",       distance: 5.0,  elevation: 50,  eventOnly: false, sports: ["running"] },
+      { name: "Tempus Fugit",         world: "watopia",        distance: 17.231, elevation: 26,   eventOnly: false, sports: ["cycling"] },
+      { name: "Flat Out Fast",        world: "watopia",        distance: 21.382, elevation: 46,   eventOnly: false, sports: ["cycling"] },
+      { name: "Road to Sky",          world: "watopia",        distance: 17.496, elevation: 1044, eventOnly: false, sports: ["cycling"] },
+      { name: "Tour of Fire and Ice", world: "watopia",        distance: 25.361, elevation: 1164, eventOnly: false, sports: ["cycling"] },
+      { name: "London PRL Half",      world: "london",         distance: 69.159, elevation: 1009, eventOnly: false, sports: ["cycling"] },
+      { name: "Three Sisters",        world: "watopia",        distance: 48.011, elevation: 896,  eventOnly: false, sports: ["cycling"] },
+      { name: "Sea to Tree",          world: "makuri-islands", distance: 3.273,  elevation: 108,  eventOnly: false, sports: ["cycling"] },
+      { name: "Mountain Mash",        world: "watopia",        distance: 5.79,   elevation: 335,  eventOnly: false, sports: ["cycling"] },
+      { name: "Lutscher",             world: "innsbruck",      distance: 13.704, elevation: 402,  eventOnly: false, sports: ["cycling"] },
+      { name: "Grand Central Circuit",world: "new-york",       distance: 6.857,  elevation: 144,  eventOnly: false, sports: ["cycling"] },
+      { name: "Big Flat 8",           world: "watopia",        distance: 29.211, elevation: 103,  eventOnly: false, sports: ["cycling"] },
+      { name: "Richmond UCI Circuit", world: "richmond",       distance: 16.093, elevation: 133,  eventOnly: false, sports: ["cycling"] },
+      { name: "Event Only Route",     world: "watopia",        distance: 50.0,   elevation: 200,  eventOnly: true,  sports: ["cycling"] },
+      { name: "Running Route",        world: "watopia",        distance: 5.0,    elevation: 50,   eventOnly: false, sports: ["running"] },
     ];
 
     // --- detectBucket test cases ---
@@ -75,10 +71,45 @@
       </table>
     `;
 
+    const routeByName = Object.fromEntries(ROUTES.map(route => [route.name, route]));
+    const heuristicChecks = [
+      {
+        label: 'Recovery favors easy spins over long endurance',
+        pass: scoreRoute(routeByName['Tempus Fugit'], 'recovery') > scoreRoute(routeByName['London PRL Half'], 'recovery'),
+      },
+      {
+        label: 'HIGH rewards real climbing routes over flat routes',
+        pass: scoreRoute(routeByName['Tour of Fire and Ice'], 'high') > scoreRoute(routeByName['Tempus Fugit'], 'high'),
+      },
+      {
+        label: 'PEAK favors short punchy climbs over long sustained ones',
+        pass: scoreRoute(routeByName['Sea to Tree'], 'peak') > scoreRoute(routeByName['Lutscher'], 'peak'),
+      },
+      {
+        label: 'PEAK excludes too-climby sustained routes',
+        pass: scoreRoute(routeByName['Lutscher'], 'peak') === 0,
+      },
+    ];
+
+    const heuristicHtml = heuristicChecks.map(check => `
+      <tr>
+        <td>${check.label}</td>
+        <td style="color:${check.pass ? '#4caf50' : '#f44336'}">${check.pass ? 'PASS' : 'FAIL'}</td>
+      </tr>
+    `).join('');
+
+    container.innerHTML += `
+      <h2>Heuristic checks</h2>
+      <table>
+        <tr><th>Expectation</th><th>Result</th></tr>
+        ${heuristicHtml}
+      </table>
+    `;
+
     // Route rankings per bucket
     ['low', 'high', 'peak', 'recovery'].forEach(bucket => {
       const ranked = rankRoutes(ROUTES, bucket);
-      const rows = ranked.slice(0, 8).map((r, i) => {
+      const rows = ranked.slice(0, 6).map((r, i) => {
         const gr = r.distance > 0 ? (r.elevation / r.distance).toFixed(1) : '—';
         return `<tr>
           <td>${i + 1}</td>

@@ -50,6 +50,7 @@
             <span id="freshness-badge" class="freshness-badge">—</span>
             <span class="stat-pill">FTP <strong id="stat-ftp">—</strong></span>
             <span class="stat-pill">Weight <strong id="stat-weight">—</strong></span>
+            <span class="stat-pill">W/kg <strong id="stat-wkg">—</strong></span>
           </div>
 
           <div class="buckets">
@@ -75,6 +76,14 @@
               <span class="bucket-values" id="bar-values-peak">—</span>
             </div>
           </div>
+
+          <div id="history-panel">
+            <div class="history-header">
+              <span class="history-title">Recent Progress</span>
+              <span id="history-caption" class="history-caption">No history yet</span>
+            </div>
+            <div id="history-chart"></div>
+          </div>
         </div>
       </section>
 
@@ -95,6 +104,14 @@
             <span id="time-label">60 min</span>
           </div>
           <div class="time-control-row">
+            <label>Timing</label>
+            <div class="timing-toggle">
+              <button id="timing-auto" class="timing-btn active">Auto (W/kg)</button>
+              <button id="timing-manual" class="timing-btn">Manual pace</button>
+            </div>
+            <span id="timing-hint" class="time-hint"></span>
+          </div>
+          <div class="time-control-row" id="manual-speed-row">
             <label for="avg-speed">Avg speed</label>
             <input type="number" id="avg-speed" min="15" max="50" value="28" step="1">
             <span class="time-unit" id="speed-unit-label">km/h</span>

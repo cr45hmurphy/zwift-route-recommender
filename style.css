@@ -195,7 +195,7 @@ section { margin-bottom: 32px; }
 
 .buckets { width: 100%; display: flex; flex-direction: column; gap: 12px; }
 
-.bucket-row { display: grid; grid-template-columns: 60px 1fr 110px; align-items: center; gap: 12px; }
+.bucket-row { display: grid; grid-template-columns: 60px 1fr 170px; align-items: center; gap: 12px; }
 
 .bucket-label {
   font-size: 0.75rem;
@@ -234,6 +234,109 @@ section { margin-bottom: 32px; }
 .bucket-values .deficit {
   color: var(--accent);
   font-weight: 600;
+}
+
+#history-panel {
+  width: 100%;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.history-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.history-caption {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+#history-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.history-empty {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 44px 1fr 120px;
+  align-items: center;
+  gap: 12px;
+}
+
+.history-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.history-label.low { color: var(--green); }
+.history-label.high { color: var(--blue); }
+.history-label.peak { color: var(--red); }
+
+.history-spark {
+  height: 42px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.history-day {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+
+.history-day.is-current {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.history-target-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 1px 1px 0 0;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.history-fill {
+  position: relative;
+  width: 100%;
+  border-radius: 1px 1px 0 0;
+}
+
+.history-fill.low { background: var(--green); }
+.history-fill.high { background: var(--blue); }
+.history-fill.peak { background: var(--red); }
+
+.history-trend {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* ── Recommendation Banner ───────────────────────── */
@@ -289,13 +392,14 @@ section { margin-bottom: 32px; }
   display: flex;
   flex-wrap: wrap;
   gap: 20px;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 10px;
 }
 
 .time-control-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -339,9 +443,37 @@ section { margin-bottom: 32px; }
   color: var(--text-muted);
 }
 
+.timing-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.timing-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.timing-btn:hover { border-color: var(--accent); color: var(--accent); }
+.timing-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.time-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
 #time-summary {
   font-size: 0.85rem;
-  color: var(--text-muted);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  margin-top: 12px;
 }
 
 /* ── Route Cards ─────────────────────────────────── */
@@ -529,6 +661,31 @@ section { margin-bottom: 32px; }
   background: var(--accent-dim);
   color: var(--accent);
   white-space: nowrap;
+}
+
+.route-impact,
+.route-match {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.route-impact {
+  background: rgba(100, 181, 246, 0.15);
+  color: var(--blue);
+}
+
+.route-impact.recovery {
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.route-match {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
 }
 
 .no-routes {

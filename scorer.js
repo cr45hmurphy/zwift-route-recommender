@@ -6,13 +6,13 @@ const FLAT_GRADIENT_MAX     = 15;   // m/km — routes above this lose flatness 
 
 const CLIMB_ELEVATION_TARGET = 800;  // m    — routes at/above this get full elevation points
 const CLIMB_ELEVATION_BIG    = 1000; // m    — routes at/above this get the gradient bonus regardless of gradient ratio
-const CLIMB_DISTANCE_TARGET  = 25;  // km   — routes at/above this get full distance points
+const CLIMB_DISTANCE_TARGET  = 28;  // km   — routes at/above this get full distance points
 const CLIMB_GRADIENT_MIN     = 8;   // m/km — lower bound of the "good climbing" band
 const CLIMB_GRADIENT_MAX     = 25;  // m/km — upper bound of the "good climbing" band
 
-const PUNCH_GRADIENT_TARGET  = 30;  // m/km — routes at/above this get full punch points
-const PUNCH_DISTANCE_MAX     = 20;  // km   — routes below this get full short-route bonus
-const PUNCH_ELEVATION_CAP    = 500; // m    — routes above this score 0 in PEAK (sustained climbers, not punchy)
+const PUNCH_GRADIENT_TARGET  = 32;  // m/km — routes at/above this get full punch points
+const PUNCH_DISTANCE_MAX     = 18;  // km   — routes below this get full short-route bonus
+const PUNCH_ELEVATION_CAP    = 400; // m    — routes above this score 0 in PEAK (sustained climbers, not punchy)
 const RECOVERY_DISTANCE_MAX  = 30;  // km   — routes above this score near 0 in RECOVERY
 const RECOVERY_ELEVATION_MAX = 200; // m    — routes above this score near 0 in RECOVERY
 

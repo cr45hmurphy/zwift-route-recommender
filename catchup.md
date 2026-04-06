@@ -1,6 +1,6 @@
 # Catchup — What's Been Built
 
-## Status: Live on Netlify. End-to-end working with time re-ranking, unit toggle, improved scoring, freshness-aware recovery fallback, and today's-world filtering.
+## Status: Live on Netlify. End-to-end working with Daily Summary-style bucket tracking, W/kg timing with manual override, recent progress history, improved route trust signals, freshness-aware recovery fallback, and today's-world filtering.
 
 ---
 
@@ -12,6 +12,8 @@
 - **`netlify.toml`** — Sets publish dir to `.`, points to functions directory, pins Node 18.
 - **`package.json`** — `"type": "module"` (ESM), single dependency: `zwift-data`.
 - **`bundle-routes.mjs`** — one-time script that reads zwift-data and writes `routes-data.js`. Already been run — 320 routes written.
+- **`xert-api-reference.md`** — local notes for auth, endpoint usage, and Daily Summary field mapping from Xert activity summaries.
+- **`zwift-data-reference.md`** — local notes for package usage, route fields, slug conventions, and the route-data bundling flow.
 
 ### Core Logic
 - **`scorer.js`** — pure functions, no DOM/API dependencies. Exports:
@@ -26,40 +28,46 @@
 - **`xert.js`** — Xert API wrapper. Auto-detects environment:
   - `localhost` → `http://localhost:3000` (local proxy)
   - Production → `/.netlify/functions/xert-proxy`
-  - Exports: `authenticate`, `fetchTrainingInfo`, `parseTrainingData`, `clearToken`, `hasToken`
+  - Exports auth/token helpers plus `fetchTrainingInfo`, activity list/detail fetch helpers, and `parseTrainingData`
+  - `training_info` is now used for status/signature/weight/targets/WOTD only
+  - today's completed low/high/peak totals are derived from activity summary `xlss/xhss/xpss/xss`
 
 - **`routes.js`** — re-exports from `routes-data.js`, exports `WORLD_NAMES`, the fixed guest-world schedule, `todaysWorlds()`, `filterToAvailableWorlds()`, and `worldName(slug)`.
 
 ### UI
 - **`index.html`** + **`style.css`** + **`app.js`** — single-page app.
   - Auth screen → signs in via xert.js, transitions to app on success
-  - Status section: freshness badge, FTP, weight, three bucket bars showing `TL X · target Y` with gap highlighted
-  - Recommendation banner: which bucket needs work, plain-English explanation, WOTD if available
+  - Status section: freshness badge, FTP, weight, W/kg, and three bucket bars showing completed vs target with remaining amount
+  - Recommendation banner: which bucket still needs work today, plain-English explanation, WOTD if available
   - **Freshness override:** when Xert reports Tired / Very Tired / Detraining, recommendations are forced to recovery and a yellow override note explains why
-  - **Time section:** slider (20–180 min) + avg speed input. Routes are partitioned by time budget:
+  - **Time section:** slider (20–180 min) + W/kg-based auto timing with optional manual speed override. Routes are partitioned by time budget:
     - Within-budget routes fill the primary grid + "Other options" collapsible (score-sorted)
     - Over-budget routes go into a "If you had more time" collapsible, sorted by nearest first
-    - Each card shows a green/red time badge and an XSS fill% badge (e.g. `~43% low target`)
+    - Each card shows a green/red time badge plus trust/impact badges like `~% of low left`, `XSS toward low`, and `Best for low remaining`
     - No more opacity dimming — routes are separated, not faded
   - **Imperial/metric toggle:** `km/m` | `mi/ft` buttons in settings footer, stored in localStorage. Avg speed input converts between km/h and mph. All internal math stays metric.
   - **Today's worlds filter:** checkbox defaults on, persists in localStorage, and limits recommendations to Watopia plus the current guest world
+  - **Recent Progress panel:** local history keeps one snapshot per day and shows completed-vs-target progress once at least two saved days exist
   - Route grid: top 5 cards (3-col desktop / 1-col mobile), "Other options" collapsible, "If you had more time" collapsible
   - Settings footer: username/password fields for re-auth, unit toggle, refresh button
 
 ### Test/validation files (not part of production app)
 - **`cors-test.html`** — tests whether Xert API is reachable directly or via proxy
 - **`scorer-test.html`** — runs fixture routes through scorer.js and displays ranked output per bucket
-- **`xert-test.html`** — live test of xert.js against a real Xert account, shows raw parsed values
+- **`xert-test.html`** — live test of xert.js against a real Xert account, shows raw `training_info` plus today's activity summaries
 
 ---
 
 ## Recently completed
 
-The three items that were previously tracked in `planning.md` are now implemented:
+Recent completed work includes:
 
 1. **RECOVERY scoring fix** — recovery recommendations now favor short, easy spins instead of reusing LOW scoring.
 2. **Freshness-aware scoring** — tired statuses override the detected bucket and steer the rider to recovery routes.
 3. **Today's worlds filter** — route ranking can be limited to the currently rideable worlds in Zwift.
+4. **Daily Summary alignment** — the app now uses Xert activity summaries to derive completed low/high/peak/total buckets for today.
+5. **W/kg timing + recent progress** — route timing defaults to rider W/kg, with manual override, and the app stores one progress snapshot per day.
+6. **Trust-signal polish** — route cards and time summary now expose clearer bucket-fill and contribution cues.
 
 ---
 
@@ -89,6 +97,7 @@ Deployed on Netlify, connected to `https://github.com/cr45hmurphy/zwift-route-re
 - They are correctly excluded from PEAK top 5 (elevation cap: >500m scores 0).
 - PEAK #1 is Volcano Climb (5 km, 170 m, 34 m/km) — correct.
 - RECOVERY now favors Tempus Fugit / Flat Out Fast style easy spins over longer endurance routes.
+- Daily bucket bars now align with Xert Daily Summary-style completed totals more closely than the old TL-based display.
 - Scoring thresholds (PUNCH_ELEVATION_CAP, PUNCH_DISTANCE_MAX, etc.) will need further tuning against real-world ride data.
 
 ---
@@ -96,4 +105,4 @@ Deployed on Netlify, connected to `https://github.com/cr45hmurphy/zwift-route-re
 ## Git
 Repo: `https://github.com/cr45hmurphy/zwift-route-recommender`
 Branch: `master`
-Last pushed feature commit: `6657c78` — recovery scoring, freshness override, today's-world filter, and `AGENTS.md`
+Most recent local work before this update: Daily Summary alignment, local API reference docs, W/kg timing, recent progress panel, and route trust-signal polish
