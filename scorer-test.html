@@ -26,7 +26,7 @@
   <div id="bucket-display"></div>
 
   <script type="module">
-    import { scoreRoute, rankRoutes, detectBucket } from './scorer.js';
+    import { scoreRoute, rankRoutes, detectBucket, optimizeRoutes } from './scorer.js';
 
     // --- Fixture routes (representative sample from current route data) ---
     const ROUTES = [
@@ -105,6 +105,81 @@
         ${heuristicHtml}
       </table>
     `;
+
+    const stabilityRoutes = [
+      { name: 'Alpha Loop', world: 'watopia', distance: 20, elevation: 50, eventOnly: false, sports: ['cycling'] },
+      { name: 'Beta Loop', world: 'watopia', distance: 20, elevation: 50, eventOnly: false, sports: ['cycling'] },
+    ];
+    const stabilityRanked = optimizeRoutes(stabilityRoutes, {
+      bucket: 'low',
+      deficits: { low: 20, high: 0, peak: 0 },
+      availableMinutes: 40,
+      estimateMinutes: () => 40,
+    });
+    const stabilityPass =
+      stabilityRanked[0]?.name === 'Alpha Loop' &&
+      stabilityRanked[1]?.name === 'Beta Loop';
+
+    container.innerHTML += `
+      <h2>Stability check</h2>
+      <table>
+        <tr><th>Expectation</th><th>Result</th></tr>
+        <tr>
+          <td>Exact ties resolve deterministically by route key</td>
+          <td style="color:${stabilityPass ? '#4caf50' : '#f44336'}">${stabilityPass ? 'PASS' : 'FAIL'}</td>
+        </tr>
+      </table>
+    `;
+
+    const optimizerScenarios = [
+      {
+        label: 'Low-heavy day, 30 min target',
+        bucket: 'low',
+        deficits: { low: 35, high: 5, peak: 0 },
+        availableMinutes: 30,
+      },
+      {
+        label: 'Mixed deficits, 60 min target',
+        bucket: 'high',
+        deficits: { low: 18, high: 20, peak: 6 },
+        availableMinutes: 60,
+      },
+      {
+        label: 'Peak-focused day, 40 min target',
+        bucket: 'peak',
+        deficits: { low: 4, high: 6, peak: 18 },
+        availableMinutes: 40,
+      },
+    ];
+
+    const estimateMinutes = (route) => Math.round((route.distance / 28) * 60 + (route.elevation / 700) * 60);
+
+    optimizerScenarios.forEach((scenario) => {
+      const ranked = optimizeRoutes(ROUTES, {
+        bucket: scenario.bucket,
+        deficits: scenario.deficits,
+        availableMinutes: scenario.availableMinutes,
+        estimateMinutes,
+      });
+      const rows = ranked.slice(0, 6).map((r, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${r.name}</td>
+          <td>~${r.estimatedMinutes} min</td>
+          <td>${Math.round(r.optimizerBreakdown.low * 100)} / ${Math.round(r.optimizerBreakdown.high * 100)} / ${Math.round(r.optimizerBreakdown.peak * 100)}</td>
+          <td>${r.optimizerReason}</td>
+          <td class="score">${r.score}</td>
+        </tr>
+      `).join('');
+
+      container.innerHTML += `
+        <h2>Optimizer: <span class="bucket ${scenario.bucket}">${scenario.label}</span></h2>
+        <table>
+          <tr><th>#</th><th>Route</th><th>Est. time</th><th>L/H/P</th><th>Why it ranked</th><th>Score</th></tr>
+          ${rows}
+        </table>
+      `;
+    });
 
     // Route rankings per bucket
     ['low', 'high', 'peak', 'recovery'].forEach(bucket => {

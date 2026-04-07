@@ -2,7 +2,8 @@ import { authenticate, fetchTrainingInfo, fetchActivitiesInRange, fetchActivityD
 import { routes } from './routes.js';
 import { filterToAvailableWorlds, todaysWorlds, worldName } from './routes.js';
 import { getSegmentsForRoute } from './segments.js';
-import { analyzeTrainingDay, generateRideCue, rankRoutes } from './scorer.js';
+import { analyzeTrainingDay, generateRideCue, optimizeRoutes } from './scorer.js';
+import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './mock-data.js';
 
 // ── Constants ─────────────────────────────────────
 
@@ -11,8 +12,11 @@ import { analyzeTrainingDay, generateRideCue, rankRoutes } from './scorer.js';
 const XSS_RATE = { low: 65, high: 90, peak: 50, recovery: 40 };
 const DEFAULT_SPEED_KMH = 28;
 const TIMING_MODE_KEY = 'timing-mode';
+const DATA_SOURCE_KEY = 'data-source';
 const HISTORY_KEY = 'xert_history';
 const HISTORY_LIMIT = 10;
+const MANUAL_SPEED_MIN_KMH = 15;
+const MANUAL_SPEED_MAX_KMH = 50;
 
 // Unit conversion factors (metric is the internal standard; these are display-only)
 const KM_TO_MI = 0.621371;
@@ -29,6 +33,19 @@ function getTodayOnly() {
 
 function getTimingMode() {
   return localStorage.getItem(TIMING_MODE_KEY) === 'manual' ? 'manual' : 'auto';
+}
+
+function getDataSourceId() {
+  const stored = localStorage.getItem(DATA_SOURCE_KEY) || 'live';
+  return stored === 'live' || MOCK_SCENARIOS[stored] ? stored : 'live';
+}
+
+function isLiveDataSource(dataSourceId = state.dataSourceId) {
+  return dataSourceId === 'live';
+}
+
+function getMockScenario(dataSourceId = state.dataSourceId) {
+  return MOCK_SCENARIOS[dataSourceId] ?? null;
 }
 
 function loadHistory() {
@@ -103,6 +120,7 @@ let state = {
   trainingData:   null,
   rawWotd:        null,
   dailySummary:   null,
+  dataSourceId:   'live',
   bucket:         null,
   bucketOverride: null,
   wotdStructure:  'recovery',
@@ -120,6 +138,10 @@ async function init() {
   if (ts) state.lastUpdated = new Date(parseInt(ts, 10));
   state.history = loadHistory();
   state.timingMode = getTimingMode();
+  state.dataSourceId = getDataSourceId();
+
+  populateDataSourceOptions();
+  syncDataSourceControls();
 
   // Restore saved unit preference (updates button state + speed label without re-rendering)
   const savedUnit = getUnits();
@@ -130,12 +152,19 @@ async function init() {
     const speedInput = document.getElementById('avg-speed');
     speedInput.value = Math.round(parseFloat(speedInput.value) * KM_TO_MI);
   }
+  updateManualSpeedBounds();
 
   state.todayOnly = getTodayOnly();
   document.getElementById('today-only-toggle').checked = state.todayOnly;
   const worlds = [...todaysWorlds()].map(worldName).join(' · ');
   document.getElementById('today-worlds-label').textContent = worlds;
   renderTimingControls();
+  renderSourceNotes();
+
+  if (!isLiveDataSource()) {
+    loadMockScenario();
+    return;
+  }
 
   if (hasToken()) {
     showApp();
@@ -149,6 +178,10 @@ async function init() {
 
 async function handleLogin(e) {
   e.preventDefault();
+  if (!isLiveDataSource()) {
+    loadMockScenario();
+    return;
+  }
   const username = document.getElementById('auth-username').value.trim();
   const password = document.getElementById('auth-password').value;
   const errEl    = document.getElementById('auth-error');
@@ -175,6 +208,10 @@ async function handleLogin(e) {
 }
 
 async function handleRefresh() {
+  if (!isLiveDataSource()) {
+    loadMockScenario();
+    return;
+  }
   const username = document.getElementById('settings-username').value.trim();
   const password = document.getElementById('settings-password').value;
   await refresh(username || undefined, password || undefined);
@@ -186,6 +223,7 @@ async function handleLogout() {
     trainingData:   null,
     rawWotd:        null,
     dailySummary:   null,
+    dataSourceId:   getDataSourceId(),
     bucket:         null,
     bucketOverride: null,
     wotdStructure:  'recovery',
@@ -195,6 +233,8 @@ async function handleLogout() {
     timingMode:     getTimingMode(),
     todayOnly:      getTodayOnly(),
   };
+  syncDataSourceControls();
+  renderSourceNotes();
   showAuth();
 }
 
@@ -219,8 +259,7 @@ async function refresh(username, password) {
     const { bucket, overrideNote } = applyFreshnessOverride(analyzedBucket, state.trainingData.status);
     state.bucket = bucket;
     state.bucketOverride = overrideNote;
-    const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes) : routes;
-    state.ranked = enrichRoutes(rankRoutes(eligibleRoutes, state.bucket), state.bucket, state.wotdStructure);
+    recomputeRankedRoutes();
     const now = Date.now();
     state.lastUpdated = new Date(now);
     state.history = recordHistorySnapshot(state.trainingData, now);
@@ -237,9 +276,34 @@ async function refresh(username, password) {
   }
 }
 
+function loadMockScenario() {
+  const scenario = getMockScenario();
+  if (!scenario) return;
+
+  state.trainingData = JSON.parse(JSON.stringify(scenario.trainingData));
+  state.rawWotd = JSON.parse(JSON.stringify(scenario.rawWotd ?? null));
+  state.dailySummary = JSON.parse(JSON.stringify(scenario.dailySummary));
+
+  const { bucket: analyzedBucket, wotdStructure } = analyzeTrainingDay(
+    state.dailySummary.completed,
+    state.dailySummary.targets,
+    state.rawWotd
+  );
+  state.wotdStructure = wotdStructure;
+  const { bucket, overrideNote } = applyFreshnessOverride(analyzedBucket, state.trainingData.status);
+  state.bucket = bucket;
+  state.bucketOverride = overrideNote;
+  recomputeRankedRoutes();
+  state.lastUpdated = new Date();
+  state.history = loadHistory();
+  renderAll();
+  showApp();
+}
+
 // ── Render ────────────────────────────────────────
 
 function renderAll() {
+  renderSourceNotes();
   renderStatus();
   renderHistory();
   renderRecommendation();
@@ -273,7 +337,11 @@ function renderStatus() {
 function renderHistory() {
   const chartEl = document.getElementById('history-chart');
   const captionEl = document.getElementById('history-caption');
+  const noteEl = document.getElementById('history-note');
   const history = state.history ?? [];
+  noteEl.textContent = isLiveDataSource()
+    ? 'Recent Progress is stored in this browser only.'
+    : 'Recent Progress is stored in this browser only. Mock scenarios do not write new history snapshots.';
 
   if (history.length < 2) {
     captionEl.textContent = history.length === 1 ? '1 saved day' : 'No saved days';
@@ -385,14 +453,31 @@ function enrichRoutes(rankedRoutes, bucket, wotdStructure) {
   });
 }
 
+function recomputeRankedRoutes() {
+  if (!state.trainingData || !state.dailySummary || !state.bucket) {
+    state.ranked = [];
+    return;
+  }
+
+  const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes) : routes;
+  const settings = getTimeSettings();
+  const optimized = optimizeRoutes(eligibleRoutes, {
+    bucket: state.bucket,
+    deficits: state.dailySummary.remaining,
+    availableMinutes: settings.minutes,
+    estimateMinutes: route => estimateRouteMinutes(route, settings, state.trainingData),
+    recoveryMode: state.bucket === 'recovery',
+  });
+
+  state.ranked = enrichRoutes(optimized, state.bucket, state.wotdStructure);
+}
+
 function renderRoutes() {
   const settings = getTimeSettings();
   const { minutes: timeMin } = settings;
 
   const withinBudget = state.ranked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) <= timeMin);
-  const overBudget   = state.ranked
-    .filter(r => estimateRouteMinutes(r, settings, state.trainingData) > timeMin)
-    .sort((a, b) => estimateRouteMinutes(a, settings, state.trainingData) - estimateRouteMinutes(b, settings, state.trainingData));
+  const overBudget   = state.ranked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) > timeMin);
 
   // Primary grid: top 5 within budget
   document.getElementById('route-grid').innerHTML =
@@ -493,6 +578,8 @@ function segmentChipHTML(segment, kind) {
 }
 
 function routeReason(route, bucket) {
+  if (route.optimizerReason) return route.optimizerReason;
+
   const gr = route.distance > 0 ? route.elevation / route.distance : 0;
 
   if (bucket === 'recovery') {
@@ -587,7 +674,8 @@ function renderTimeSummary() {
 function renderLastUpdated() {
   const el = document.getElementById('last-updated');
   if (!state.lastUpdated) { el.textContent = ''; return; }
-  el.textContent = `Updated ${state.lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  const prefix = isLiveDataSource() ? 'Updated' : 'Mock data loaded';
+  el.textContent = `${prefix} ${state.lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 // ── UI helpers ────────────────────────────────────
@@ -595,6 +683,7 @@ function renderLastUpdated() {
 function showAuth(message) {
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').classList.remove('visible');
+  renderSourceNotes();
   if (message) {
     const errEl = document.getElementById('auth-error');
     errEl.textContent = message;
@@ -622,6 +711,64 @@ function hideError() {
   document.getElementById('app-error').style.display = 'none';
 }
 
+function populateDataSourceOptions() {
+  const authSelect = document.getElementById('auth-data-source');
+  const settingsSelect = document.getElementById('settings-data-source');
+  const optionsHtml = DATA_SOURCE_OPTIONS.map(option =>
+    `<option value="${option.id}">${option.label}</option>`
+  ).join('');
+  authSelect.innerHTML = optionsHtml;
+  settingsSelect.innerHTML = optionsHtml;
+}
+
+function syncDataSourceControls() {
+  document.getElementById('auth-data-source').value = state.dataSourceId;
+  document.getElementById('settings-data-source').value = state.dataSourceId;
+}
+
+function renderSourceNotes() {
+  const authBtn = document.getElementById('auth-btn');
+  const scenarioBtn = document.getElementById('auth-scenario-btn');
+  const authNote = document.getElementById('auth-source-note');
+  const settingsNote = document.getElementById('settings-source-note');
+  const live = isLiveDataSource();
+  const scenario = getMockScenario();
+
+  authBtn.disabled = !live;
+  authBtn.textContent = 'Sign in';
+  scenarioBtn.style.display = live ? 'none' : 'block';
+  authNote.textContent = live
+    ? 'Live Xert uses real account data. Mock scenarios are available below for testing only.'
+    : `${scenario?.title ?? 'Mock'} scenario loaded for testing. History remains browser-local and no new mock snapshots are saved.`;
+  settingsNote.textContent = live
+    ? 'Live Xert is the default. Recent Progress is stored in this browser only.'
+    : `${scenario?.title ?? 'Mock'} scenario active for testing. Recent Progress remains browser-local and mock mode does not save new history.`;
+}
+
+function getManualSpeedBounds() {
+  if (getUnits() === 'imperial') {
+    return {
+      min: Math.round(MANUAL_SPEED_MIN_KMH * KM_TO_MI),
+      max: Math.round(MANUAL_SPEED_MAX_KMH * KM_TO_MI),
+      step: 1,
+    };
+  }
+
+  return { min: MANUAL_SPEED_MIN_KMH, max: MANUAL_SPEED_MAX_KMH, step: 1 };
+}
+
+function updateManualSpeedBounds() {
+  const speedInput = document.getElementById('avg-speed');
+  const { min, max, step } = getManualSpeedBounds();
+  speedInput.min = String(min);
+  speedInput.max = String(max);
+  speedInput.step = String(step);
+  const currentVal = parseFloat(speedInput.value);
+  if (Number.isFinite(currentVal)) {
+    speedInput.value = String(clamp(Math.round(currentVal), min, max));
+  }
+}
+
 function applyUnits(unit) {
   localStorage.setItem('units', unit);
   document.getElementById('units-metric').classList.toggle('active', unit === 'metric');
@@ -636,9 +783,11 @@ function applyUnits(unit) {
   } else {
     speedInput.value = Math.round(currentVal / KM_TO_MI);
   }
+  updateManualSpeedBounds();
 
   renderTimingControls();
   if (state.trainingData) {
+    recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
   }
@@ -667,6 +816,7 @@ function setTimingMode(mode) {
   localStorage.setItem(TIMING_MODE_KEY, state.timingMode);
   renderTimingControls();
   if (state.trainingData) {
+    recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
   }
@@ -743,6 +893,9 @@ function snapshotSignature(snapshot) {
 }
 
 function recordHistorySnapshot(trainingData, ts) {
+  if (!isLiveDataSource()) {
+    return loadHistory();
+  }
   const history = loadHistory();
   const snapshot = buildHistorySnapshot(trainingData, ts);
   const existingIndex = history.findIndex(entry => entry.dayKey === snapshot.dayKey);
@@ -832,11 +985,24 @@ document.getElementById('logout-btn').addEventListener('click', handleLogout);
 document.getElementById('time-available').addEventListener('input', () => {
   const val = document.getElementById('time-available').value;
   document.getElementById('time-label').textContent = `${val} min`;
-  if (state.trainingData) { renderTimeSummary(); renderRoutes(); }
+  if (state.trainingData) {
+    recomputeRankedRoutes();
+    renderTimeSummary();
+    renderRoutes();
+  }
 });
 
 document.getElementById('avg-speed').addEventListener('change', () => {
   if (state.trainingData) {
+    recomputeRankedRoutes();
+    renderTimeSummary();
+    renderRoutes();
+  }
+});
+
+document.getElementById('avg-speed').addEventListener('input', () => {
+  if (state.trainingData && state.timingMode === 'manual') {
+    recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
   }
@@ -846,8 +1012,7 @@ document.getElementById('today-only-toggle').addEventListener('change', (e) => {
   state.todayOnly = e.target.checked;
   localStorage.setItem('today-only', state.todayOnly);
   if (state.trainingData) {
-    const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes) : routes;
-    state.ranked = enrichRoutes(rankRoutes(eligibleRoutes, state.bucket), state.bucket, state.wotdStructure);
+    recomputeRankedRoutes();
     renderRoutes();
   }
 });
@@ -872,5 +1037,36 @@ document.getElementById('units-metric').addEventListener('click', () => applyUni
 document.getElementById('units-imperial').addEventListener('click', () => applyUnits('imperial'));
 document.getElementById('timing-auto').addEventListener('click', () => setTimingMode('auto'));
 document.getElementById('timing-manual').addEventListener('click', () => setTimingMode('manual'));
+document.getElementById('auth-scenario-btn').addEventListener('click', () => loadMockScenario());
+document.getElementById('auth-data-source').addEventListener('change', async (e) => {
+  state.dataSourceId = e.target.value;
+  localStorage.setItem(DATA_SOURCE_KEY, state.dataSourceId);
+  syncDataSourceControls();
+  renderSourceNotes();
+  hideError();
+  if (!isLiveDataSource()) {
+    loadMockScenario();
+  }
+});
+document.getElementById('settings-data-source').addEventListener('change', async (e) => {
+  state.dataSourceId = e.target.value;
+  localStorage.setItem(DATA_SOURCE_KEY, state.dataSourceId);
+  syncDataSourceControls();
+  renderSourceNotes();
+  hideError();
+
+  if (isLiveDataSource()) {
+    const username = document.getElementById('settings-username').value.trim();
+    const password = document.getElementById('settings-password').value;
+    if (hasToken() || username || password) {
+      await refresh(username || undefined, password || undefined);
+    } else {
+      showAuth('Switch back to Live Xert and sign in to fetch real data.');
+    }
+    return;
+  }
+
+  loadMockScenario();
+});
 
 init();

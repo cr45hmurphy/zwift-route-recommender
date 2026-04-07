@@ -23,6 +23,13 @@
 
         <button type="submit" id="auth-btn" class="btn-primary">Sign in</button>
       </form>
+      <div class="dev-panel">
+        <div class="dev-panel-title">Testing / Dev</div>
+        <label for="auth-data-source">Data source</label>
+        <select id="auth-data-source"></select>
+        <button type="button" id="auth-scenario-btn" class="btn-secondary">Open test scenario</button>
+        <div id="auth-source-note" class="dev-note"></div>
+      </div>
     </div>
   </div>
 
@@ -83,6 +90,7 @@
               <span id="history-caption" class="history-caption">No history yet</span>
             </div>
             <div id="history-chart"></div>
+            <div id="history-note" class="history-note"></div>
           </div>
         </div>
       </section>
@@ -161,6 +169,11 @@
               <button id="units-metric" class="unit-btn active">km / m</button>
               <button id="units-imperial" class="unit-btn">mi / ft</button>
             </div>
+          </div>
+          <div class="settings-field">
+            <label for="settings-data-source">Data source</label>
+            <select id="settings-data-source"></select>
+            <div id="settings-source-note" class="settings-note"></div>
           </div>
           <button id="refresh-btn-settings" class="btn-secondary" onclick="document.getElementById('refresh-btn').click()">↻ Refresh Data</button>
         </div>

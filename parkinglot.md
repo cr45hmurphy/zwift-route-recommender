@@ -6,12 +6,24 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
-### Scoring: algorithm tuning pass
-The PEAK elevation cap and other thresholds are still heuristic starting points. After accumulating real ride data, revisit:
+### Optimizer tuning: peak stays too weak at longer durations
+Mock QA surfaced a likely optimizer issue: in `Mock: Peak Focus`, longer time budgets can still elevate routes whose low/high support dominates even when PEAK is the active need. Next pass should:
+- Increase PEAK dominance when peak is the active bucket, especially for longer-duration rankings
+- Revisit how much low/high support can influence PEAK optimization
+- Validate with the existing mock scenario flow before touching live heuristics broadly
+
+### Route-card trust-signal copy + color pass
+QA found the current `~100% of low left` / `~100% of peak left` wording confusing. Next pass should:
+- Replace that copy with clearer language, e.g. “fills ~X% of remaining peak target”
+- Color the fill badge by bucket (`low` = green, `high` = blue, `peak` = red)
+- Sanity-check whether the adjacent `XSS toward bucket` badge is still useful once the fill copy improves
+
+### Scoring / optimizer tuning pass
+The optimizer is now in place, but some heuristics are still starting points. After accumulating real ride data, revisit:
 - `PUNCH_ELEVATION_CAP` — currently 400m; may need adjustment
 - `PUNCH_DISTANCE_MAX` — currently 18 km; still heuristic
 - Whether a combined distance+elevation filter is better than elevation alone
-- LOW scoring: long flat routes always win; consider rewarding routes near the rider's actual time budget
+- Whether LOW and mixed-deficit behavior still over-favors “all-rounder” routes when time budgets get long
 
 ### Daily Summary fidelity pass
 The app now derives completed buckets from activity summary `xlss/xhss/xpss/xss`, which matches Xert closely in testing. Next refinement: confirm edge cases like multiple rides, imported rides, timezone boundaries, and any rounding/display differences with Xert's own UI.
@@ -19,12 +31,16 @@ The app now derives completed buckets from activity summary `xlss/xhss/xpss/xss`
 ### Route-card bucket attribution
 Current trust signals show estimated contribution toward the active bucket. If we want stronger auditability, add a more explicit per-route multi-bucket estimate (for example `+24 Low / +2 High / +0 Peak`) rather than only the active bucket summary.
 
-### Segment-aware ride cues
-Route cards currently show terrain-based bucket match. Next step: attach a plain-English ride cue to each card derived from the WOTD structure (`sustained_climb` / `repeated_punchy` / `sprint_power` / `aerobic_endurance` / `recovery`) and the segments available in that world. Cue tells the rider how to ride the route to generate the training stress Xert is prescribing, not just which route to pick. Implemented via `classifyWOTD()` + `generateRideCue()` in `scorer.js`, fed by a world-segment index in `segments.js`.
-
 ---
 
 ## Tier 2 — Good features, moderate effort
+
+### Mock scenario expansion
+The app now has an in-app mock scenario switcher for QA. Good next additions:
+- Missing FTP / weight scenario for auto-timing fallback validation
+- Empty activity-history scenario
+- Tired + nonzero bucket-deficit scenario to verify recovery override against nontrivial targets
+- Optional query-param support so a scenario can be linked directly for bug reports
 
 ### W/kg difficulty contextualization
 FTP and weight are already in the Xert response. Compute watts per kg and annotate each route card with a personalized difficulty indicator (e.g. "Challenging / Moderate / Comfortable") based on gradient relative to the rider's W/kg. A 83 m/km climb is very different at 2.5 vs 4.5 W/kg. Zero new APIs needed.
@@ -60,9 +76,6 @@ WOTD data already comes from Xert. Match the workout structure to a route — in
 ### PR targeting via Strava segment links
 `zwift-data`'s segments export includes `stravaSegmentUrl` for most climbs and sprints. Surface these directly on route cards as tappable chips — climbs in orange, sprints in green. Rider can tap before their ride to check their current PR. Pairs naturally with ride cues: if the cue says "hit the Epic KOM at threshold," the Strava link is right there. No new API or auth required — pure static data from the already-bundled `segments-data.js`.
 
-### Multi-bucket route scoring
-Current model picks one bucket and ranks against it. Better: score routes against all three buckets simultaneously, weighted by deficit size. A route that addresses your two most depleted systems ranks higher than one that nails only the biggest deficit. Foundation for the time-constrained optimization idea.
-
 ---
 
 ## Tier 3 — Longer term / needs more thought
@@ -89,8 +102,10 @@ Rather than labeling a route as "LOW" or "HIGH", estimate how much XSS each buck
 - Mobile layout works but hasn't been tested on a real device.
 - HIE display: consider one decimal place since it's a smaller number than FTP.
 - The Recent Progress panel is clearer now, but a legend or tooltip may still help explain target track vs completed fill for first-time users.
+- The testing/dev data-source controls are functional, but they are plainly styled. If they stay long term, they could use better affordances and maybe a “dev only” visual treatment.
 
 ## Operational
 - Token TTL is hardcoded to 1 hour in `xert.js`. Xert's actual TTL may differ — worth checking if users hit unexpected logouts.
 - `routes-data.js` needs regenerating when Zwift adds new worlds: `node bundle-routes.mjs` then commit.
 - Local dev still requires two terminals (`node proxy.js` + `npx serve .`). A `start.sh`/`start.bat` launcher would simplify this.
+- QA docs now live in `test-plan.md` and `rapid-qa-checklist.md`; keep them updated whenever major recommendation logic or testing affordances change.

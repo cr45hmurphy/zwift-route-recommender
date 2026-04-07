@@ -15,6 +15,31 @@ const PUNCH_DISTANCE_MAX     = 18;  // km   — routes below this get full short
 const PUNCH_ELEVATION_CAP    = 400; // m    — routes above this score 0 in PEAK (sustained climbers, not punchy)
 const RECOVERY_DISTANCE_MAX  = 30;  // km   — routes above this score near 0 in RECOVERY
 const RECOVERY_ELEVATION_MAX = 200; // m    — routes above this score near 0 in RECOVERY
+const OPTIMIZER_ACTIVE_BUCKET_BOOST = 0.15;
+const OPTIMIZER_SORT_EPSILON = 0.001;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function stableRouteKey(route) {
+  return String(route?.slug ?? route?.name ?? '').toLowerCase();
+}
+
+function compareOptimizedRoutes(a, b, availableMinutes) {
+  const utilityDiff = b.utility - a.utility;
+  if (Math.abs(utilityDiff) >= OPTIMIZER_SORT_EPSILON) {
+    return utilityDiff;
+  }
+
+  const aTimeDelta = Math.abs((a.estimatedMinutes ?? availableMinutes) - availableMinutes);
+  const bTimeDelta = Math.abs((b.estimatedMinutes ?? availableMinutes) - availableMinutes);
+  if (aTimeDelta !== bTimeDelta) return aTimeDelta - bTimeDelta;
+
+  if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
+
+  return stableRouteKey(a).localeCompare(stableRouteKey(b));
+}
 
 function valueOr(...values) {
   for (const value of values) {
@@ -157,6 +182,159 @@ export function rankRoutes(routes, bucket) {
   scored.sort((a, b) => b.score - a.score);
 
   return scored.slice(0, 15);
+}
+
+function routeContributions(route) {
+  return {
+    low: scoreRoute(route, 'low') / 100,
+    high: scoreRoute(route, 'high') / 100,
+    peak: scoreRoute(route, 'peak') / 100,
+    recovery: scoreRoute(route, 'recovery') / 100,
+  };
+}
+
+function normalizeDeficits(deficits = {}) {
+  const positive = {
+    low: Math.max(deficits.low ?? 0, 0),
+    high: Math.max(deficits.high ?? 0, 0),
+    peak: Math.max(deficits.peak ?? 0, 0),
+  };
+  const total = positive.low + positive.high + positive.peak;
+
+  if (total <= 0) return { ...positive, total, weights: { low: 0, high: 0, peak: 0 } };
+
+  return {
+    ...positive,
+    total,
+    weights: {
+      low: positive.low / total,
+      high: positive.high / total,
+      peak: positive.peak / total,
+    },
+  };
+}
+
+function timeFitScore(estimatedMinutes, availableMinutes) {
+  if (!Number.isFinite(estimatedMinutes) || estimatedMinutes <= 0) return 0.5;
+  if (!Number.isFinite(availableMinutes) || availableMinutes <= 0) return 1;
+
+  const diff = estimatedMinutes - availableMinutes;
+  if (diff === 0) return 1;
+
+  if (diff < 0) {
+    const underRatio = Math.abs(diff) / availableMinutes;
+    return clamp(1 - underRatio * 0.55, 0.5, 1);
+  }
+
+  const overRatio = diff / availableMinutes;
+  return clamp(1 - overRatio * 0.95, 0.15, 1);
+}
+
+function describeTimeFit(estimatedMinutes, availableMinutes) {
+  if (!Number.isFinite(estimatedMinutes) || !Number.isFinite(availableMinutes)) return 'time-unknown';
+  const diff = estimatedMinutes - availableMinutes;
+  const absDiff = Math.abs(diff);
+
+  if (absDiff <= 10) return 'near-time';
+  if (diff < 0) return 'under-time';
+  return 'over-time';
+}
+
+function optimizerReason(contributions, weights, bucket, timeFitTag) {
+  const weighted = ['low', 'high', 'peak']
+    .map(name => ({
+      bucket: name,
+      value: contributions[name] * (weights[name] ?? 0),
+    }))
+    .filter(item => item.value >= 0.08)
+    .sort((a, b) => b.value - a.value);
+
+  const top = weighted.slice(0, 2).map(item => item.bucket);
+  const bucketLabel = bucket?.toUpperCase();
+
+  if (bucket === 'recovery') {
+    if (timeFitTag === 'over-time') return 'Recovery-friendly, but longer than your target.';
+    if (timeFitTag === 'under-time') return 'Recovery-friendly and comfortably within your time budget.';
+    return 'Recovery-friendly and right on your target time.';
+  }
+
+  if (!top.length) {
+    if (timeFitTag === 'over-time') return `Closest match for your ${bucketLabel} focus, but a bit long.`;
+    return `Balanced best fit for your ${bucketLabel} focus and time target.`;
+  }
+
+  const joined = top.length === 2 ? `${top[0]} + ${top[1]}` : top[0];
+
+  if (timeFitTag === 'near-time') return `Best blend of ${joined} support and time fit.`;
+  if (timeFitTag === 'under-time') return `Strong ${joined} match that fits comfortably inside your time budget.`;
+  return `Strong ${joined} match if you can go a little longer today.`;
+}
+
+export function optimizeRoutes(routes, options = {}) {
+  const {
+    bucket = 'low',
+    deficits = {},
+    availableMinutes = 60,
+    estimateMinutes = () => null,
+    limit = 15,
+    recoveryMode = bucket === 'recovery',
+  } = options;
+
+  const eligible = routes.filter(r =>
+    !r.eventOnly &&
+    Array.isArray(r.sports) &&
+    r.sports.includes('cycling')
+  );
+
+  if (recoveryMode) {
+    return eligible
+      .map(route => {
+        const estimatedMinutes = estimateMinutes(route);
+        const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
+        const score = scoreRoute(route, 'recovery');
+        const contributions = routeContributions(route);
+        return {
+          ...route,
+          score,
+          estimatedMinutes,
+          optimizerTimeFit: timeFit,
+          optimizerBreakdown: contributions,
+          optimizerReason: optimizerReason(contributions, {}, 'recovery', describeTimeFit(estimatedMinutes, availableMinutes)),
+          utility: Math.round(score * timeFit),
+        };
+      })
+      .sort((a, b) => compareOptimizedRoutes(a, b, availableMinutes))
+      .slice(0, limit);
+  }
+
+  const deficitState = normalizeDeficits(deficits);
+  const weights = deficitState.weights;
+
+  return eligible
+    .map(route => {
+      const estimatedMinutes = estimateMinutes(route);
+      const contributions = routeContributions(route);
+      const weightedContribution =
+        contributions.low * weights.low +
+        contributions.high * weights.high +
+        contributions.peak * weights.peak;
+      const activeContribution = contributions[bucket] ?? 0;
+      const boostedContribution = weightedContribution + (activeContribution * OPTIMIZER_ACTIVE_BUCKET_BOOST);
+      const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
+      const utility = boostedContribution * timeFit;
+
+      return {
+        ...route,
+        score: Math.round(utility * 100),
+        estimatedMinutes,
+        optimizerTimeFit: timeFit,
+        optimizerBreakdown: contributions,
+        optimizerReason: optimizerReason(contributions, weights, bucket, describeTimeFit(estimatedMinutes, availableMinutes)),
+        utility,
+      };
+    })
+    .sort((a, b) => compareOptimizedRoutes(a, b, availableMinutes))
+    .slice(0, limit);
 }
 
 export function generateRideCue(route, bucket, wotdStructure, routeSegments) {

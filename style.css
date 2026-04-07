@@ -82,6 +82,23 @@ a:hover { text-decoration: underline; }
 
 .auth-card input:focus { border-color: var(--accent); }
 
+.auth-card select,
+.settings-field select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.auth-card select:focus,
+.settings-field select:focus {
+  border-color: var(--accent);
+}
+
 .auth-error {
   background: var(--red-dim);
   border: 1px solid var(--red);
@@ -90,6 +107,38 @@ a:hover { text-decoration: underline; }
   font-size: 0.85rem;
   margin-bottom: 20px;
   display: none;
+}
+
+.dev-panel {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.dev-panel-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+#auth-scenario-btn {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.dev-note,
+.settings-note,
+.history-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.dev-note,
+.settings-note {
+  margin-top: 8px;
 }
 
 /* ── Buttons ─────────────────────────────────────── */
@@ -272,6 +321,10 @@ section { margin-bottom: 32px; }
 .history-empty {
   font-size: 0.82rem;
   color: var(--text-muted);
+}
+
+.history-note {
+  margin-top: 12px;
 }
 
 .history-row {
@@ -805,6 +858,12 @@ a.segment-chip:hover {
 }
 
 .settings-field input:focus { border-color: var(--accent); }
+
+.settings-field select {
+  width: 220px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
 
 .unit-toggle { display: flex; gap: 4px; }
 
