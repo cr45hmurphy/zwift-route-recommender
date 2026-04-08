@@ -2,16 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+For the current file layout and working conventions, use `AGENTS.md` as the source of truth. This file keeps the higher-level project notes and intent.
+
 ## Project Overview
 
-A single-page web app (no backend required) that pulls Xert fitness data, calculates energy bucket deficits, and recommends Zwift routes to fill the most depleted system. Full spec: `zwift-route-recommender-spec.md`.
+A single-page web app (no backend required) that pulls Xert fitness data, calculates energy bucket deficits, and recommends Zwift routes to fill the most depleted system. Full spec: `docs/reference/zwift-route-recommender-spec.md`.
 
 ## Build Order
 
-1. **Test CORS first** — before any UI, verify Xert's API responds to a direct browser `fetch`. If blocked, build `proxy.js` first.
-2. **Build `scorer.js` in isolation** — pure math, no API or DOM dependencies. Validate that the right routes surface before wiring auth or UI.
-3. **Wire `xert.js`** — auth + data fetch.
-4. **Build UI last** — `index.html`, `style.css`, rendering in `app.js`.
+1. **Test CORS first** — before any UI, verify Xert's API responds to a direct browser `fetch`. If blocked, build `scripts/proxy.js` first.
+2. **Build `public/app/core/scorer.js` in isolation** — pure math, no API or DOM dependencies. Validate that the right routes surface before wiring auth or UI.
+3. **Wire `public/app/core/xert.js`** — auth + data fetch.
+4. **Build UI last** — `public/index.html`, `public/assets/style.css`, rendering in `public/app/app.js`.
 
 ## Build & Run
 
@@ -20,23 +22,28 @@ This is a static frontend app using vanilla HTML/CSS/JS with one npm dependency.
 ```bash
 npm install          # installs zwift-data
 # Open index.html directly in browser, OR serve locally:
-npx serve .          # or python -m http.server 8080
+npm run serve
 ```
 
 **CORS issue:** Xert's API (`https://www.xertonline.com/oauth/`) will likely block direct browser requests. A minimal local proxy may be needed:
 ```bash
-node proxy.js        # if a proxy script exists
+node scripts/proxy.js
 ```
 
 ## File Architecture
 
 ```
-index.html    — single page shell, imports all JS/CSS
-style.css     — all styles
-app.js        — orchestration: init, auth flow, rendering
-xert.js       — Xert OAuth2 + /training_info API wrapper; stores token in localStorage
-scorer.js     — route scoring logic (pure functions, no side effects)
-routes.js     — imports from zwift-data npm package, exports filtered cycling routes
+public/index.html            — single page shell
+public/assets/style.css      — app styles
+public/app/app.js            — orchestration: init, auth flow, rendering
+public/app/core/xert.js      — Xert OAuth2 + API wrapper; stores token in localStorage
+public/app/core/scorer.js    — route scoring logic (pure functions, no side effects)
+public/app/core/routes.js    — route metadata helpers and world filters
+public/app/core/segments.js  — segment metadata helpers
+public/app/data/*.js         — mock and generated browser data
+public/tests/*.html          — manual validation harnesses
+scripts/bundle-routes.mjs    — generates route and segment data
+scripts/proxy.js             — local proxy for CORS debugging
 ```
 
 ## Key Architecture Decisions
@@ -63,7 +70,7 @@ All scoring thresholds (e.g. `40` km for flat, `800` m elevation for climbing, `
 
 ## World Name Slugs
 
-`zwift-data` uses slugs (e.g. `"watopia"`). Map to display names using the `WORLD_NAMES` constant defined in the spec. Keep this mapping in `routes.js` or `app.js`.
+`zwift-data` uses slugs (e.g. `"watopia"`). Map to display names using the `WORLD_NAMES` constant defined in the spec. Keep this mapping in `public/app/core/routes.js`.
 
 ## Data Shape Reference
 

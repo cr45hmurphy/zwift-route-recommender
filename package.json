@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build-routes": "node bundle-routes.mjs",
-    "build-segments": "node bundle-routes.mjs",
-    "serve": "npx serve ."
+    "build-routes": "node scripts/bundle-routes.mjs",
+    "build-segments": "node scripts/bundle-routes.mjs",
+    "serve": "npx serve public"
   },
   "dependencies": {
     "zwift-data": "latest"
