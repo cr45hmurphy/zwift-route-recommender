@@ -86,13 +86,13 @@ export const MOCK_SCENARIOS = {
       wotd: {
         name: 'Rolling Pressure',
         difficulty: 'Hard',
-        description: 'Repeated threshold surges with recoveries between efforts.',
+        description: 'Repeated threshold surges with recoveries between efforts. #MIXEDMODE',
       },
     },
     rawWotd: {
       name: 'Rolling Pressure',
       difficulty: 'Hard',
-      description: 'Repeated threshold surges with recoveries between efforts.',
+      description: 'Repeated threshold surges with recoveries between efforts. #MIXEDMODE',
       xss: 72,
       lowXSS: 22,
       highXSS: 38,

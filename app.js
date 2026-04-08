@@ -1,8 +1,8 @@
-import { authenticate, fetchTrainingInfo, fetchActivitiesInRange, fetchActivityDetail, parseTrainingData, clearToken, hasToken } from './xert.js';
+import { authenticate, fetchTrainingInfo, fetchWorkout, fetchActivitiesInRange, fetchActivityDetail, parseTrainingData, clearToken, hasToken } from './xert.js';
 import { routes } from './routes.js';
 import { filterToAvailableWorlds, todaysWorlds, worldName } from './routes.js';
 import { getSegmentsForRoute } from './segments.js';
-import { analyzeTrainingDay, generateRideCue, optimizeRoutes } from './scorer.js';
+import { analyzeTrainingDay, generateRideCue, optimizeRoutes, wotdTerrainScore } from './scorer.js';
 import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './mock-data.js';
 
 // ── Constants ─────────────────────────────────────
@@ -112,6 +112,73 @@ function displaySpeed(kmh) {
   return getUnits() === 'imperial'
     ? `${Math.round(kmh * KM_TO_MI)} mph`
     : `${Math.round(kmh)} km/h`;
+}
+
+function bucketColorClass(bucket) {
+  if (bucket === 'low' || bucket === 'high' || bucket === 'peak') return bucket;
+  return '';
+}
+
+function wotdDisplayLabel(wotdStructure) {
+  const labels = {
+    sustained_climb: 'sustained climb workout',
+    repeated_punchy: 'threshold interval workout',
+    sprint_power: 'sprint power workout',
+    mixed_mode: 'mixed workout',
+    aerobic_endurance: 'aerobic endurance workout',
+    recovery: 'recovery',
+  };
+  return labels[wotdStructure] ?? null;
+}
+
+function wotdTargetBucket(wotdStructure, fallbackBucket) {
+  const map = {
+    sustained_climb: 'high',
+    repeated_punchy: 'high',
+    sprint_power: 'peak',
+    aerobic_endurance: 'low',
+    recovery: 'recovery',
+  };
+  return map[wotdStructure] ?? fallbackBucket;
+}
+
+function emphasizedTitle(text, emphasis, bucketClass) {
+  if (!emphasis || !text.includes(emphasis)) return text;
+  return text.replace(emphasis, `<span class="bucket-word ${bucketClass}">${emphasis}</span>`);
+}
+
+function bucketBadgeHTML(baseClass, bucket, innerHtml) {
+  return `<span class="${baseClass} ${bucketColorClass(bucket)}">${innerHtml}</span>`;
+}
+
+function getDisplayTarget(wotdStructure, fallbackBucket) {
+  if (wotdStructure === 'mixed_mode') {
+    return { mode: 'mixed' };
+  }
+  return { mode: 'bucket', bucket: wotdTargetBucket(wotdStructure, fallbackBucket) };
+}
+
+function wotdDurationMinutes(wotd) {
+  const duration = Number(wotd?.duration ?? wotd?.durationSeconds ?? wotd?.seconds ?? wotd?.totalDuration);
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  return duration > 300 ? duration / 60 : duration;
+}
+
+function estimateMixedSupportXss(minutes, route = null) {
+  const contributions = route?.optimizerBreakdown ?? { low: 1, high: 1, peak: 1 };
+  const low = estimateBucketImpactXss(minutes, 'low') * (contributions.low ?? 0);
+  const high = estimateBucketImpactXss(minutes, 'high') * (contributions.high ?? 0);
+  const peak = estimateBucketImpactXss(minutes, 'peak') * (contributions.peak ?? 0);
+  return Math.round(low + high + peak);
+}
+
+function estimateWorkoutLoadXss(minutes, rawWotd, fallbackTotal = null) {
+  const totalXss = Number(rawWotd?.xss ?? rawWotd?.totalXSS ?? rawWotd?.total_xss ?? rawWotd?.workoutXss ?? rawWotd?.plannedXSS);
+  const durationMin = wotdDurationMinutes(rawWotd);
+  if (!Number.isFinite(totalXss) || !Number.isFinite(durationMin) || durationMin <= 0) {
+    return Number.isFinite(fallbackTotal) ? Math.round(Math.min(fallbackTotal, (minutes / 60) * XSS_RATE.low)) : null;
+  }
+  return Math.round((minutes / durationMin) * totalXss);
 }
 
 // ── State ─────────────────────────────────────────
@@ -248,12 +315,35 @@ async function refresh(username, password) {
     const raw = await fetchTrainingInfo(username, password);
     state.trainingData = parseTrainingData(raw);
     state.rawWotd = raw?.wotd ?? null;
+    if (state.rawWotd?.workoutId) {
+      try {
+        const workoutDetail = await fetchWorkout(state.rawWotd.workoutId);
+        const intervals = Array.isArray(workoutDetail?.workout) ? workoutDetail.workout : [];
+        const sprintInterval = intervals
+          .filter(i => Number(i?.duration) <= 30 && Number(i?.power) > 0)
+          .sort((a, b) => Number(b.power) - Number(a.power))[0] ?? null;
+        state.rawWotd = {
+          ...state.rawWotd,
+          ...workoutDetail,
+          intervalPower: sprintInterval ? Number(sprintInterval.power) : null,
+          intervalDuration: sprintInterval ? Number(sprintInterval.duration) : null,
+        };
+        // Patch display fields if training_info wotd was sparse
+        if (!state.trainingData.wotd.name && state.rawWotd.name) {
+          state.trainingData.wotd.name = state.rawWotd.name;
+        }
+        if (!state.trainingData.wotd.description && state.rawWotd.description) {
+          state.trainingData.wotd.description = state.rawWotd.description;
+        }
+      } catch (_) { /* use training_info wotd as-is */ }
+    }
     const dailySummary = await fetchTodaysDailySummary(state.trainingData.targetXSS, username, password);
     state.dailySummary = dailySummary;
     const { bucket: analyzedBucket, wotdStructure } = analyzeTrainingDay(
       state.dailySummary.completed,
       state.dailySummary.targets,
-      state.rawWotd
+      state.rawWotd,
+      state.trainingData?.signature?.ftp
     );
     state.wotdStructure = wotdStructure;
     const { bucket, overrideNote } = applyFreshnessOverride(analyzedBucket, state.trainingData.status);
@@ -287,7 +377,8 @@ function loadMockScenario() {
   const { bucket: analyzedBucket, wotdStructure } = analyzeTrainingDay(
     state.dailySummary.completed,
     state.dailySummary.targets,
-    state.rawWotd
+    state.rawWotd,
+    state.trainingData?.signature?.ftp
   );
   state.wotdStructure = wotdStructure;
   const { bucket, overrideNote } = applyFreshnessOverride(analyzedBucket, state.trainingData.status);
@@ -390,36 +481,60 @@ function renderBucketBar(name, completed, target, remaining, highlighted) {
 
   document.getElementById(`bar-fill-${name}`).style.width = `${pct.toFixed(1)}%`;
   document.getElementById(`bar-fill-${name}`).classList.toggle('highlighted', highlighted);
+  document.getElementById(`bar-fill-${name}`).classList.add(name);
   document.getElementById(`bar-label-${name}`).classList.toggle('highlighted', highlighted);
 
   const valEl = document.getElementById(`bar-values-${name}`);
   valEl.title = 'Completed vs daily target';
   valEl.innerHTML = `${current.toFixed(1)} / ${target.toFixed(1)}`;
   if (remaining > 0) {
-    valEl.innerHTML += ` <span class="deficit">${remaining.toFixed(1)} left</span>`;
+    valEl.innerHTML += ` <span class="deficit ${name}">${remaining.toFixed(1)} left</span>`;
   }
 }
 
 function renderRecommendation() {
   const d = state.trainingData;
   const b = state.bucket;
+  const recTitleEl = document.getElementById('rec-title');
+  const recSubtitleEl = document.getElementById('rec-subtitle');
+  const remaining = state.dailySummary?.remaining ?? {};
 
-  const titles = {
-    low:      'Your aerobic base needs work',
-    high:     'Your high intensity bucket needs work',
-    peak:     'Your peak power bucket needs work',
-    recovery: 'You\'re on top of all your targets',
-  };
+  if (b === 'recovery' || state.wotdStructure === 'recovery') {
+    recTitleEl.innerHTML = emphasizedTitle('Recovery day', 'Recovery', 'low');
+    recSubtitleEl.textContent = 'Keep it easy — short, flat, no efforts.';
+  } else if (state.wotdStructure === 'mixed_mode') {
+    recTitleEl.textContent = 'Today calls for mixed efforts';
+    recSubtitleEl.textContent = 'Xert\'s workout builds aerobic base with explosive peak intervals — find routes with sprint segments and flat recovery between them.';
+  } else if (state.wotdStructure === 'sustained_climb') {
+    recTitleEl.innerHTML = emphasizedTitle('Today calls for sustained climbing', 'climbing', 'high');
+    recSubtitleEl.textContent = `Xert's workout targets ${remaining.high.toFixed(1)} high XSS — one long threshold effort on a climb will do it.`;
+  } else if (state.wotdStructure === 'repeated_punchy') {
+    recTitleEl.innerHTML = emphasizedTitle('Today calls for repeated threshold efforts', 'threshold efforts', 'high');
+    recSubtitleEl.textContent = `Xert's workout targets ${remaining.high.toFixed(1)} high XSS — repeated hard surges with full recovery between.`;
+  } else if (state.wotdStructure === 'sprint_power') {
+    recTitleEl.innerHTML = emphasizedTitle('Today calls for short maximal efforts', 'maximal efforts', 'peak');
+    recSubtitleEl.textContent = `Xert's workout targets ${remaining.peak.toFixed(1)} peak XSS — sprint every banner at absolute max.`;
+  } else if (state.wotdStructure === 'aerobic_endurance') {
+    recTitleEl.innerHTML = emphasizedTitle('Today calls for aerobic base work', 'aerobic base work', 'low');
+    recSubtitleEl.textContent = `Xert's workout targets ${remaining.low.toFixed(1)} low XSS — steady Z2, let the distance do the work.`;
+  } else {
+    const titles = {
+      low: emphasizedTitle('Your low bucket needs work', 'low', 'low'),
+      high: emphasizedTitle('Your high bucket needs work', 'high', 'high'),
+      peak: emphasizedTitle('Your peak bucket needs work', 'peak', 'peak'),
+      recovery: 'You\'re on top of all your targets',
+    };
 
-  const subtitles = {
-    low:      `You still have ${state.dailySummary.remaining.low.toFixed(1)} low XSS left today — a long flat ride will help.`,
-    high:     `You still have ${state.dailySummary.remaining.high.toFixed(1)} high XSS left today — a climbing route will help.`,
-    peak:     `You still have ${state.dailySummary.remaining.peak.toFixed(1)} peak XSS left today — a short punchy route will help.`,
-    recovery: 'All buckets at or above target. Take it easy — flat and short today.',
-  };
+    const subtitles = {
+      low: `You still have ${remaining.low.toFixed(1)} low XSS left today — a long flat ride will help.`,
+      high: `You still have ${remaining.high.toFixed(1)} high XSS left today — a climbing route will help.`,
+      peak: `You still have ${remaining.peak.toFixed(1)} peak XSS left today — a short punchy route will help.`,
+      recovery: 'All buckets at or above target. Take it easy — flat and short today.',
+    };
 
-  document.getElementById('rec-title').textContent    = titles[b]    ?? '';
-  document.getElementById('rec-subtitle').textContent = subtitles[b] ?? '';
+    recTitleEl.innerHTML = titles[b] ?? '';
+    recSubtitleEl.textContent = subtitles[b] ?? '';
+  }
 
   const wotdEl = document.getElementById('wotd');
   if (d.wotd.name) {
@@ -446,6 +561,7 @@ function enrichRoutes(rankedRoutes, bucket, wotdStructure) {
     return {
       ...route,
       rideCue: generateRideCue(route, bucket, wotdStructure, routeSegments),
+      wotdTerrainScore: route.wotdTerrainScore ?? wotdTerrainScore(route, wotdStructure, routeSegments),
       relevantClimbs: routeSegments.climbs.slice(0, 3),
       relevantSprints: routeSegments.sprints,
       segmentSource: routeSegments.source,
@@ -466,6 +582,8 @@ function recomputeRankedRoutes() {
     deficits: state.dailySummary.remaining,
     availableMinutes: settings.minutes,
     estimateMinutes: route => estimateRouteMinutes(route, settings, state.trainingData),
+    getRouteSegments: route => getSegmentsForRoute(route),
+    wotdStructure: state.wotdStructure,
     recoveryMode: state.bucket === 'recovery',
   });
 
@@ -516,19 +634,35 @@ function routeCardHTML(route, compact) {
     ? `<span class="time-tag over-time">~${formatMinutes(estMin)} · +${formatMinutes(overBy)} over</span>`
     : `<span class="time-tag fits-time">~${formatMinutes(estMin)}</span>`;
 
-  const b = state.bucket;
-  const remainingXss = (state.dailySummary && b !== 'recovery') ? state.dailySummary.remaining[b] : null;
-  const estimatedBucketXss = estimateBucketImpactXss(estMin, b);
-  const fillPct = remainingXss ? Math.min(Math.round(estimatedBucketXss / Math.max(remainingXss, 1) * 100), 100) : null;
-  const fillTag = fillPct !== null
-    ? `<span class="xss-fill">~${fillPct}% of ${b} left</span>`
-    : '';
-  const impactTag = b === 'recovery'
-    ? '<span class="route-impact recovery">Recovery-friendly</span>'
-    : `<span class="route-impact">${estimatedBucketXss} XSS toward ${b}</span>`;
-  const matchTag = b === 'recovery'
-    ? '<span class="route-match">Recovery day</span>'
-    : `<span class="route-match">Best for ${b} remaining</span>`;
+  const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
+  let fillTag = '';
+  let impactTag = '';
+  let matchTag = '';
+
+  if (displayTarget.mode === 'mixed') {
+    const estimatedMixedXss = estimateMixedSupportXss(estMin, route);
+    const remainingTotal = state.dailySummary?.remaining?.total ?? null;
+    const fillPct = remainingTotal ? Math.min(Math.round(estimatedMixedXss / Math.max(remainingTotal, 1) * 100), 100) : null;
+    fillTag = fillPct !== null
+      ? '<span class="xss-fill mixed">supports ~' + fillPct + '% of <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span></span>'
+      : '';
+    impactTag = '<span class="route-impact mixed">' + estimatedMixedXss + ' XSS across <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span></span>';
+    matchTag = '<span class="route-match mixed">Best for mixed workout support</span>';
+  } else {
+    const b = displayTarget.bucket;
+    const remainingXss = (state.dailySummary && b !== 'recovery') ? state.dailySummary.remaining[b] : null;
+    const estimatedBucketXss = estimateBucketImpactXss(estMin, b);
+    const fillPct = remainingXss ? Math.min(Math.round(estimatedBucketXss / Math.max(remainingXss, 1) * 100), 100) : null;
+    fillTag = fillPct !== null
+      ? bucketBadgeHTML('xss-fill', b, `fills ~${fillPct}% of <span class="bucket-word ${bucketColorClass(b)}">${b}</span>`)
+      : '';
+    impactTag = b === 'recovery'
+      ? '<span class="route-impact recovery">Recovery-friendly</span>'
+      : bucketBadgeHTML('route-impact', b, `${estimatedBucketXss} XSS toward <span class="bucket-word ${bucketColorClass(b)}">${b}</span>`);
+    matchTag = b === 'recovery'
+      ? '<span class="route-match">Recovery day</span>'
+      : bucketBadgeHTML('route-match', b, `Best for <span class="bucket-word ${bucketColorClass(b)}">${b}</span> remaining`);
+  }
 
   const cls = compact ? 'route-card compact' : 'route-card';
 
@@ -578,8 +712,21 @@ function segmentChipHTML(segment, kind) {
 }
 
 function routeReason(route, bucket) {
-  if (route.optimizerReason) return route.optimizerReason;
+  const baseReason = route.optimizerReason || defaultRouteReason(route, bucket);
+  const label = wotdDisplayLabel(state.wotdStructure);
+  if (!label || state.bucket === 'recovery') return baseReason;
 
+  const terrainScore = route.wotdTerrainScore ?? 0.5;
+  if (terrainScore >= 0.7) {
+    return `Strong terrain match for today's ${label}. ${baseReason}`;
+  }
+  if (terrainScore >= 0.4) {
+    return `Reasonable terrain for today's ${label}. ${baseReason}`;
+  }
+  return `Limited terrain match for today's workout. ${baseReason}`;
+}
+
+function defaultRouteReason(route, bucket) {
   const gr = route.distance > 0 ? route.elevation / route.distance : 0;
 
   if (bucket === 'recovery') {
@@ -645,12 +792,8 @@ function formatMinutes(min) {
 function renderTimeSummary() {
   if (!state.trainingData) return;
   const d = state.trainingData;
-  const b = state.bucket;
+  const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
   const { minutes: timeMin, mode } = getTimeSettings();
-
-  const xssRate      = XSS_RATE[b] ?? 65;
-  const estimatedXss = Math.round((timeMin / 60) * xssRate);
-  const remainingXss = (b !== 'recovery') ? state.dailySummary.remaining[b] : null;
   const riderWkg = getRiderWkg(d);
   const timingLead = mode === 'manual'
     ? 'Using your manual pace, '
@@ -660,6 +803,29 @@ function renderTimeSummary() {
 
   const el = document.getElementById('time-summary');
   if (!el) return;
+
+  if (displayTarget.mode === 'mixed') {
+    const remainingTotal = state.dailySummary?.remaining?.total ?? 0;
+    const estimatedXss = estimateWorkoutLoadXss(timeMin, state.rawWotd, remainingTotal);
+    if (estimatedXss !== null) {
+      const fillPct = remainingTotal > 0
+        ? Math.min(Math.round(estimatedXss / Math.max(remainingTotal, 1) * 100), 100)
+        : 100;
+      el.innerHTML =
+        `${timingLead}${timeMin} min should support roughly ${estimatedXss} XSS of today's mixed workout` +
+        ` — about ${fillPct}% of your remaining <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> load.`;
+    } else {
+      el.innerHTML =
+        `${timingLead}${timeMin} min should support today's mixed workout across your remaining ` +
+        `<span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> load.`;
+    }
+    return;
+  }
+
+  const b = displayTarget.bucket;
+  const xssRate = XSS_RATE[b] ?? 65;
+  const estimatedXss = Math.round((timeMin / 60) * xssRate);
+  const remainingXss = (b !== 'recovery') ? state.dailySummary.remaining[b] : null;
 
   if (b === 'recovery' || !remainingXss) {
     el.textContent = `${timingLead}with ${timeMin} min available, an easy spin is plenty today.`;

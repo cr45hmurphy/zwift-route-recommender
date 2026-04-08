@@ -66,11 +66,21 @@ function wotdDurationMinutes(wotd) {
   return durationSeconds > 300 ? durationSeconds / 60 : durationSeconds;
 }
 
-export function classifyWOTD(wotd) {
-  if (!wotd) return 'recovery';
+export function classifyWOTD(wotd, ftp = null) {
+  if (!wotd) return null;
+
+  const description = String(wotd?.description ?? '');
+  const tags = Array.isArray(wotd?.tags) ? wotd.tags : [];
+  if (
+    /#mixedmode\b/i.test(description) ||
+    /\bmixed mode\b/i.test(description) ||
+    tags.some(t => /mixedmode/i.test(t))
+  ) {
+    return 'mixed_mode';
+  }
 
   const totalXSS = firstNumber(wotd, ['xss', 'totalXSS', 'total_xss', 'workoutXss', 'plannedXSS']);
-  if (!totalXSS) return 'recovery';
+  if (!totalXSS) return null;
 
   const lowXSS = firstNumber(wotd, ['lowXSS', 'low', 'xlss', 'low_xss']);
   const highXSS = firstNumber(wotd, ['highXSS', 'high', 'xhss', 'high_xss']);
@@ -84,18 +94,36 @@ export function classifyWOTD(wotd) {
   const highRatio = highXSS / totalXSS;
   const peakRatio = peakXSS / totalXSS;
   const lowRatio = lowXSS / totalXSS;
+  const normalizedFtp = ftp ?? firstNumber(wotd, ['ftp']);
+  const intervalPower = firstNumber(wotd, ['intervalPower', 'interval_power', 'intervalWatts', 'interval_watts']);
+  const intervalDurationSeconds = firstNumber(wotd, ['intervalDuration', 'interval_duration', 'intervalSeconds', 'interval_seconds']);
+
+  if (
+    normalizedFtp &&
+    intervalPower !== null &&
+    intervalDurationSeconds !== null &&
+    intervalPower > (1.5 * normalizedFtp) &&
+    intervalDurationSeconds <= 30 &&
+    lowRatio > 0.6
+  ) {
+    return 'mixed_mode';
+  }
+
+  if (peakXSS > 0 && lowRatio > 0.7 && durationMin > 60) {
+    return 'mixed_mode';
+  }
 
   if (peakRatio > 0.25) return 'sprint_power';
-  if (highRatio > 0.4 && durationMin > 45) return 'sustained_climb';
-  if (highRatio > 0.4 && durationMin <= 45) return 'repeated_punchy';
+  if (highRatio > 0.4 && durationMin >= 60) return 'sustained_climb';
+  if (highRatio > 0.4 && durationMin < 60) return 'repeated_punchy';
   if (lowRatio > 0.7) return 'aerobic_endurance';
   return 'aerobic_endurance';
 }
 
-export function analyzeTrainingDay(tl, targetXSS, wotd) {
+export function analyzeTrainingDay(tl, targetXSS, wotd, ftp = null) {
   return {
     bucket: detectBucket(tl, targetXSS),
-    wotdStructure: classifyWOTD(wotd),
+    wotdStructure: classifyWOTD(wotd, ftp),
   };
 }
 
@@ -240,7 +268,77 @@ function describeTimeFit(estimatedMinutes, availableMinutes) {
   return 'over-time';
 }
 
-function optimizerReason(contributions, weights, bucket, timeFitTag) {
+function countSprintSegments(routeSegments) {
+  return routeSegments?.sprints?.length ?? 0;
+}
+
+function highestRatedClimbs(routeSegments, count = 2) {
+  return (routeSegments?.climbs ?? []).slice(0, count);
+}
+
+export function wotdTerrainScore(route, wotdStructure, routeSegments) {
+  if (wotdStructure === null || wotdStructure === undefined) return 0.5;
+
+  const distance = route?.distance ?? 0;
+  const elevation = route?.elevation ?? 0;
+  const gradientRatio = distance > 0 ? elevation / distance : 0;
+  const sprintCount = countSprintSegments(routeSegments);
+
+  if (wotdStructure === 'sustained_climb') {
+    if (elevation >= 1000) return 1.0;
+    if (elevation >= 500) return 0.7;
+    if (elevation >= 200) return 0.3;
+    return 0.1;
+  }
+
+  if (wotdStructure === 'repeated_punchy') {
+    if (gradientRatio >= 30 && elevation >= 200 && elevation <= 800) return 1.0;
+    if (gradientRatio >= 20 && elevation >= 150 && elevation <= 800) return 0.8;
+    if (gradientRatio >= 15) return 0.4;
+    return 0.1;
+  }
+
+  if (wotdStructure === 'sprint_power') {
+    if (sprintCount === 0) return 0.05;
+    return Math.min(1.0, sprintCount * 0.3);
+  }
+
+  if (wotdStructure === 'mixed_mode') {
+    if (sprintCount >= 2 && distance >= 20) return 1.0;
+    if (sprintCount >= 1 && distance >= 15) return 0.8;
+    if (sprintCount >= 1) return 0.6;
+    if (distance >= 20 && gradientRatio <= 20) return 0.5;
+    return 0.3;
+  }
+
+  if (wotdStructure === 'aerobic_endurance') {
+    if (gradientRatio <= 15 && distance >= 20) return 1.0;
+    if (gradientRatio <= 20 && distance >= 15) return 0.8;
+    if (gradientRatio <= 25) return 0.5;
+    return 0.2;
+  }
+
+  if (wotdStructure === 'recovery') {
+    if (distance <= 20 && elevation <= 150) return 1.0;
+    if (distance <= 30 && elevation <= 200) return 0.5;
+    return 0.1;
+  }
+
+  return 0.5;
+}
+
+function bucketDeficitScore(contributions, bucket, deficits) {
+  const deficitState = normalizeDeficits(deficits);
+  const weights = deficitState.weights;
+  const weightedContribution =
+    contributions.low * weights.low +
+    contributions.high * weights.high +
+    contributions.peak * weights.peak;
+  const activeContribution = contributions[bucket] ?? 0;
+  return clamp(weightedContribution + (activeContribution * OPTIMIZER_ACTIVE_BUCKET_BOOST), 0, 1);
+}
+
+function optimizerReason(contributions, weights, bucket, timeFitTag, wotdStructure = null) {
   const weighted = ['low', 'high', 'peak']
     .map(name => ({
       bucket: name,
@@ -256,6 +354,12 @@ function optimizerReason(contributions, weights, bucket, timeFitTag) {
     if (timeFitTag === 'over-time') return 'Recovery-friendly, but longer than your target.';
     if (timeFitTag === 'under-time') return 'Recovery-friendly and comfortably within your time budget.';
     return 'Recovery-friendly and right on your target time.';
+  }
+
+  if (wotdStructure === 'mixed_mode') {
+    if (timeFitTag === 'near-time') return 'Best support for low + high + peak work at your target time.';
+    if (timeFitTag === 'under-time') return 'Strong low + high + peak support that fits comfortably inside your time budget.';
+    return 'Strong low + high + peak support if you can go a little longer today.';
   }
 
   if (!top.length) {
@@ -276,6 +380,8 @@ export function optimizeRoutes(routes, options = {}) {
     deficits = {},
     availableMinutes = 60,
     estimateMinutes = () => null,
+    getRouteSegments = () => ({ climbs: [], sprints: [] }),
+    wotdStructure = null,
     limit = 15,
     recoveryMode = bucket === 'recovery',
   } = options;
@@ -293,13 +399,15 @@ export function optimizeRoutes(routes, options = {}) {
         const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
         const score = scoreRoute(route, 'recovery');
         const contributions = routeContributions(route);
+        const routeSegments = getRouteSegments(route);
         return {
           ...route,
           score,
           estimatedMinutes,
           optimizerTimeFit: timeFit,
           optimizerBreakdown: contributions,
-          optimizerReason: optimizerReason(contributions, {}, 'recovery', describeTimeFit(estimatedMinutes, availableMinutes)),
+          wotdTerrainScore: wotdTerrainScore(route, wotdStructure, routeSegments),
+          optimizerReason: optimizerReason(contributions, {}, 'recovery', describeTimeFit(estimatedMinutes, availableMinutes), wotdStructure),
           utility: Math.round(score * timeFit),
         };
       })
@@ -307,21 +415,26 @@ export function optimizeRoutes(routes, options = {}) {
       .slice(0, limit);
   }
 
-  const deficitState = normalizeDeficits(deficits);
-  const weights = deficitState.weights;
-
   return eligible
     .map(route => {
       const estimatedMinutes = estimateMinutes(route);
       const contributions = routeContributions(route);
-      const weightedContribution =
-        contributions.low * weights.low +
-        contributions.high * weights.high +
-        contributions.peak * weights.peak;
-      const activeContribution = contributions[bucket] ?? 0;
-      const boostedContribution = weightedContribution + (activeContribution * OPTIMIZER_ACTIVE_BUCKET_BOOST);
+      const routeSegments = getRouteSegments(route);
+      const terrainScore = wotdTerrainScore(route, wotdStructure, routeSegments);
+      const deficitScore = bucketDeficitScore(contributions, bucket, deficits);
       const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
-      const utility = boostedContribution * timeFit;
+      let utility = wotdStructure
+        ? (terrainScore * 0.45) + (deficitScore * 0.35) + (timeFit * 0.20)
+        : (deficitScore * 0.55) + (timeFit * 0.45);
+
+      const sprintCount = countSprintSegments(routeSegments);
+      if (bucket === 'peak' && wotdStructure === 'sprint_power') {
+        if (sprintCount === 0 && (route.elevation ?? 0) > 500) {
+          utility = 0;
+        } else if (sprintCount >= 1) {
+          utility = (utility * 1.4) + (contributions.peak * 0.35);
+        }
+      }
 
       return {
         ...route,
@@ -329,7 +442,8 @@ export function optimizeRoutes(routes, options = {}) {
         estimatedMinutes,
         optimizerTimeFit: timeFit,
         optimizerBreakdown: contributions,
-        optimizerReason: optimizerReason(contributions, weights, bucket, describeTimeFit(estimatedMinutes, availableMinutes)),
+        wotdTerrainScore: terrainScore,
+        optimizerReason: optimizerReason(contributions, normalizeDeficits(deficits).weights, bucket, describeTimeFit(estimatedMinutes, availableMinutes), wotdStructure),
         utility,
       };
     })
@@ -338,50 +452,64 @@ export function optimizeRoutes(routes, options = {}) {
 }
 
 export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
-  const climbs = routeSegments?.climbs ?? [];
-  const sprints = routeSegments?.sprints ?? [];
+  const namedSegmentsAvailable = routeSegments?.source !== 'world';
+  const climbs = namedSegmentsAvailable ? (routeSegments?.climbs ?? []) : [];
+  const sprints = namedSegmentsAvailable ? (routeSegments?.sprints ?? []) : [];
+  const distance = route?.distance ?? 0;
+  const elevation = route?.elevation ?? 0;
+  const gradientRatio = distance > 0 ? elevation / distance : 0;
 
   if (bucket === 'recovery') {
-    return 'Easy spin only. If you hit a sprint banner, roll through it with no efforts today.';
+    return 'Easy spin only. Roll through any sprint banners with no efforts today.';
   }
 
-  if (bucket === 'high' && wotdStructure === 'sustained_climb') {
-    if (climbs.length) {
-      return `Ride ${climbs[0].name} at threshold pace - that's your HIGH XSS generator today. Keep efforts steady on the way up.`;
+  if (wotdStructure === 'sustained_climb') {
+    const [climb] = highestRatedClimbs(routeSegments, 1);
+    if (climb) {
+      return `Ride ${climb.name} at steady threshold pace. One long controlled effort is what today's workout calls for, so don't sprint the top.`;
     }
-    return 'Use the route\'s main climb for steady threshold work. Keep the effort controlled all the way up.';
+    return 'Find your threshold pace on the climbs and hold it. One long sustained effort, not intervals and not sprints.';
   }
 
-  if (bucket === 'high' && wotdStructure === 'repeated_punchy') {
-    const namedClimbs = climbs.slice(0, 2);
+  if (wotdStructure === 'repeated_punchy') {
+    const namedClimbs = highestRatedClimbs(routeSegments, 2);
     if (namedClimbs.length === 2) {
-      return `Hit ${formatSegmentList(namedClimbs)} hard, then recover between them. Repeated threshold efforts are what Xert wants today.`;
+      return `Hit ${formatSegmentList(namedClimbs)} hard, then fully recover between them. Today calls for repeated threshold surges, not a steady grind.`;
     }
     if (namedClimbs.length === 1) {
-      return `Repeat ${namedClimbs[0].name} hard, then recover between efforts. Repeated threshold efforts are what Xert wants today.`;
+      return `Hit ${namedClimbs[0].name} hard, recover, then repeat if the route loops. Today calls for repeated efforts with full recovery between.`;
     }
-    return 'Use the route\'s punchier climbs for repeated threshold efforts, and fully recover between each one.';
+    return 'Push every rise hard, then recover fully on the flats. Today calls for repeated threshold surges, not a steady grind.';
   }
 
-  if (bucket === 'peak' && wotdStructure === 'sprint_power') {
+  if (wotdStructure === 'sprint_power') {
+    const namedSprints = sprints.slice(0, 3);
+    if (namedSprints.length >= 2) {
+      return `Sprint ${formatSegmentList(namedSprints)} at absolute max effort. Full gas, then fully recover because these are your PEAK XSS generators today.`;
+    }
+    if (namedSprints.length === 1) {
+      return `Sprint ${namedSprints[0].name} at absolute max effort. Recover completely, then repeat if the route allows with no half-efforts.`;
+    }
+    return 'Treat every rise or flat surge like a match strike. Full gas, then fully recover with no half-efforts today.';
+  }
+
+  if (wotdStructure === 'mixed_mode') {
     const namedSprints = sprints.slice(0, 2);
-    if (namedSprints.length) {
-      return `Sprint every banner at max effort. ${formatSegmentList(namedSprints)} are your PEAK XSS targets today.`;
+    if (namedSprints.length >= 1) {
+      return `Ride the flats in Z2 to build aerobic base, sprint ${formatSegmentList(namedSprints)} at absolute max when you hit them. Full recovery between efforts, then back to Z2.`;
     }
-    return 'Treat every short rise or sprint banner like a match strike. Full gas, then fully recover.';
+    return 'Keep it Z2 between any rises, then punch every short climb or surge at max effort. This is a mixed day, aerobic base plus explosive efforts.';
   }
 
-  if (bucket === 'low') {
-    return 'Keep it steady in Z2 the whole way. Resist the urge to push the climbs.';
+  if (wotdStructure === 'aerobic_endurance' || wotdStructure === null || wotdStructure === undefined) {
+    if (gradientRatio > 30) {
+      return 'Keep the climbs controlled and stay in Z2 the whole way. Today is aerobic base work, not efforts.';
+    }
+    if (gradientRatio > 15 && climbs.length) {
+      return 'Ride the climbs in Z2 and resist the urge to push them. Today is about aerobic volume, not threshold work.';
+    }
+    return 'Steady Z2 the whole way. Today is aerobic base, so let the distance do the work.';
   }
 
-  if (bucket === 'high') {
-    return 'Use the route\'s main climbs for steady threshold work. Keep the surges controlled.';
-  }
-
-  if (bucket === 'peak') {
-    return 'Treat short rises or sprint banners as match strikes. Full gas, then fully recover.';
-  }
-
-  return 'Ride this route with a steady aerobic focus and let the terrain support the day\'s intent.';
+  return 'Ride to feel and match your effort to your freshness today.';
 }

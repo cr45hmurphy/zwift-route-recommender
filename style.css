@@ -14,6 +14,9 @@
   --red:         #ef5350;
   --red-dim:     #3a1010;
   --blue:        #64b5f6;
+  --bucket-low:  #4caf50;
+  --bucket-high: #2196f3;
+  --bucket-peak: #f44336;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -271,7 +274,10 @@ section { margin-bottom: 32px; }
   transition: width 0.4s ease;
 }
 
-.bucket-bar-fill.highlighted { background: var(--accent); }
+.bucket-bar-fill.low { background: var(--bucket-low); }
+.bucket-bar-fill.high { background: var(--bucket-high); }
+.bucket-bar-fill.peak { background: var(--bucket-peak); }
+.bucket-bar-fill.highlighted { filter: brightness(1.1); }
 
 .bucket-values {
   font-size: 0.75rem;
@@ -281,9 +287,12 @@ section { margin-bottom: 32px; }
 }
 
 .bucket-values .deficit {
-  color: var(--accent);
   font-weight: 600;
 }
+
+.bucket-values .deficit.low { color: var(--bucket-low); }
+.bucket-values .deficit.high { color: var(--bucket-high); }
+.bucket-values .deficit.peak { color: var(--bucket-peak); }
 
 #history-panel {
   width: 100%;
@@ -406,6 +415,10 @@ section { margin-bottom: 32px; }
   font-weight: 600;
   margin-bottom: 6px;
 }
+
+.bucket-word.low { color: var(--bucket-low); }
+.bucket-word.high { color: var(--bucket-high); }
+.bucket-word.peak { color: var(--bucket-peak); }
 
 .rec-subtitle {
   font-size: 0.9rem;
@@ -779,9 +792,18 @@ a.segment-chip:hover {
   font-size: 0.72rem;
   padding: 2px 7px;
   border-radius: 2px;
-  background: var(--accent-dim);
-  color: var(--accent);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
   white-space: nowrap;
+}
+
+.xss-fill.low { border-color: var(--bucket-low); }
+.xss-fill.high { border-color: var(--bucket-high); }
+.xss-fill.peak { border-color: var(--bucket-peak); }
+.xss-fill.mixed {
+  border-color: rgba(255, 255, 255, 0.16);
+  white-space: normal;
 }
 
 .route-impact,
@@ -796,6 +818,7 @@ a.segment-chip:hover {
 .route-impact {
   background: rgba(100, 181, 246, 0.15);
   color: var(--blue);
+  border: 1px solid transparent;
 }
 
 .route-impact.recovery {
@@ -803,11 +826,37 @@ a.segment-chip:hover {
   color: var(--green);
 }
 
+.route-impact.low {
+  background: rgba(76, 175, 80, 0.12);
+  border-color: var(--bucket-low);
+}
+
+.route-impact.high {
+  background: rgba(33, 150, 243, 0.12);
+  border-color: var(--bucket-high);
+}
+
+.route-impact.peak {
+  background: rgba(244, 67, 54, 0.12);
+  border-color: var(--bucket-peak);
+}
+.route-impact.mixed {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+  white-space: normal;
+}
+
 .route-match {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text-muted);
 }
+
+.route-match.low { border-color: var(--bucket-low); }
+.route-match.high { border-color: var(--bucket-high); }
+.route-match.peak { border-color: var(--bucket-peak); }
+.route-match.mixed { border-color: rgba(255, 255, 255, 0.16); }
 
 .no-routes {
   color: var(--text-muted);

@@ -133,6 +133,10 @@ export async function fetchTrainingInfo(username, password) {
   return res.json();
 }
 
+export async function fetchWorkout(workoutId) {
+  return fetchWithToken(`/oauth/workout/${workoutId}`);
+}
+
 export async function fetchActivitiesInRange(from, to, username, password) {
   let token = loadToken();
 

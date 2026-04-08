@@ -1,6 +1,6 @@
 # Catchup — What's Been Built
 
-## Status: Live on Netlify. End-to-end working with Daily Summary-style bucket tracking, multi-bucket/time-aware route optimization, W/kg timing with manual override, recent progress history, improved route trust signals, freshness-aware recovery fallback, today's-world filtering, segment-aware ride cues, route-card PR links when segment data exists, and in-app mock scenarios for QA.
+## Status: Clean. All changes committed and pushed to master. WOTD fetch is fully wired; live classification will work when Xert serves a workoutId in training_info.
 
 ---
 
@@ -17,85 +17,84 @@
 
 ### Core Logic
 - **`scorer.js`** — pure functions, no DOM/API dependencies. Exports:
+  - `classifyWOTD(wotd, ftp?)` → `'mixed_mode' | 'sustained_climb' | 'repeated_punchy' | 'sprint_power' | 'aerobic_endurance' | null`
+    - Returns `null` (not `'recovery'`) when no WOTD is present — app falls back to bucket-deficit logic
+    - Detects `mixed_mode` via three redundant conditions:
+      1. `#MIXEDMODE` or `mixed mode` in description, OR `"MIXEDMODE"` in tags array
+      2. `intervalPower > 1.5×FTP AND intervalDuration ≤ 30s AND lowRatio > 0.6`
+      3. `xpss > 0 AND lowRatio > 0.7 AND duration > 60min`
+    - FTP is passed in from `parseTrainingData` output via `analyzeTrainingDay`
+  - `analyzeTrainingDay(tl, targetXSS, wotd, ftp?)` — no fallback heuristics; only classifies from the actual WOTD object
   - `detectBucket(tl, targetXSS)` → `'low' | 'high' | 'peak' | 'recovery'`
-  - `classifyWOTD(wotd)` → `'sustained_climb' | 'repeated_punchy' | 'sprint_power' | 'aerobic_endurance' | 'recovery'`
-  - `analyzeTrainingDay(current, target, wotd)` → `{ bucket, wotdStructure }`
   - `scoreRoute(route, bucket)` → 0–100
-  - `rankRoutes(routes, bucket)` → top 15 scored routes, filters out eventOnly and non-cycling
-  - `optimizeRoutes(routes, options)` → top 15 routes using remaining bucket deficits + time-fit, with recovery handled separately
-  - `generateRideCue(route, bucket, wotdStructure, routeSegments)` → plain-English pre-ride intent cue tied to the route and workout structure
-  - Optimizer sorts routes by weighted utility across low/high/peak deficits instead of relying only on the single detected bucket for ranking
-  - Optimizer adds deterministic tie handling (`OPTIMIZER_SORT_EPSILON` + stable route key) so tiny manual-speed changes do not cause obvious near-tie jitter
-  - HIGH bucket fix: routes with ≥1000m elevation (`CLIMB_ELEVATION_BIG`) receive the gradient bonus regardless of gradient ratio — surfaces Alpe du Zwift and Road to Sky correctly
-  - PEAK bucket fix: routes with >500m elevation (`PUNCH_ELEVATION_CAP`) score 0 — prevents sustained climbers (Alpe, Road to Sky) from hijacking the punchy bucket
-  - RECOVERY fix: recovery now scores short, flat, low-elevation spins higher than long flat endurance routes
-  - WOTD classifier uses the raw `training_info.wotd` payload when structure fields are present and falls back safely to aerobic-endurance intent when they are not
-  - All scoring thresholds are named constants at the top of the file
+  - `rankRoutes(routes, bucket)` → top 15
+  - `optimizeRoutes(routes, options)` → top 15 using WOTD terrain match + bucket deficit + time fit
+  - `wotdTerrainScore(route, wotdStructure, routeSegments)` — `mixed_mode` favors routes with sprint segments + flat distance
+  - `generateRideCue(route, bucket, wotdStructure, routeSegments)` — WOTD-led cues; `mixed_mode` cue names sprint segments and instructs Z2 base + max sprint efforts
 
-- **`xert.js`** — Xert API wrapper. Auto-detects environment:
-  - `localhost` → `http://localhost:3000` (local proxy)
-  - Production → `/.netlify/functions/xert-proxy`
-  - Exports auth/token helpers plus `fetchTrainingInfo`, activity list/detail fetch helpers, and `parseTrainingData`
-  - `training_info` is now used for status/signature/weight/targets/WOTD only
-  - today's completed low/high/peak totals are derived from activity summary `xlss/xhss/xpss/xss`
+- **`xert.js`** — Xert API wrapper. Auto-detects environment (localhost → proxy, prod → Netlify function). Exports:
+  - `authenticate`, `fetchTrainingInfo`, `fetchWorkout(workoutId)`, `fetchActivitiesInRange`, `fetchActivityDetail`, `parseTrainingData`, `clearToken`, `hasToken`
+  - `fetchWorkout(workoutId)` — calls `GET /oauth/workout/{id}`, returns full workout with `workout[]` interval array plus `xlss`/`xhss`/`xpss`/`xss`/`duration`/`max_power`
 
 - **`routes.js`** — re-exports from `routes-data.js`, exports `WORLD_NAMES`, the fixed guest-world schedule, `todaysWorlds()`, `filterToAvailableWorlds()`, and `worldName(slug)`.
 
-- **`segments.js`** — segment lookup helpers over `segments-data.js`. Exports:
-  - `climbWeight(climbType)` for HC/1/2/3/4 sorting
-  - `getSegmentsForWorld(worldSlug)` for world-level climb/sprint lookup
-  - `getSegmentsForRoute(route)` which prefers route-linked segment slugs (`segmentsOnRoute` + `segments`) and falls back to world-level only when route data is missing
+- **`segments.js`** — segment lookup helpers over `segments-data.js`. Exports `climbWeight`, `getSegmentsForWorld`, `getSegmentsForRoute`.
 
-- **`mock-data.js`** — canned test scenarios for `Live Xert`, `Mock: Recovery`, `Mock: Low Deficit`, `Mock: Mixed Deficits`, and `Mock: Peak Focus`. Lets the main app exercise non-recovery paths without depending on real Xert state.
+- **`mock-data.js`** — canned test scenarios: `Live Xert`, `Mock: Recovery`, `Mock: Low Deficit`, `Mock: Mixed Deficits` (uses `#MIXEDMODE` tag), `Mock: Peak Focus`.
 
 ### UI
 - **`index.html`** + **`style.css`** + **`app.js`** — single-page app.
   - Auth screen → signs in via xert.js, transitions to app on success
-  - **Testing/dev data-source selector:** auth screen + settings now expose `Live Xert` plus four canned mock scenarios
-  - Status section: freshness badge, FTP, weight, W/kg, and three bucket bars showing completed vs target with remaining amount
-  - Recommendation banner: which bucket still needs work today, plain-English explanation, WOTD if available
-  - **Freshness override:** when Xert reports Tired / Very Tired / Detraining, recommendations are forced to recovery and a yellow override note explains why
-  - **Time section:** slider (20–180 min) + W/kg-based auto timing with optional manual speed override. Ranking now recomputes when time or pace changes, not just section placement. Routes are partitioned by time budget:
-    - Within-budget routes fill the primary grid + "Other options" collapsible (score-sorted)
-    - Over-budget routes go into a "If you had more time" collapsible, sorted by nearest first
-    - Each card shows a green/red time badge plus trust/impact badges like `~% of low left`, `XSS toward low`, and `Best for low remaining`
-    - No more opacity dimming — routes are separated, not faded
-  - **Manual speed bounds fix:** imperial mode now uses converted spinner bounds instead of the old hard-coded `15 mph` floor
-  - **Ride cue strip:** each route card now shows a `🎯` cue derived from bucket + WOTD structure + available climb/sprint segments, telling the rider how to ride the route rather than just which route to pick
-  - **Segment chips / PR targeting:** route cards show climb and sprint chips when route-linked segment data exists; chips open Strava PR links when `stravaSegmentUrl` is available
-  - **Fallback behavior:** if a route lacks route-linked segments, the cue still falls back generically but the app suppresses the world-level segment-chip wall to avoid misleading "all Watopia segments" style output
-  - **Imperial/metric toggle:** `km/m` | `mi/ft` buttons in settings footer, stored in localStorage. Avg speed input converts between km/h and mph. All internal math stays metric.
-  - **Today's worlds filter:** checkbox defaults on, persists in localStorage, and limits recommendations to Watopia plus the current guest world
-  - **Recent Progress panel:** local history keeps one snapshot per day and shows completed-vs-target progress once at least two saved days exist. UI now explicitly notes that history is browser-local.
-  - **Mock scenario history behavior:** mock mode uses existing local history for reference but does not write new snapshots
-  - Route grid: top 5 cards (3-col desktop / 1-col mobile), "Other options" collapsible, "If you had more time" collapsible
-  - Settings footer: username/password fields for re-auth, unit toggle, refresh button
+  - **Testing/dev data-source selector:** auth screen + settings expose `Live Xert` plus four canned mock scenarios
+  - Status section: freshness badge, FTP, weight, W/kg, bucket bars (low/high/peak colored)
+  - **Recommendation banner:** WOTD-first when a workout is classified; falls back to bucket-deficit copy when WOTD is absent
+  - **Mixed-mode support:** `mixed_mode` days get: "Today calls for mixed efforts" banner, sprint+flat route ranking, per-card trust signals referencing combined low+high+peak support
+  - **Freshness override:** Tired/Very Tired/Detraining → forced recovery with override note
+  - **Time section:** slider (20–180 min), W/kg auto timing, manual speed override
+  - **Ride cue strip:** `🎯` cue on each route card
+  - **Segment chips / PR targeting:** climb and sprint chips with Strava links
+  - **Imperial/metric toggle**, **Today's worlds filter**, **Recent Progress panel**
 
-### Test/validation files (not part of production app)
-- **`cors-test.html`** — tests whether Xert API is reachable directly or via proxy
-- **`scorer-test.html`** — runs curated fixture routes through scorer.js and displays ranked output per bucket plus optimizer scenarios and a deterministic-tie stability check
-- **`xert-test.html`** — live test of xert.js against a real Xert account, shows raw `training_info` plus today's activity summaries
-- **`test-plan.md`** — full manual test plan for live mode, mock scenarios, optimizer checks, speed bounds, history behavior, and harness validation
-- **`rapid-qa-checklist.md`** — condensed pass/fail QA checklist for quick smoke runs
+### WOTD fetch flow (live mode)
+1. `refresh()` calls `fetchTrainingInfo` → stores `raw.wotd` as `state.rawWotd`
+2. If `state.rawWotd.workoutId` exists, calls `fetchWorkout(workoutId)`
+3. Merges workout detail into `state.rawWotd`:
+   - All XSS fields: `xss`, `xlss`, `xhss`, `xpss`, `duration`
+   - Sprint interval extraction: finds highest-power interval with `duration ≤ 30s`, sets `intervalPower` + `intervalDuration`
+   - Patches `state.trainingData.wotd.name` / `.description` if training_info returned them as null
+4. `analyzeTrainingDay(completed, targets, state.rawWotd, ftp)` classifies the enriched wotd
+
+### Known Xert API behavior
+- `training_info` returns `wotd: { type: 'None' }` with no workoutId when no workout is currently assigned
+- When a workout IS assigned, `wotd` includes `workoutId`, `name`, `description` (may contain `#MIXEDMODE`), `type`
+- The `type` field is `'None'` even when `workoutId` is present — do not gate on `type`; gate on `workoutId` presence
+- Xert's XFAI system recalculates recommendations continuously; `targetXSS` and `wotd` can change between refreshes
+- `GET /oauth/workouts` — user's workout library, same XSS field names (`xlss`/`xhss`/`xpss`/`xss`/`duration`)
+- `GET /oauth/workout/{id}` — single workout with `workout[]` intervals; each interval has `power` (watts), `duration` (seconds), `mode` ("erg" or "slope"), `name`
+
+### Test/validation files
+- **`cors-test.html`** — CORS probe
+- **`scorer-test.html`** — runs fixture routes through scorer.js
+- **`xert-test.html`** — live Xert API test harness. Buttons: auth, format=zwo, GET /oauth/workouts, single workout probe, re-auth
+- **`test-plan.md`** — full manual test plan
+- **`rapid-qa-checklist.md`** — condensed pass/fail QA checklist
 
 ---
 
 ## Recently completed
 
-Recent completed work includes:
-
-1. **RECOVERY scoring fix** — recovery recommendations now favor short, easy spins instead of reusing LOW scoring.
-2. **Freshness-aware scoring** — tired statuses override the detected bucket and steer the rider to recovery routes.
-3. **Today's worlds filter** — route ranking can be limited to the currently rideable worlds in Zwift.
-4. **Daily Summary alignment** — the app now uses Xert activity summaries to derive completed low/high/peak/total buckets for today.
-5. **W/kg timing + recent progress** — route timing defaults to rider W/kg, with manual override, and the app stores one progress snapshot per day.
-6. **Trust-signal polish** — route cards and time summary now expose clearer bucket-fill and contribution cues.
-7. **Segment-aware ride cues** — route cards now attach a pre-ride intent cue based on WOTD structure plus route-linked climbs/sprints when available.
-8. **Segment bundling + PR chips** — `zwift-data` segments are now bundled locally, exposed through `segments.js`, and shown as Strava-linked climb/sprint chips on route cards when the route has segment data.
-9. **Optimizer-based ranking** — route ranking now uses remaining low/high/peak deficits plus time-fit instead of only the single detected bucket.
-10. **Ranking stability pass** — near-tied optimizer results now sort more deterministically, reducing noisy reorder flips from tiny manual-speed changes.
-11. **In-app mock scenarios** — the main app can now run with canned recovery/low/mixed/peak scenarios for QA and manual validation.
-12. **QA docs + speed-bound fix** — added full/rapid test docs and fixed the imperial manual-speed input floor.
+1. **mixed_mode classification** — `classifyWOTD` detects mixed workouts via description text, tags array, and interval structure
+2. **Workout fetch** — `fetchWorkout(workoutId)` added to xert.js; wired into `refresh()` with sprint interval extraction
+3. **WOTD display patch** — when training_info returns a sparse wotd, name/description are backfilled from the fetched workout detail
+4. **Removed bad heuristic** — `classifyTargetMix` (which inferred mixed_mode from targetXSS ratios) was removed; no more false mixed_mode on non-workout days
+5. **Tags detection** — `"MIXEDMODE"` in Xert's tags array now detected alongside description text
+6. **Bucket color system** — low/high/peak use consistent colors in bars, badges, and banner emphasis
+7. **Mixed-mode trust signals** — route cards show combined low+high+peak support on mixed days
+8. **WOTD-first ranking** — when a workout exists, WOTD terrain match is the primary ranking signal
+9. **Segment-aware cues** — ride cues name specific climbs/sprints from route-linked segment data
+10. **Optimizer-based ranking** — uses remaining deficits + time-fit + WOTD terrain score
+11. **In-app mock scenarios** — main app can run canned recovery/low/mixed/peak scenarios
+12. **Imperial/metric toggle**, **Today's worlds filter**, **Recent Progress panel**, **Freshness override**
 
 ---
 
@@ -124,17 +123,10 @@ Deployed on Netlify, connected to `https://github.com/cr45hmurphy/zwift-route-re
 - Alpe du Zwift and Road to Sky correctly surface in HIGH bucket top 5 (elevation bonus).
 - They are correctly excluded from PEAK top 5 (elevation cap: >500m scores 0).
 - PEAK #1 is Volcano Climb (5 km, 170 m, 34 m/km) — correct.
-- RECOVERY now favors Tempus Fugit / Flat Out Fast style easy spins over longer endurance routes.
-- Daily bucket bars now align with Xert Daily Summary-style completed totals more closely than the old TL-based display.
-- Ride cues are only as specific as the segment metadata available for a route. Many routes have route-linked segment data, but some still fall back to generic cues because `zwift-data` does not attach segments to that route.
-- Scoring thresholds (PUNCH_ELEVATION_CAP, PUNCH_DISTANCE_MAX, etc.) still need further tuning against real-world ride data.
-- Mock QA surfaced a likely optimizer issue in longer PEAK scenarios: low/high support can still dominate too much when time budgets get large.
-- The `~100% of low left` / `~100% of peak left` trust-signal copy is confusing in practice and likely needs replacement.
-- Bucket-fill badges would benefit from stronger color mapping (low = green, high = blue, peak = red) to make the active bucket contribution easier to scan.
-
----
+- RECOVERY favors Tempus Fugit / Flat Out Fast style easy spins.
+- Scoring thresholds still need tuning against real-world ride data.
+- Ride cues are only as specific as the segment metadata available for a route.
 
 ## Git
 Repo: `https://github.com/cr45hmurphy/zwift-route-recommender`
 Branch: `master`
-Most recent local work before this update: optimizer-based ranking, deterministic tie handling, in-app mock QA scenarios, updated QA docs, and the manual-speed imperial bounds fix
