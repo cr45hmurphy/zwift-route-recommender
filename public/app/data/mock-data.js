@@ -3,6 +3,7 @@ export const DATA_SOURCE_OPTIONS = [
   { id: 'recovery', label: 'Mock: Recovery' },
   { id: 'low-deficit', label: 'Mock: Low Deficit' },
   { id: 'mixed-deficit', label: 'Mock: Mixed Deficits' },
+  { id: 'mixed-detail', label: 'Mock: Mixed WOTD Detail' },
   { id: 'peak-focus', label: 'Mock: Peak Focus' },
 ];
 
@@ -104,6 +105,45 @@ export const MOCK_SCENARIOS = {
       completed: { low: 12, high: 8, peak: 3, total: 23 },
       targets: { low: 32, high: 28, peak: 12, total: 72 },
       remaining: { low: 20, high: 20, peak: 9, total: 49 },
+    },
+  },
+  'mixed-detail': {
+    title: 'Mixed WOTD Detail',
+    trainingData: {
+      status: 'Fresh',
+      weight: 71.6,
+      signature: {
+        ftp: 272,
+        ltp: 194,
+        hie: 22.7,
+        pp: 1198,
+      },
+      tl: { low: 19.8, high: 9.5, peak: 3.8, total: 33.1 },
+      targetXSS: { low: 34, high: 24, peak: 14, total: 72 },
+      wotd: {
+        name: 'Fast Legs, Long Floor',
+        difficulty: 'Hard',
+        description: 'Aerobic riding with repeated max-power strikes and full reset between them.',
+      },
+    },
+    rawWotd: {
+      workoutId: 'mock-mixed-detail',
+      name: 'Fast Legs, Long Floor',
+      difficulty: 'Hard',
+      description: 'Aerobic riding with repeated max-power strikes and full reset between them.',
+      xss: 74,
+      lowXSS: 48,
+      highXSS: 8,
+      peakXSS: 18,
+      duration: 4500,
+      intervalPower: 465,
+      intervalDuration: 20,
+    },
+    dailySummary: {
+      count: 2,
+      completed: { low: 10, high: 4, peak: 2, total: 16 },
+      targets: { low: 34, high: 24, peak: 14, total: 72 },
+      remaining: { low: 24, high: 20, peak: 12, total: 56 },
     },
   },
   'peak-focus': {

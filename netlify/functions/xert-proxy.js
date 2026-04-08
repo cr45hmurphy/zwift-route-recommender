@@ -4,7 +4,13 @@
 export const handler = async (event) => {
   // event.path is e.g. /.netlify/functions/xert-proxy/oauth/token
   const xertPath = event.path.replace('/.netlify/functions/xert-proxy', '') || '/';
-  const url = `https://www.xertonline.com${xertPath}`;
+  const rawQuery = event.rawQuery || '';
+  const queryString = rawQuery
+    ? `?${rawQuery}`
+    : event.queryStringParameters
+      ? `?${new URLSearchParams(event.queryStringParameters).toString()}`
+      : '';
+  const url = `https://www.xertonline.com${xertPath}${queryString}`;
 
   const headers = {
     'Content-Type': event.headers['content-type'] || 'application/x-www-form-urlencoded',

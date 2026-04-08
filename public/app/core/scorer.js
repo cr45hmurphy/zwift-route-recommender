@@ -15,6 +15,7 @@ const PUNCH_DISTANCE_MAX     = 18;  // km   — routes below this get full short
 const PUNCH_ELEVATION_CAP    = 400; // m    — routes above this score 0 in PEAK (sustained climbers, not punchy)
 const RECOVERY_DISTANCE_MAX  = 30;  // km   — routes above this score near 0 in RECOVERY
 const RECOVERY_ELEVATION_MAX = 200; // m    — routes above this score near 0 in RECOVERY
+const WORLD_SEGMENT_FALLBACK_MULTIPLIER = 0.55;
 const OPTIMIZER_ACTIVE_BUCKET_BOOST = 0.15;
 const OPTIMIZER_SORT_EPSILON = 0.001;
 
@@ -272,6 +273,14 @@ function countSprintSegments(routeSegments) {
   return routeSegments?.sprints?.length ?? 0;
 }
 
+function countClimbSegments(routeSegments) {
+  return routeSegments?.climbs?.length ?? 0;
+}
+
+function segmentConfidence(routeSegments) {
+  return routeSegments?.source === 'world' ? WORLD_SEGMENT_FALLBACK_MULTIPLIER : 1;
+}
+
 function highestRatedClimbs(routeSegments, count = 2) {
   return (routeSegments?.climbs ?? []).slice(0, count);
 }
@@ -283,6 +292,11 @@ export function wotdTerrainScore(route, wotdStructure, routeSegments) {
   const elevation = route?.elevation ?? 0;
   const gradientRatio = distance > 0 ? elevation / distance : 0;
   const sprintCount = countSprintSegments(routeSegments);
+  const climbCount = countClimbSegments(routeSegments);
+  const confidence = segmentConfidence(routeSegments);
+  const effectiveSprintCount = sprintCount * confidence;
+  const effectiveClimbCount = climbCount * confidence;
+  const hasRouteLinkedSegments = routeSegments?.source === 'route' || routeSegments?.source === 'route-list';
 
   if (wotdStructure === 'sustained_climb') {
     if (elevation >= 1000) return 1.0;
@@ -292,22 +306,27 @@ export function wotdTerrainScore(route, wotdStructure, routeSegments) {
   }
 
   if (wotdStructure === 'repeated_punchy') {
-    if (gradientRatio >= 30 && elevation >= 200 && elevation <= 800) return 1.0;
-    if (gradientRatio >= 20 && elevation >= 150 && elevation <= 800) return 0.8;
-    if (gradientRatio >= 15) return 0.4;
+    if (gradientRatio >= 28 && elevation >= 150 && elevation <= 900) {
+      return clamp(0.82 + Math.min(effectiveClimbCount, 2) * 0.09, 0, 1);
+    }
+    if (gradientRatio >= 20 && elevation >= 120 && elevation <= 900) {
+      return clamp(0.6 + Math.min(effectiveClimbCount, 2) * 0.08, 0, 0.9);
+    }
+    if (gradientRatio >= 15) return clamp(0.3 + effectiveClimbCount * 0.05, 0, 0.55);
     return 0.1;
   }
 
   if (wotdStructure === 'sprint_power') {
-    if (sprintCount === 0) return 0.05;
-    return Math.min(1.0, sprintCount * 0.3);
+    if (effectiveSprintCount === 0) return 0.05;
+    const sprintScore = clamp(0.2 + effectiveSprintCount * 0.32, 0, 1);
+    return hasRouteLinkedSegments ? sprintScore : Math.min(sprintScore, 0.45);
   }
 
   if (wotdStructure === 'mixed_mode') {
-    if (sprintCount >= 2 && distance >= 20) return 1.0;
-    if (sprintCount >= 1 && distance >= 15) return 0.8;
-    if (sprintCount >= 1) return 0.6;
-    if (distance >= 20 && gradientRatio <= 20) return 0.5;
+    if (effectiveSprintCount >= 1.5 && distance >= 18) return 1.0;
+    if (effectiveSprintCount >= 1 && distance >= 15) return 0.82;
+    if (effectiveSprintCount >= 0.5) return 0.62;
+    if (distance >= 20 && gradientRatio <= 20) return hasRouteLinkedSegments ? 0.5 : 0.4;
     return 0.3;
   }
 
@@ -374,6 +393,30 @@ function optimizerReason(contributions, weights, bucket, timeFitTag, wotdStructu
   return `Strong ${joined} match if you can go a little longer today.`;
 }
 
+function optimizerWeights(wotdStructure) {
+  if (!wotdStructure) {
+    return { terrain: 0, deficit: 0.55, time: 0.45 };
+  }
+
+  if (wotdStructure === 'sprint_power') {
+    return { terrain: 0.58, deficit: 0.24, time: 0.18 };
+  }
+
+  if (wotdStructure === 'mixed_mode') {
+    return { terrain: 0.5, deficit: 0.3, time: 0.2 };
+  }
+
+  if (wotdStructure === 'repeated_punchy' || wotdStructure === 'sustained_climb') {
+    return { terrain: 0.5, deficit: 0.32, time: 0.18 };
+  }
+
+  if (wotdStructure === 'aerobic_endurance') {
+    return { terrain: 0.42, deficit: 0.38, time: 0.2 };
+  }
+
+  return { terrain: 0.45, deficit: 0.35, time: 0.2 };
+}
+
 export function optimizeRoutes(routes, options = {}) {
   const {
     bucket = 'low',
@@ -423,9 +466,8 @@ export function optimizeRoutes(routes, options = {}) {
       const terrainScore = wotdTerrainScore(route, wotdStructure, routeSegments);
       const deficitScore = bucketDeficitScore(contributions, bucket, deficits);
       const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
-      let utility = wotdStructure
-        ? (terrainScore * 0.45) + (deficitScore * 0.35) + (timeFit * 0.20)
-        : (deficitScore * 0.55) + (timeFit * 0.45);
+      const weights = optimizerWeights(wotdStructure);
+      let utility = (terrainScore * weights.terrain) + (deficitScore * weights.deficit) + (timeFit * weights.time);
 
       const sprintCount = countSprintSegments(routeSegments);
       if (bucket === 'peak' && wotdStructure === 'sprint_power') {

@@ -51,6 +51,7 @@
 
   <script type="module">
     import { authenticate, fetchTrainingInfo, parseTrainingData, clearToken, hasToken } from '../app/core/xert.js';
+    import { classifyWOTD } from '../app/core/scorer.js';
 
     const PROXY_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
       ? 'http://localhost:3000'
@@ -155,6 +156,9 @@
 <span class="label">raw.wotd (full):</span>
   ${JSON.stringify(raw.wotd, null, 2)}
 
+<span class="label">WOTD classification from training_info:</span>
+  ${classifyWOTD(raw.wotd, parsed.signature.ftp) ?? '(unclassified)'}
+
 <span class="label">Token cached in localStorage:</span> ${hasToken() ? 'yes' : 'no'}`;
 
         rawDetails.style.display = 'block';
@@ -162,7 +166,29 @@
 
         if (raw.wotd?.workoutId) {
           const wData = await fetchWithToken(`/oauth/workout/${raw.wotd.workoutId}`);
-          result.innerHTML += `\n\n<span class="label">GET /oauth/workout/${raw.wotd.workoutId}:</span>\n${JSON.stringify(wData, null, 2).slice(0, 2000)}`;
+          const intervals = Array.isArray(wData?.workout) ? wData.workout : [];
+          const sprintInterval = intervals
+            .filter(i => Number(i?.duration) <= 30 && Number(i?.power) > 0)
+            .sort((a, b) => Number(b.power) - Number(a.power))[0] ?? null;
+          const enrichedWotd = {
+            ...raw.wotd,
+            ...wData,
+            intervalPower: sprintInterval ? Number(sprintInterval.power) : null,
+            intervalDuration: sprintInterval ? Number(sprintInterval.duration) : null,
+          };
+          const enrichedClass = classifyWOTD(enrichedWotd, parsed.signature.ftp) ?? '(unclassified)';
+          result.innerHTML += `\n\n<span class="label">WOTD validation chain:</span>
+  workoutId present: yes (${raw.wotd.workoutId})
+  workout detail fetched: yes
+  intervalPower found: ${enrichedWotd.intervalPower ?? 'no'}
+  intervalDuration found: ${enrichedWotd.intervalDuration ?? 'no'}
+  classifyWOTD(enriched): ${enrichedClass}
+
+<span class="label">GET /oauth/workout/${raw.wotd.workoutId}:</span>\n${JSON.stringify(wData, null, 2).slice(0, 2000)}`;
+        } else {
+          result.innerHTML += `\n\n<span class="label">WOTD validation chain:</span>
+  workoutId present: no
+  workout detail fetched: skipped`;
         }
 
         const todaysActivities = await fetchTodaysActivities();

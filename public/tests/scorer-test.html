@@ -26,7 +26,7 @@
   <div id="bucket-display"></div>
 
   <script type="module">
-    import { scoreRoute, rankRoutes, detectBucket, optimizeRoutes } from '../app/core/scorer.js';
+    import { scoreRoute, rankRoutes, detectBucket, optimizeRoutes, classifyWOTD, wotdTerrainScore } from '../app/core/scorer.js';
 
     // --- Fixture routes (representative sample from current route data) ---
     const ROUTES = [
@@ -68,6 +68,120 @@
       <table>
         <tr><th>Scenario</th><th>Detected bucket</th></tr>
         ${detectionHtml}
+      </table>
+    `;
+
+    const mixedModeCases = [
+      {
+        label: 'Explicit mixed-mode workout tags',
+        wotd: {
+          description: 'Repeated surges and recovery. #MIXEDMODE',
+          xss: 72,
+          lowXSS: 22,
+          highXSS: 38,
+          peakXSS: 12,
+          duration: 3300,
+        },
+        expected: 'mixed_mode',
+      },
+      {
+        label: 'Short hard interval with a long low-load profile',
+        wotd: {
+          description: 'A tough interval day with lots of easy riding.',
+          xss: 60,
+          lowXSS: 42,
+          highXSS: 12,
+          peakXSS: 6,
+          duration: 2400,
+          intervalPower: 420,
+          intervalDuration: 30,
+          ftp: 250,
+        },
+        expected: 'mixed_mode',
+      },
+    ];
+
+    const mixedModeRows = mixedModeCases.map(test => {
+      const actual = classifyWOTD(test.wotd, 250);
+      const pass = actual === test.expected;
+      return `
+        <tr>
+          <td>${test.label}</td>
+          <td>${test.expected}</td>
+          <td>${actual ?? 'null'}</td>
+          <td style="color:${pass ? '#4caf50' : '#f44336'}">${pass ? 'PASS' : 'FAIL'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    container.innerHTML += `
+      <h2>classifyWOTD mixed-mode checks</h2>
+      <table>
+        <tr><th>Scenario</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
+        ${mixedModeRows}
+      </table>
+    `;
+
+    const terrainCases = [
+      {
+        label: 'Sprint power favors routes with real sprint segments',
+        route: { name: 'Sprint Route', world: 'watopia', distance: 12, elevation: 110 },
+        segments: {
+          source: 'route',
+          climbs: [],
+          sprints: [{ name: 'A/B Sprint', climbType: null }],
+        },
+        wotdStructure: 'sprint_power',
+        expectedMin: 0.3,
+      },
+      {
+        label: 'Sprint power penalizes routes with no sprint segments',
+        route: { name: 'Climb Route', world: 'watopia', distance: 18, elevation: 900 },
+        segments: {
+          source: 'route',
+          climbs: [{ name: 'Epic Climb', climbType: '1' }],
+          sprints: [],
+        },
+        wotdStructure: 'sprint_power',
+        expectedMax: 0.1,
+      },
+      {
+        label: 'Mixed-mode rewards routes with both sprint and flat support',
+        route: { name: 'Mixed Route', world: 'watopia', distance: 28, elevation: 220 },
+        segments: {
+          source: 'route',
+          climbs: [{ name: 'Punchy Rise', climbType: '3' }],
+          sprints: [{ name: 'Banner Sprint', climbType: null }],
+        },
+        wotdStructure: 'mixed_mode',
+        expectedMin: 0.8,
+      },
+    ];
+
+    const terrainRows = terrainCases.map(test => {
+      const actual = wotdTerrainScore(test.route, test.wotdStructure, test.segments);
+      const pass =
+        (test.expectedMin === undefined || actual >= test.expectedMin) &&
+        (test.expectedMax === undefined || actual <= test.expectedMax);
+      const expectation = [
+        test.expectedMin !== undefined ? `>= ${test.expectedMin}` : '',
+        test.expectedMax !== undefined ? `<= ${test.expectedMax}` : '',
+      ].filter(Boolean).join(' and ');
+      return `
+        <tr>
+          <td>${test.label}</td>
+          <td>${expectation}</td>
+          <td>${actual.toFixed(2)}</td>
+          <td style="color:${pass ? '#4caf50' : '#f44336'}">${pass ? 'PASS' : 'FAIL'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    container.innerHTML += `
+      <h2>wotdTerrainScore checks</h2>
+      <table>
+        <tr><th>Scenario</th><th>Expectation</th><th>Actual</th><th>Result</th></tr>
+        ${terrainRows}
       </table>
     `;
 

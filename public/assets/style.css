@@ -294,6 +294,27 @@ section { margin-bottom: 32px; }
 .bucket-values .deficit.high { color: var(--bucket-high); }
 .bucket-values .deficit.peak { color: var(--bucket-peak); }
 
+.summary-note {
+  width: 100%;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.summary-note.warning {
+  color: var(--yellow);
+}
+
+.wotd-meta {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.wotd-meta.warning {
+  color: var(--yellow);
+}
+
 #history-panel {
   width: 100%;
   border-top: 1px solid var(--border);

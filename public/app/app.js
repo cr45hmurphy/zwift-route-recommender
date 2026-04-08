@@ -17,6 +17,7 @@ const HISTORY_KEY = 'xert_history';
 const HISTORY_LIMIT = 10;
 const MANUAL_SPEED_MIN_KMH = 15;
 const MANUAL_SPEED_MAX_KMH = 50;
+const DAILY_SUMMARY_BUFFER_HOURS = 12;
 
 // Unit conversion factors (metric is the internal standard; these are display-only)
 const KM_TO_MI = 0.621371;
@@ -196,6 +197,7 @@ let state = {
   lastUpdated:    null,
   timingMode:     'auto',
   todayOnly:      true,
+  wotdDetailLoaded: false,
 };
 
 // ── Init ──────────────────────────────────────────
@@ -299,6 +301,7 @@ async function handleLogout() {
     lastUpdated:    null,
     timingMode:     getTimingMode(),
     todayOnly:      getTodayOnly(),
+    wotdDetailLoaded: false,
   };
   syncDataSourceControls();
   renderSourceNotes();
@@ -315,6 +318,7 @@ async function refresh(username, password) {
     const raw = await fetchTrainingInfo(username, password);
     state.trainingData = parseTrainingData(raw);
     state.rawWotd = raw?.wotd ?? null;
+    state.wotdDetailLoaded = false;
     if (state.rawWotd?.workoutId) {
       try {
         const workoutDetail = await fetchWorkout(state.rawWotd.workoutId);
@@ -328,6 +332,7 @@ async function refresh(username, password) {
           intervalPower: sprintInterval ? Number(sprintInterval.power) : null,
           intervalDuration: sprintInterval ? Number(sprintInterval.duration) : null,
         };
+        state.wotdDetailLoaded = true;
         // Patch display fields if training_info wotd was sparse
         if (!state.trainingData.wotd.name && state.rawWotd.name) {
           state.trainingData.wotd.name = state.rawWotd.name;
@@ -373,6 +378,10 @@ function loadMockScenario() {
   state.trainingData = JSON.parse(JSON.stringify(scenario.trainingData));
   state.rawWotd = JSON.parse(JSON.stringify(scenario.rawWotd ?? null));
   state.dailySummary = JSON.parse(JSON.stringify(scenario.dailySummary));
+  state.wotdDetailLoaded = Boolean(state.rawWotd?.workoutId && (
+    Number.isFinite(Number(state.rawWotd?.intervalPower)) ||
+    Number.isFinite(Number(state.rawWotd?.intervalDuration))
+  ));
 
   const { bucket: analyzedBucket, wotdStructure } = analyzeTrainingDay(
     state.dailySummary.completed,
@@ -423,6 +432,37 @@ function renderStatus() {
   renderBucketBar('low',  summary.completed.low,  summary.targets.low,  summary.remaining.low,  state.bucket === 'low');
   renderBucketBar('high', summary.completed.high, summary.targets.high, summary.remaining.high, state.bucket === 'high');
   renderBucketBar('peak', summary.completed.peak, summary.targets.peak, summary.remaining.peak, state.bucket === 'peak');
+
+  const noteEl = document.getElementById('daily-summary-note');
+  if (!noteEl) return;
+
+  if (!isLiveDataSource()) {
+    noteEl.className = 'summary-note';
+    noteEl.textContent =
+      `Mock summary: ${summary.count ?? 0} activities already counted today. Total completed XSS: ${Math.round(summary.completed.total ?? 0)} / ${Math.round(summary.targets.total ?? 0)}.`;
+    return;
+  }
+
+  const activityCount = summary.count ?? 0;
+  const fallbackCount = summary.fallbackCount ?? 0;
+  const failedCount = summary.failedCount ?? 0;
+  const totalCompleted = Math.round(summary.completed.total ?? 0);
+  const totalTarget = Math.round(summary.targets.total ?? 0);
+  const parts = [
+    `Today's totals use ${activityCount} ${activityCount === 1 ? 'activity' : 'activities'}`,
+    `${totalCompleted} / ${totalTarget} total XSS completed`,
+  ];
+
+  if (fallbackCount > 0) {
+    parts.push(`${fallbackCount} ${fallbackCount === 1 ? 'activity used' : 'activities used'} summary fallback data`);
+  }
+
+  noteEl.textContent = `${parts.join(' · ')}.`;
+  noteEl.className = failedCount > 0 ? 'summary-note warning' : 'summary-note';
+
+  if (failedCount > 0) {
+    noteEl.textContent += ` ${failedCount} ${failedCount === 1 ? 'activity detail failed to load' : 'activity details failed to load'}, so today's totals may be understated.`;
+  }
 }
 
 function renderHistory() {
@@ -486,9 +526,11 @@ function renderBucketBar(name, completed, target, remaining, highlighted) {
 
   const valEl = document.getElementById(`bar-values-${name}`);
   valEl.title = 'Completed vs daily target';
-  valEl.innerHTML = `${current.toFixed(1)} / ${target.toFixed(1)}`;
+  valEl.innerHTML = `${current.toFixed(1)} done / ${target.toFixed(1)} target`;
   if (remaining > 0) {
     valEl.innerHTML += ` <span class="deficit ${name}">${remaining.toFixed(1)} left</span>`;
+  } else {
+    valEl.innerHTML += ' met';
   }
 }
 
@@ -541,7 +583,10 @@ function renderRecommendation() {
     wotdEl.style.display = 'block';
     wotdEl.innerHTML = `<strong>Workout of the Day:</strong> ${d.wotd.name}` +
       (d.wotd.difficulty ? ` — difficulty ${d.wotd.difficulty}` : '') +
-      (d.wotd.description ? `<br>${d.wotd.description}` : '');
+      (d.wotd.description ? `<br>${d.wotd.description}` : '') +
+      (state.rawWotd?.workoutId
+        ? `<div class="wotd-meta${state.wotdDetailLoaded ? '' : ' warning'}">${state.wotdDetailLoaded ? `Workout detail loaded. Classified as ${wotdDisplayLabel(state.wotdStructure) ?? 'workout'} for route matching.` : `Workout detail fetch did not complete, so ${wotdDisplayLabel(state.wotdStructure) ?? 'workout'} matching is based on training_info only.`}</div>`
+        : `<div class="wotd-meta warning">No workoutId was provided by training_info, so workout validation could not go past the summary payload.</div>`);
   } else {
     wotdEl.style.display = 'none';
   }
@@ -644,24 +689,24 @@ function routeCardHTML(route, compact) {
     const remainingTotal = state.dailySummary?.remaining?.total ?? null;
     const fillPct = remainingTotal ? Math.min(Math.round(estimatedMixedXss / Math.max(remainingTotal, 1) * 100), 100) : null;
     fillTag = fillPct !== null
-      ? '<span class="xss-fill mixed">supports ~' + fillPct + '% of <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span></span>'
+      ? '<span class="xss-fill mixed">covers ~' + fillPct + '% of today\'s <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> gap</span>'
       : '';
-    impactTag = '<span class="route-impact mixed">' + estimatedMixedXss + ' XSS across <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span></span>';
-    matchTag = '<span class="route-match mixed">Best for mixed workout support</span>';
+    impactTag = '<span class="route-impact mixed">Est. ' + estimatedMixedXss + ' mixed-workout XSS</span>';
+    matchTag = '<span class="route-match mixed">Top fit for today\'s mixed workout</span>';
   } else {
     const b = displayTarget.bucket;
     const remainingXss = (state.dailySummary && b !== 'recovery') ? state.dailySummary.remaining[b] : null;
     const estimatedBucketXss = estimateBucketImpactXss(estMin, b);
     const fillPct = remainingXss ? Math.min(Math.round(estimatedBucketXss / Math.max(remainingXss, 1) * 100), 100) : null;
     fillTag = fillPct !== null
-      ? bucketBadgeHTML('xss-fill', b, `fills ~${fillPct}% of <span class="bucket-word ${bucketColorClass(b)}">${b}</span>`)
+      ? bucketBadgeHTML('xss-fill', b, `covers ~${fillPct}% of today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> gap`)
       : '';
     impactTag = b === 'recovery'
       ? '<span class="route-impact recovery">Recovery-friendly</span>'
-      : bucketBadgeHTML('route-impact', b, `${estimatedBucketXss} XSS toward <span class="bucket-word ${bucketColorClass(b)}">${b}</span>`);
+      : bucketBadgeHTML('route-impact', b, `Est. ${estimatedBucketXss} <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> XSS`);
     matchTag = b === 'recovery'
       ? '<span class="route-match">Recovery day</span>'
-      : bucketBadgeHTML('route-match', b, `Best for <span class="bucket-word ${bucketColorClass(b)}">${b}</span> remaining`);
+      : bucketBadgeHTML('route-match', b, `Top fit for today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> need`);
   }
 
   const cls = compact ? 'route-card compact' : 'route-card';
@@ -813,7 +858,7 @@ function renderTimeSummary() {
         : 100;
       el.innerHTML =
         `${timingLead}${timeMin} min should support roughly ${estimatedXss} XSS of today's mixed workout` +
-        ` — about ${fillPct}% of your remaining <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> load.`;
+        ` — about ${fillPct}% of today's remaining <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> gap.`;
     } else {
       el.innerHTML =
         `${timingLead}${timeMin} min should support today's mixed workout across your remaining ` +
@@ -833,7 +878,7 @@ function renderTimeSummary() {
     const fillPct = Math.min(Math.round(estimatedXss / Math.max(remainingXss, 1) * 100), 100);
     el.textContent =
       `${timingLead}${timeMin} min should generate roughly ${estimatedXss} XSS` +
-      ` — about ${fillPct}% of your ${remainingXss.toFixed(0)} remaining ${b} target.`;
+      ` — about ${fillPct}% of today's remaining ${b.toUpperCase()} gap (${remainingXss.toFixed(0)} XSS).`;
   }
 }
 
@@ -1081,6 +1126,24 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function firstNumeric(...values) {
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return 0;
+}
+
+function summarizeActivityXss(source) {
+  const summary = source?.summary ?? source ?? {};
+  return {
+    low: firstNumeric(summary?.xlss, summary?.lowXSS, summary?.low, summary?.low_xss),
+    high: firstNumeric(summary?.xhss, summary?.highXSS, summary?.high, summary?.high_xss),
+    peak: firstNumeric(summary?.xpss, summary?.peakXSS, summary?.peak, summary?.peak_xss),
+    total: firstNumeric(summary?.xss, summary?.totalXSS, summary?.total_xss, summary?.workoutXss, summary?.plannedXSS),
+  };
+}
+
 function getTodayRangeLocal() {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -1093,19 +1156,73 @@ function getTodayRangeLocal() {
   };
 }
 
-async function fetchTodaysDailySummary(targetXSS, username, password) {
+function getSummaryQueryRangeLocal() {
   const { from, to } = getTodayRangeLocal();
+  const bufferSeconds = DAILY_SUMMARY_BUFFER_HOURS * 60 * 60;
+  return {
+    from: from - bufferSeconds,
+    to: to + bufferSeconds,
+  };
+}
+
+function parseTimestampMs(value) {
+  if (value === null || value === undefined || value === '') return null;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1e12 ? value : value * 1000;
+  }
+
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && value.trim() !== '') {
+      return numeric > 1e12 ? numeric : numeric * 1000;
+    }
+
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+function firstTimestampMs(...values) {
+  for (const value of values) {
+    const parsed = parseTimestampMs(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+function activityTimestampMs(activity, detail) {
+  return firstTimestampMs(
+    detail?.start_date,
+    detail?.startDate,
+    detail?.date,
+    detail?.timestamp,
+    detail?.datetime,
+    detail?.summary?.start_date,
+    activity?.start_date,
+    activity?.startDate,
+    activity?.date,
+    activity?.timestamp,
+    activity?.datetime
+  );
+}
+
+async function fetchTodaysDailySummary(targetXSS, username, password) {
+  const { from, to } = getSummaryQueryRangeLocal();
+  const todayKey = getLocalDayKey(Date.now());
   const list = await fetchActivitiesInRange(from, to, username, password);
   const activities = Array.isArray(list.activities) ? list.activities : [];
-
-  const detailResults = await Promise.allSettled(
+  const activitiesWithPath = [...new Map(
     activities
       .filter(activity => activity?.path)
-      .map(activity => fetchActivityDetail(activity.path, username, password))
+      .map(activity => [activity.path, activity])
+  ).values()];
+  const activitiesWithoutPath = activities.filter(activity => !activity?.path);
+  const detailResults = await Promise.allSettled(
+    activitiesWithPath.map(activity => fetchActivityDetail(activity.path, username, password))
   );
-  const details = detailResults
-    .filter(result => result.status === 'fulfilled')
-    .map(result => result.value);
 
   const completed = {
     low: 0,
@@ -1114,12 +1231,52 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     total: 0,
   };
 
-  for (const detail of details) {
-    const summary = detail?.summary;
-    completed.low += summary?.xlss ?? 0;
-    completed.high += summary?.xhss ?? 0;
-    completed.peak += summary?.xpss ?? 0;
-    completed.total += summary?.xss ?? 0;
+  let countedActivities = 0;
+  let fallbackCount = 0;
+  let failedCount = 0;
+
+  for (let i = 0; i < activitiesWithPath.length; i += 1) {
+    const result = detailResults[i];
+    const activity = activitiesWithPath[i];
+    const usableSource = result?.status === 'fulfilled' ? result.value : activity;
+
+    if (result?.status !== 'fulfilled') {
+      failedCount += 1;
+      if (!activity?.summary) {
+        continue;
+      }
+      fallbackCount += 1;
+    }
+
+    const detail = result?.status === 'fulfilled' ? result.value : null;
+    const timestampMs = activityTimestampMs(activity, detail);
+    if (timestampMs !== null && getLocalDayKey(timestampMs) !== todayKey) {
+      continue;
+    }
+
+    const totals = summarizeActivityXss(usableSource);
+    completed.low += totals.low;
+    completed.high += totals.high;
+    completed.peak += totals.peak;
+    completed.total += totals.total;
+    countedActivities += 1;
+  }
+
+  for (const activity of activitiesWithoutPath) {
+    if (!activity?.summary) continue;
+
+    const timestampMs = activityTimestampMs(activity, null);
+    if (timestampMs !== null && getLocalDayKey(timestampMs) !== todayKey) {
+      continue;
+    }
+
+    const totals = summarizeActivityXss(activity);
+    completed.low += totals.low;
+    completed.high += totals.high;
+    completed.peak += totals.peak;
+    completed.total += totals.total;
+    countedActivities += 1;
+    fallbackCount += 1;
   }
 
   const targets = {
@@ -1130,7 +1287,11 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
   };
 
   return {
-    count: details.length,
+    count: countedActivities,
+    totalActivities: activities.length,
+    detailedCount: countedActivities - fallbackCount,
+    fallbackCount,
+    failedCount,
     completed,
     targets,
     remaining: {
