@@ -16,7 +16,7 @@ const PUNCH_ELEVATION_CAP    = 400; // m    — routes above this score 0 in PEA
 const RECOVERY_DISTANCE_MAX  = 30;  // km   — routes above this score near 0 in RECOVERY
 const RECOVERY_ELEVATION_MAX = 200; // m    — routes above this score near 0 in RECOVERY
 const WORLD_SEGMENT_FALLBACK_MULTIPLIER = 0.55;
-const OPTIMIZER_ACTIVE_BUCKET_BOOST = 0.15;
+const ACTIVE_BUCKET_WEIGHT  = 0.65; // how strongly the active bucket's route contribution dominates deficit scoring (0–1)
 const OPTIMIZER_SORT_EPSILON = 0.001;
 
 function clamp(value, min, max) {
@@ -350,11 +350,18 @@ function bucketDeficitScore(contributions, bucket, deficits) {
   const deficitState = normalizeDeficits(deficits);
   const weights = deficitState.weights;
   const weightedContribution =
-    contributions.low * weights.low +
+    contributions.low  * weights.low +
     contributions.high * weights.high +
     contributions.peak * weights.peak;
   const activeContribution = contributions[bucket] ?? 0;
-  return clamp(weightedContribution + (activeContribution * OPTIMIZER_ACTIVE_BUCKET_BOOST), 0, 1);
+  // 65% weight on the active bucket's route fit so specialist routes win over all-rounders.
+  // 35% weight on the deficit-weighted balance so routes that address multiple depleted
+  // buckets still get credit when deficits are spread across buckets.
+  return clamp(
+    activeContribution * ACTIVE_BUCKET_WEIGHT +
+    weightedContribution * (1 - ACTIVE_BUCKET_WEIGHT),
+    0, 1
+  );
 }
 
 function optimizerReason(contributions, weights, bucket, timeFitTag, wotdStructure = null) {
