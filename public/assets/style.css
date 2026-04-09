@@ -601,6 +601,49 @@ section { margin-bottom: 32px; }
   color: var(--text-muted);
 }
 
+#guest-worlds-picker {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 4px;
+}
+
+.world-cb-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.world-cb-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.world-cb-item input[type="checkbox"]:disabled {
+  cursor: default;
+}
+
+.world-cb-fixed {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.world-cb-item:has(input:disabled:not(.world-cb-fixed input)) {
+  opacity: 0.4;
+}
+
+.world-cb-hint {
+  width: 100%;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 .route-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

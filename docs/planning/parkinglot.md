@@ -6,6 +6,13 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
+### User-selectable guest worlds
+`zwift-data`'s built-in weekly guest world schedule is inaccurate. Zwift actually shows Watopia (always available) plus **two** other guest worlds at a time. The current `GUEST_WORLD_SCHEDULE` in `routes.js` maps each day-of-week to only one guest world, which means when `todayOnly` is on the route pool is missing an entire world's worth of routes.
+
+Fix: replace the static schedule with a lightweight UI that lets the user pick the **two** guest worlds themselves. Watopia is always checked and not removable. A row of world checkboxes in the Settings panel (or a small modal at app load) is enough. Persist the selection in `localStorage` so it survives a refresh. The change lives in `routes.js` (`todaysWorlds()`) and the settings section of `app.js`/`index.html`.
+
+Secondary benefit: this also solves the "same routes keep surfacing" problem. With `todayOnly` on and only two worlds in the pool, the deterministic scorer picks the same winners every time. A correct three-world pool gives the optimizer a much wider set to work with.
+
 ### WOTD live validation
 The workout fetch chain is wired but hasn't been tested end-to-end against a live mixed-mode day. When Xert schedules a `#MIXEDMODE` workout:
 - Confirm `training_info` returns a `workoutId`

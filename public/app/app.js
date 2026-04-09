@@ -32,6 +32,15 @@ function getTodayOnly() {
   return localStorage.getItem('today-only') !== 'false';
 }
 
+function getGuestWorlds() {
+  try { return JSON.parse(localStorage.getItem('guest-worlds')) ?? ['london', 'new-york']; }
+  catch { return ['london', 'new-york']; }
+}
+
+function saveGuestWorlds(worlds) {
+  localStorage.setItem('guest-worlds', JSON.stringify(worlds));
+}
+
 function getTimingMode() {
   return localStorage.getItem(TIMING_MODE_KEY) === 'manual' ? 'manual' : 'auto';
 }
@@ -197,6 +206,7 @@ let state = {
   lastUpdated:    null,
   timingMode:     'auto',
   todayOnly:      true,
+  guestWorlds:    [],
   wotdDetailLoaded: false,
 };
 
@@ -224,9 +234,14 @@ async function init() {
   updateManualSpeedBounds();
 
   state.todayOnly = getTodayOnly();
+  state.guestWorlds = getGuestWorlds();
   document.getElementById('today-only-toggle').checked = state.todayOnly;
-  const worlds = [...todaysWorlds()].map(worldName).join(' · ');
-  document.getElementById('today-worlds-label').textContent = worlds;
+  document.querySelectorAll('.guest-world-cb').forEach(cb => {
+    cb.checked = state.guestWorlds.includes(cb.value);
+  });
+  updateGuestWorldsLabel();
+  updateGuestWorldsPickerVisibility();
+  updateGuestWorldCheckboxes();
   renderTimingControls();
   renderSourceNotes();
 
@@ -620,7 +635,7 @@ function recomputeRankedRoutes() {
     return;
   }
 
-  const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes) : routes;
+  const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes, state.guestWorlds) : routes;
   const settings = getTimeSettings();
   const optimized = optimizeRoutes(eligibleRoutes, {
     bucket: state.bucket,
@@ -1033,6 +1048,24 @@ function setTimingMode(mode) {
   }
 }
 
+function updateGuestWorldsLabel() {
+  const worlds = [...todaysWorlds(state.guestWorlds)].map(worldName).join(' · ');
+  document.getElementById('today-worlds-label').textContent = worlds;
+}
+
+function updateGuestWorldsPickerVisibility() {
+  document.getElementById('guest-worlds-picker').style.display =
+    state.todayOnly ? '' : 'none';
+}
+
+function updateGuestWorldCheckboxes() {
+  const cbs = [...document.querySelectorAll('.guest-world-cb')];
+  const selectedCount = cbs.filter(cb => cb.checked).length;
+  cbs.forEach(cb => {
+    if (!cb.checked) cb.disabled = selectedCount >= 2;
+  });
+}
+
 function renderTimingControls() {
   const autoBtn = document.getElementById('timing-auto');
   const manualBtn = document.getElementById('timing-manual');
@@ -1338,6 +1371,19 @@ document.getElementById('avg-speed').addEventListener('input', () => {
 document.getElementById('today-only-toggle').addEventListener('change', (e) => {
   state.todayOnly = e.target.checked;
   localStorage.setItem('today-only', state.todayOnly);
+  updateGuestWorldsPickerVisibility();
+  if (state.trainingData) {
+    recomputeRankedRoutes();
+    renderRoutes();
+  }
+});
+
+document.getElementById('guest-worlds-picker').addEventListener('change', () => {
+  const checked = [...document.querySelectorAll('.guest-world-cb:checked')].map(el => el.value);
+  state.guestWorlds = checked.slice(0, 2);
+  saveGuestWorlds(state.guestWorlds);
+  updateGuestWorldsLabel();
+  updateGuestWorldCheckboxes();
   if (state.trainingData) {
     recomputeRankedRoutes();
     renderRoutes();
