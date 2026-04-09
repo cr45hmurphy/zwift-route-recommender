@@ -116,8 +116,11 @@
     </div>
   </div>
 
-  <!-- ── Dynamic output ── -->
+  <!-- ── Dynamic output (re-renders on slider change) ── -->
   <div id="results"></div>
+
+  <!-- ── Static checks (always use hard-coded defaults) ── -->
+  <div id="static-results"></div>
 
   <script type="module">
     import {
@@ -479,8 +482,10 @@
     }
 
     // ── Initial render ───────────────────────────────────────────────────────
-    document.getElementById('results').insertAdjacentHTML('beforebegin', renderStaticChecks());
+    // Dynamic results first — right below the sliders so changes are immediately visible.
+    // Static checks last — they never change and don't need to be prominent.
     renderResults();
+    document.getElementById('static-results').innerHTML = renderStaticChecks();
     updateStatus();
   </script>
 </body>
