@@ -127,6 +127,7 @@
       scoreRoute, rankRoutes, detectBucket, optimizeRoutes,
       classifyWOTD, wotdTerrainScore, DEFAULTS,
     } from '../app/core/scorer.js';
+    import { routes as ALL_ROUTES } from '../app/data/routes-data.js';
 
     // ── Slider definitions ──────────────────────────────────────────────────
     const SLIDERS = [
@@ -274,8 +275,8 @@
         : 'All values at default';
     }
 
-    // ── Fixture routes ───────────────────────────────────────────────────────
-    const ROUTES = [
+    // ── Fixture routes — small known set used only for heuristic pass/fail checks ──
+    const FIXTURES = [
       { name: 'Tempus Fugit',          world: 'watopia',        distance: 17.231, elevation: 26,   eventOnly: false, sports: ['cycling'] },
       { name: 'Flat Out Fast',         world: 'watopia',        distance: 21.382, elevation: 46,   eventOnly: false, sports: ['cycling'] },
       { name: 'Road to Sky',           world: 'watopia',        distance: 17.496, elevation: 1044, eventOnly: false, sports: ['cycling'] },
@@ -385,7 +386,7 @@
           <td style="color:${stabilityPass ? 'var(--green)' : 'var(--red)'}">${stabilityPass ? 'PASS' : 'FAIL'}</td></tr></table>`;
 
       // Filters
-      const allRanked = rankRoutes(ROUTES, 'low');
+      const allRanked = rankRoutes(FIXTURES, 'low');
       const hasEventOnly = allRanked.some(r => r.eventOnly);
       const hasRunning   = allRanked.some(r => !r.sports.includes('cycling'));
       html += `<h2>Filter check <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
@@ -403,7 +404,7 @@
       let html = '';
 
       // Heuristic checks (use current tuning)
-      const routeByName = Object.fromEntries(ROUTES.map(r => [r.name, r]));
+      const routeByName = Object.fromEntries(FIXTURES.map(r => [r.name, r]));
       const heuristicChecks = [
         {
           label: 'RECOVERY favors easy spins over long endurance',
@@ -433,8 +434,8 @@
 
       // Per-bucket raw rankings
       ['low', 'high', 'peak', 'recovery'].forEach(bucket => {
-        const ranked = rankRoutes(ROUTES, bucket, tuning);
-        const rows = ranked.slice(0, 6).map((r, i) => {
+        const ranked = rankRoutes(ALL_ROUTES, bucket, tuning);
+        const rows = ranked.slice(0, 10).map((r, i) => {
           const gr = r.distance > 0 ? (r.elevation / r.distance).toFixed(1) : '—';
           return `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.distance} km</td>
             <td>${r.elevation} m</td><td>${gr} m/km</td><td class="score">${r.score}</td></tr>`;
@@ -455,14 +456,14 @@
       ];
 
       optimizerScenarios.forEach(scenario => {
-        const ranked = optimizeRoutes(ROUTES, {
+        const ranked = optimizeRoutes(ALL_ROUTES, {
           bucket: scenario.bucket,
           deficits: scenario.deficits,
           availableMinutes: scenario.availableMinutes,
           estimateMinutes,
           tuning,
         });
-        const rows = ranked.slice(0, 6).map((r, i) => `
+        const rows = ranked.slice(0, 10).map((r, i) => `
           <tr>
             <td>${i + 1}</td>
             <td>${r.name}</td>
