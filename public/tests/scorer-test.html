@@ -4,333 +4,484 @@
   <meta charset="UTF-8">
   <title>Scorer Test</title>
   <style>
-    body { font-family: monospace; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #111; color: #eee; }
-    h1 { font-size: 1.1rem; color: #aaa; }
-    h2 { font-size: 0.95rem; color: #e47000; margin-top: 32px; }
+    :root {
+      --bg: #111;
+      --bg2: #1a1a1a;
+      --bg3: #222;
+      --border: #333;
+      --text: #eee;
+      --muted: #888;
+      --accent: #e47000;
+      --green: #4caf50;
+      --blue: #64b5f6;
+      --red: #ef5350;
+      --yellow: #ffb300;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: monospace; max-width: 980px; margin: 40px auto; padding: 0 20px; background: var(--bg); color: var(--text); }
+    h1 { font-size: 1.1rem; color: var(--muted); }
+    h2 { font-size: 0.95rem; color: var(--accent); margin-top: 32px; }
+    p  { color: var(--muted); font-size: 0.85rem; }
+
+    /* ── Tuning panel ── */
+    #tuning-panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      padding: 18px 20px 14px;
+      margin: 20px 0 28px;
+    }
+    #tuning-panel h2 { margin-top: 0; color: var(--text); font-size: 0.9rem; letter-spacing: 0.04em; }
+    .tuning-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px 32px;
+      margin-top: 14px;
+    }
+    .tuning-row { display: flex; flex-direction: column; gap: 5px; }
+    .tuning-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.8rem;
+    }
+    .tuning-name { color: var(--text); font-weight: bold; }
+    .tuning-value {
+      font-size: 0.9rem;
+      color: var(--accent);
+      min-width: 48px;
+      text-align: right;
+    }
+    .tuning-desc {
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .tuning-desc strong { color: #bbb; }
+    .tuning-range {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+      height: 4px;
+      cursor: pointer;
+    }
+    .tuning-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .btn {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-family: monospace;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-primary { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Tables ── */
     table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.82rem; }
-    th { text-align: left; color: #888; border-bottom: 1px solid #333; padding: 4px 8px; }
-    td { padding: 4px 8px; border-bottom: 1px solid #222; }
-    .score { color: #4caf50; font-weight: bold; }
+    th { text-align: left; color: var(--muted); border-bottom: 1px solid var(--border); padding: 4px 8px; }
+    td { padding: 4px 8px; border-bottom: 1px solid #1e1e1e; }
+    .score { color: var(--green); font-weight: bold; }
     .bucket { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.8rem; margin-bottom: 6px; }
-    .low    { background: #1a3a1a; color: #4caf50; }
-    .high   { background: #1a2a3a; color: #64b5f6; }
-    .peak   { background: #3a1a1a; color: #ef5350; }
-    .recovery { background: #2a2a1a; color: #ffb300; }
-    #bucket-display { margin-top: 24px; }
+    .low      { background: #1a3a1a; color: var(--green); }
+    .high     { background: #1a2a3a; color: var(--blue); }
+    .peak     { background: #3a1a1a; color: var(--red); }
+    .recovery { background: #2a2a1a; color: var(--yellow); }
+
+    .changed { color: var(--accent) !important; }
   </style>
 </head>
 <body>
-  <h1>scorer.js — validation harness</h1>
-  <p style="color:#888; font-size:0.85rem;">Hard-coded route fixtures run through each bucket. Check that sensible routes surface at the top.</p>
+  <h1>scorer.js — validation &amp; tuning harness</h1>
+  <p>Adjust the sliders below to explore how each constant affects route rankings. Results re-render live.<br>
+     Static checks (bucket detection, WOTD classification, filters) always use the hard-coded defaults and are not affected by sliders.</p>
 
-  <div id="bucket-display"></div>
+  <!-- ── Tuning Panel ── -->
+  <div id="tuning-panel">
+    <h2>TUNING CONSTANTS</h2>
+    <div class="tuning-grid" id="tuning-grid"></div>
+    <div class="tuning-actions">
+      <button class="btn btn-primary" id="reset-btn">↺ Reset to defaults</button>
+      <span id="tuning-status" style="font-size:0.78rem; color:var(--muted); align-self:center;"></span>
+    </div>
+  </div>
+
+  <!-- ── Dynamic output ── -->
+  <div id="results"></div>
 
   <script type="module">
-    import { scoreRoute, rankRoutes, detectBucket, optimizeRoutes, classifyWOTD, wotdTerrainScore } from '../app/core/scorer.js';
+    import {
+      scoreRoute, rankRoutes, detectBucket, optimizeRoutes,
+      classifyWOTD, wotdTerrainScore, DEFAULTS,
+    } from '../app/core/scorer.js';
 
-    // --- Fixture routes (representative sample from current route data) ---
-    const ROUTES = [
-      { name: "Tempus Fugit",         world: "watopia",        distance: 17.231, elevation: 26,   eventOnly: false, sports: ["cycling"] },
-      { name: "Flat Out Fast",        world: "watopia",        distance: 21.382, elevation: 46,   eventOnly: false, sports: ["cycling"] },
-      { name: "Road to Sky",          world: "watopia",        distance: 17.496, elevation: 1044, eventOnly: false, sports: ["cycling"] },
-      { name: "Tour of Fire and Ice", world: "watopia",        distance: 25.361, elevation: 1164, eventOnly: false, sports: ["cycling"] },
-      { name: "London PRL Half",      world: "london",         distance: 69.159, elevation: 1009, eventOnly: false, sports: ["cycling"] },
-      { name: "Three Sisters",        world: "watopia",        distance: 48.011, elevation: 896,  eventOnly: false, sports: ["cycling"] },
-      { name: "Sea to Tree",          world: "makuri-islands", distance: 3.273,  elevation: 108,  eventOnly: false, sports: ["cycling"] },
-      { name: "Mountain Mash",        world: "watopia",        distance: 5.79,   elevation: 335,  eventOnly: false, sports: ["cycling"] },
-      { name: "Lutscher",             world: "innsbruck",      distance: 13.704, elevation: 402,  eventOnly: false, sports: ["cycling"] },
-      { name: "Grand Central Circuit",world: "new-york",       distance: 6.857,  elevation: 144,  eventOnly: false, sports: ["cycling"] },
-      { name: "Big Flat 8",           world: "watopia",        distance: 29.211, elevation: 103,  eventOnly: false, sports: ["cycling"] },
-      { name: "Richmond UCI Circuit", world: "richmond",       distance: 16.093, elevation: 133,  eventOnly: false, sports: ["cycling"] },
-      { name: "Event Only Route",     world: "watopia",        distance: 50.0,   elevation: 200,  eventOnly: true,  sports: ["cycling"] },
-      { name: "Running Route",        world: "watopia",        distance: 5.0,    elevation: 50,   eventOnly: false, sports: ["running"] },
-    ];
-
-    // --- detectBucket test cases ---
-    const bucketTests = [
-      { label: "Low depleted",      tl: { low: 30, high: 20, peak: 10 }, targetXSS: { low: 50, high: 22, peak: 11 } },
-      { label: "High depleted",     tl: { low: 48, high: 10, peak: 10 }, targetXSS: { low: 50, high: 25, peak: 11 } },
-      { label: "Peak depleted",     tl: { low: 48, high: 23, peak: 4  }, targetXSS: { low: 50, high: 25, peak: 12 } },
-      { label: "All at target",     tl: { low: 52, high: 26, peak: 13 }, targetXSS: { low: 50, high: 25, peak: 11 } },
-    ];
-
-    const BUCKET_LABELS = { low: 'LOW (aerobic)', high: 'HIGH (threshold)', peak: 'PEAK (neuromuscular)', recovery: 'RECOVERY' };
-    const container = document.getElementById('bucket-display');
-
-    // Bucket detection results
-    const detectionHtml = bucketTests.map(t => {
-      const b = detectBucket(t.tl, t.targetXSS);
-      return `<tr><td>${t.label}</td><td><span class="bucket ${b}">${BUCKET_LABELS[b]}</span></td></tr>`;
-    }).join('');
-
-    container.innerHTML += `
-      <h2>detectBucket results</h2>
-      <table>
-        <tr><th>Scenario</th><th>Detected bucket</th></tr>
-        ${detectionHtml}
-      </table>
-    `;
-
-    const mixedModeCases = [
+    // ── Slider definitions ──────────────────────────────────────────────────
+    const SLIDERS = [
       {
-        label: 'Explicit mixed-mode workout tags',
-        wotd: {
-          description: 'Repeated surges and recovery. #MIXEDMODE',
-          xss: 72,
-          lowXSS: 22,
-          highXSS: 38,
-          peakXSS: 12,
-          duration: 3300,
-        },
-        expected: 'mixed_mode',
+        key: 'ACTIVE_BUCKET_WEIGHT',
+        label: 'Active bucket weight',
+        min: 0.3, max: 0.95, step: 0.05,
+        unit: '',
+        description: `
+          <strong>Specialist vs. all-rounder balance.</strong>
+          At the default (0.65), a route that excels at the active bucket (e.g. a long flat route
+          for LOW) beats a moderate all-rounder. Raise it and specialists dominate even more —
+          good if you're seeing mixed routes in single-bucket days. Lower it and routes that
+          partially address secondary deficits get more credit — useful when multiple buckets
+          are depleted at similar levels.`,
+        affects: ['LOW optimizer', 'HIGH optimizer', 'PEAK optimizer'],
       },
       {
-        label: 'Short hard interval with a long low-load profile',
-        wotd: {
-          description: 'A tough interval day with lots of easy riding.',
-          xss: 60,
-          lowXSS: 42,
-          highXSS: 12,
-          peakXSS: 6,
-          duration: 2400,
-          intervalPower: 420,
-          intervalDuration: 30,
-          ftp: 250,
-        },
-        expected: 'mixed_mode',
+        key: 'FLAT_DISTANCE_TARGET',
+        label: 'LOW: full-points distance',
+        min: 20, max: 70, step: 5,
+        unit: ' km',
+        description: `
+          <strong>Distance at which a route earns full LOW distance points (60/100).</strong>
+          Routes shorter than this score proportionally less. Lower it to surface shorter flat
+          routes for LOW days. Raise it to push recommendations toward longer endurance rides.
+          Does not affect HIGH or PEAK scoring.`,
+        affects: ['LOW bucket', 'LOW optimizer'],
+      },
+      {
+        key: 'FLAT_GRADIENT_MAX',
+        label: 'LOW/RECOVERY: max "flat" gradient',
+        min: 8, max: 28, step: 1,
+        unit: ' m/km',
+        description: `
+          <strong>Gradient above which a route loses "flat" credit.</strong>
+          Any route steeper than this scores 0 on flatness (the 40-point component of LOW,
+          and 100-point component of RECOVERY). Raise it to let rolling terrain count as "flat".
+          Lower it to enforce stricter flatness — only genuinely pancake routes score well.`,
+        affects: ['LOW bucket', 'RECOVERY bucket'],
+      },
+      {
+        key: 'CLIMB_ELEVATION_TARGET',
+        label: 'HIGH: full-points elevation',
+        min: 400, max: 1400, step: 50,
+        unit: ' m',
+        description: `
+          <strong>Elevation at which a route earns full HIGH elevation points (50/100).</strong>
+          Routes below this score proportionally less on the elevation component. Lower it to
+          surface shorter climbs for HIGH days. Raise it to reserve top spots for serious
+          mountain routes only. Note: the gradient bonus (20 pts) is independent.`,
+        affects: ['HIGH bucket', 'HIGH optimizer'],
+      },
+      {
+        key: 'PUNCH_ELEVATION_CAP',
+        label: 'PEAK: elevation hard cap',
+        min: 150, max: 700, step: 50,
+        unit: ' m',
+        description: `
+          <strong>Routes above this elevation score 0 for PEAK — instantly excluded.</strong>
+          This separates "punchy" routes (short steep surges) from sustained climbers.
+          Raise it if you're finding PEAK recommendations are too sparse — some punchy
+          routes with a few hundred metres of gain are getting filtered out. Lower it to
+          enforce shorter, sharper efforts only.`,
+        affects: ['PEAK bucket', 'PEAK optimizer'],
+      },
+      {
+        key: 'PUNCH_DISTANCE_MAX',
+        label: 'PEAK: short-route bonus cutoff',
+        min: 8, max: 35, step: 2,
+        unit: ' km',
+        description: `
+          <strong>Distance at which the PEAK short-route bonus (40 pts) drops to zero.</strong>
+          Routes shorter than this earn a linearly scaled bonus; routes at or above earn
+          nothing. Raise it to let longer punchy routes compete for PEAK. Lower it to
+          keep PEAK recommendations genuinely short and sharp.`,
+        affects: ['PEAK bucket', 'PEAK optimizer'],
+      },
+      {
+        key: 'PUNCH_GRADIENT_TARGET',
+        label: 'PEAK: full-points gradient',
+        min: 16, max: 50, step: 2,
+        unit: ' m/km',
+        description: `
+          <strong>Gradient at which a route earns full PEAK punch points (60/100).</strong>
+          Routes below this score proportionally less on the gradient component. The default
+          (32 m/km) is quite steep — lower it if PEAK routes feel too extreme. Raise it to
+          reserve top PEAK spots for the sharpest available climbs.`,
+        affects: ['PEAK bucket', 'PEAK optimizer'],
       },
     ];
 
-    const mixedModeRows = mixedModeCases.map(test => {
-      const actual = classifyWOTD(test.wotd, 250);
-      const pass = actual === test.expected;
-      return `
-        <tr>
-          <td>${test.label}</td>
-          <td>${test.expected}</td>
-          <td>${actual ?? 'null'}</td>
-          <td style="color:${pass ? '#4caf50' : '#f44336'}">${pass ? 'PASS' : 'FAIL'}</td>
-        </tr>
+    // ── Slider state ─────────────────────────────────────────────────────────
+    const tuning = { ...DEFAULTS };
+
+    // ── Build slider UI ──────────────────────────────────────────────────────
+    const grid = document.getElementById('tuning-grid');
+    SLIDERS.forEach(s => {
+      const row = document.createElement('div');
+      row.className = 'tuning-row';
+      row.innerHTML = `
+        <div class="tuning-label">
+          <span class="tuning-name">${s.label}</span>
+          <span class="tuning-value" id="val-${s.key}">${DEFAULTS[s.key]}${s.unit}</span>
+        </div>
+        <div class="tuning-range">
+          <span>${s.min}${s.unit}</span>
+          <input type="range" id="slider-${s.key}"
+            min="${s.min}" max="${s.max}" step="${s.step}" value="${DEFAULTS[s.key]}">
+          <span>${s.max}${s.unit}</span>
+        </div>
+        <div class="tuning-desc">${s.description}</div>
       `;
-    }).join('');
+      grid.appendChild(row);
 
-    container.innerHTML += `
-      <h2>classifyWOTD mixed-mode checks</h2>
-      <table>
-        <tr><th>Scenario</th><th>Expected</th><th>Actual</th><th>Result</th></tr>
-        ${mixedModeRows}
-      </table>
-    `;
-
-    const terrainCases = [
-      {
-        label: 'Sprint power favors routes with real sprint segments',
-        route: { name: 'Sprint Route', world: 'watopia', distance: 12, elevation: 110 },
-        segments: {
-          source: 'route',
-          climbs: [],
-          sprints: [{ name: 'A/B Sprint', climbType: null }],
-        },
-        wotdStructure: 'sprint_power',
-        expectedMin: 0.3,
-      },
-      {
-        label: 'Sprint power penalizes routes with no sprint segments',
-        route: { name: 'Climb Route', world: 'watopia', distance: 18, elevation: 900 },
-        segments: {
-          source: 'route',
-          climbs: [{ name: 'Epic Climb', climbType: '1' }],
-          sprints: [],
-        },
-        wotdStructure: 'sprint_power',
-        expectedMax: 0.1,
-      },
-      {
-        label: 'Mixed-mode rewards routes with both sprint and flat support',
-        route: { name: 'Mixed Route', world: 'watopia', distance: 28, elevation: 220 },
-        segments: {
-          source: 'route',
-          climbs: [{ name: 'Punchy Rise', climbType: '3' }],
-          sprints: [{ name: 'Banner Sprint', climbType: null }],
-        },
-        wotdStructure: 'mixed_mode',
-        expectedMin: 0.8,
-      },
-    ];
-
-    const terrainRows = terrainCases.map(test => {
-      const actual = wotdTerrainScore(test.route, test.wotdStructure, test.segments);
-      const pass =
-        (test.expectedMin === undefined || actual >= test.expectedMin) &&
-        (test.expectedMax === undefined || actual <= test.expectedMax);
-      const expectation = [
-        test.expectedMin !== undefined ? `>= ${test.expectedMin}` : '',
-        test.expectedMax !== undefined ? `<= ${test.expectedMax}` : '',
-      ].filter(Boolean).join(' and ');
-      return `
-        <tr>
-          <td>${test.label}</td>
-          <td>${expectation}</td>
-          <td>${actual.toFixed(2)}</td>
-          <td style="color:${pass ? '#4caf50' : '#f44336'}">${pass ? 'PASS' : 'FAIL'}</td>
-        </tr>
-      `;
-    }).join('');
-
-    container.innerHTML += `
-      <h2>wotdTerrainScore checks</h2>
-      <table>
-        <tr><th>Scenario</th><th>Expectation</th><th>Actual</th><th>Result</th></tr>
-        ${terrainRows}
-      </table>
-    `;
-
-    const routeByName = Object.fromEntries(ROUTES.map(route => [route.name, route]));
-    const heuristicChecks = [
-      {
-        label: 'Recovery favors easy spins over long endurance',
-        pass: scoreRoute(routeByName['Tempus Fugit'], 'recovery') > scoreRoute(routeByName['London PRL Half'], 'recovery'),
-      },
-      {
-        label: 'HIGH rewards real climbing routes over flat routes',
-        pass: scoreRoute(routeByName['Tour of Fire and Ice'], 'high') > scoreRoute(routeByName['Tempus Fugit'], 'high'),
-      },
-      {
-        label: 'PEAK favors short punchy climbs over long sustained ones',
-        pass: scoreRoute(routeByName['Sea to Tree'], 'peak') > scoreRoute(routeByName['Lutscher'], 'peak'),
-      },
-      {
-        label: 'PEAK excludes too-climby sustained routes',
-        pass: scoreRoute(routeByName['Lutscher'], 'peak') === 0,
-      },
-    ];
-
-    const heuristicHtml = heuristicChecks.map(check => `
-      <tr>
-        <td>${check.label}</td>
-        <td style="color:${check.pass ? '#4caf50' : '#f44336'}">${check.pass ? 'PASS' : 'FAIL'}</td>
-      </tr>
-    `).join('');
-
-    container.innerHTML += `
-      <h2>Heuristic checks</h2>
-      <table>
-        <tr><th>Expectation</th><th>Result</th></tr>
-        ${heuristicHtml}
-      </table>
-    `;
-
-    const stabilityRoutes = [
-      { name: 'Alpha Loop', world: 'watopia', distance: 20, elevation: 50, eventOnly: false, sports: ['cycling'] },
-      { name: 'Beta Loop', world: 'watopia', distance: 20, elevation: 50, eventOnly: false, sports: ['cycling'] },
-    ];
-    const stabilityRanked = optimizeRoutes(stabilityRoutes, {
-      bucket: 'low',
-      deficits: { low: 20, high: 0, peak: 0 },
-      availableMinutes: 40,
-      estimateMinutes: () => 40,
-    });
-    const stabilityPass =
-      stabilityRanked[0]?.name === 'Alpha Loop' &&
-      stabilityRanked[1]?.name === 'Beta Loop';
-
-    container.innerHTML += `
-      <h2>Stability check</h2>
-      <table>
-        <tr><th>Expectation</th><th>Result</th></tr>
-        <tr>
-          <td>Exact ties resolve deterministically by route key</td>
-          <td style="color:${stabilityPass ? '#4caf50' : '#f44336'}">${stabilityPass ? 'PASS' : 'FAIL'}</td>
-        </tr>
-      </table>
-    `;
-
-    const optimizerScenarios = [
-      {
-        label: 'Low-heavy day, 30 min target',
-        bucket: 'low',
-        deficits: { low: 35, high: 5, peak: 0 },
-        availableMinutes: 30,
-      },
-      {
-        label: 'Mixed deficits, 60 min target',
-        bucket: 'high',
-        deficits: { low: 18, high: 20, peak: 6 },
-        availableMinutes: 60,
-      },
-      {
-        label: 'Peak-focused day, 40 min target',
-        bucket: 'peak',
-        deficits: { low: 4, high: 6, peak: 18 },
-        availableMinutes: 40,
-      },
-    ];
-
-    const estimateMinutes = (route) => Math.round((route.distance / 28) * 60 + (route.elevation / 700) * 60);
-
-    optimizerScenarios.forEach((scenario) => {
-      const ranked = optimizeRoutes(ROUTES, {
-        bucket: scenario.bucket,
-        deficits: scenario.deficits,
-        availableMinutes: scenario.availableMinutes,
-        estimateMinutes,
+      const slider = row.querySelector('input[type=range]');
+      slider.addEventListener('input', () => {
+        tuning[s.key] = parseFloat(slider.value);
+        const valEl = document.getElementById(`val-${s.key}`);
+        valEl.textContent = slider.value + s.unit;
+        valEl.classList.toggle('changed', tuning[s.key] !== DEFAULTS[s.key]);
+        renderResults();
+        updateStatus();
       });
-      const rows = ranked.slice(0, 6).map((r, i) => `
-        <tr>
-          <td>${i + 1}</td>
-          <td>${r.name}</td>
-          <td>~${r.estimatedMinutes} min</td>
-          <td>${Math.round(r.optimizerBreakdown.low * 100)} / ${Math.round(r.optimizerBreakdown.high * 100)} / ${Math.round(r.optimizerBreakdown.peak * 100)}</td>
-          <td>${r.optimizerReason}</td>
-          <td class="score">${r.score}</td>
-        </tr>
-      `).join('');
-
-      container.innerHTML += `
-        <h2>Optimizer: <span class="bucket ${scenario.bucket}">${scenario.label}</span></h2>
-        <table>
-          <tr><th>#</th><th>Route</th><th>Est. time</th><th>L/H/P</th><th>Why it ranked</th><th>Score</th></tr>
-          ${rows}
-        </table>
-      `;
     });
 
-    // Route rankings per bucket
-    ['low', 'high', 'peak', 'recovery'].forEach(bucket => {
-      const ranked = rankRoutes(ROUTES, bucket);
-      const rows = ranked.slice(0, 6).map((r, i) => {
-        const gr = r.distance > 0 ? (r.elevation / r.distance).toFixed(1) : '—';
-        return `<tr>
-          <td>${i + 1}</td>
-          <td>${r.name}</td>
-          <td>${r.distance} km</td>
-          <td>${r.elevation} m</td>
-          <td>${gr} m/km</td>
-          <td class="score">${r.score}</td>
-        </tr>`;
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      SLIDERS.forEach(s => {
+        tuning[s.key] = DEFAULTS[s.key];
+        const slider = document.getElementById(`slider-${s.key}`);
+        slider.value = DEFAULTS[s.key];
+        const valEl = document.getElementById(`val-${s.key}`);
+        valEl.textContent = DEFAULTS[s.key] + s.unit;
+        valEl.classList.remove('changed');
+      });
+      renderResults();
+      updateStatus();
+    });
+
+    function updateStatus() {
+      const changed = SLIDERS.filter(s => tuning[s.key] !== DEFAULTS[s.key]);
+      const el = document.getElementById('tuning-status');
+      el.textContent = changed.length
+        ? `${changed.length} constant${changed.length > 1 ? 's' : ''} modified from default`
+        : 'All values at default';
+    }
+
+    // ── Fixture routes ───────────────────────────────────────────────────────
+    const ROUTES = [
+      { name: 'Tempus Fugit',          world: 'watopia',        distance: 17.231, elevation: 26,   eventOnly: false, sports: ['cycling'] },
+      { name: 'Flat Out Fast',         world: 'watopia',        distance: 21.382, elevation: 46,   eventOnly: false, sports: ['cycling'] },
+      { name: 'Road to Sky',           world: 'watopia',        distance: 17.496, elevation: 1044, eventOnly: false, sports: ['cycling'] },
+      { name: 'Tour of Fire and Ice',  world: 'watopia',        distance: 25.361, elevation: 1164, eventOnly: false, sports: ['cycling'] },
+      { name: 'London PRL Half',       world: 'london',         distance: 69.159, elevation: 1009, eventOnly: false, sports: ['cycling'] },
+      { name: 'Three Sisters',         world: 'watopia',        distance: 48.011, elevation: 896,  eventOnly: false, sports: ['cycling'] },
+      { name: 'Sea to Tree',           world: 'makuri-islands', distance: 3.273,  elevation: 108,  eventOnly: false, sports: ['cycling'] },
+      { name: 'Mountain Mash',         world: 'watopia',        distance: 5.79,   elevation: 335,  eventOnly: false, sports: ['cycling'] },
+      { name: 'Lutscher',              world: 'innsbruck',      distance: 13.704, elevation: 402,  eventOnly: false, sports: ['cycling'] },
+      { name: 'Grand Central Circuit', world: 'new-york',       distance: 6.857,  elevation: 144,  eventOnly: false, sports: ['cycling'] },
+      { name: 'Big Flat 8',            world: 'watopia',        distance: 29.211, elevation: 103,  eventOnly: false, sports: ['cycling'] },
+      { name: 'Richmond UCI Circuit',  world: 'richmond',       distance: 16.093, elevation: 133,  eventOnly: false, sports: ['cycling'] },
+      { name: 'Event Only Route',      world: 'watopia',        distance: 50.0,   elevation: 200,  eventOnly: true,  sports: ['cycling'] },
+      { name: 'Running Route',         world: 'watopia',        distance: 5.0,    elevation: 50,   eventOnly: false, sports: ['running'] },
+    ];
+
+    const estimateMinutes = r => Math.round((r.distance / 28) * 60 + (r.elevation / 700) * 60);
+
+    const BUCKET_LABELS = {
+      low: 'LOW (aerobic)',
+      high: 'HIGH (threshold)',
+      peak: 'PEAK (neuromuscular)',
+      recovery: 'RECOVERY',
+    };
+
+    // ── Static checks (always use hard-coded defaults) ───────────────────────
+    function renderStaticChecks() {
+      let html = '';
+
+      // detectBucket
+      const bucketTests = [
+        { label: 'Low depleted',  tl: { low: 30, high: 20, peak: 10 }, targetXSS: { low: 50, high: 22, peak: 11 } },
+        { label: 'High depleted', tl: { low: 48, high: 10, peak: 10 }, targetXSS: { low: 50, high: 25, peak: 11 } },
+        { label: 'Peak depleted', tl: { low: 48, high: 23, peak: 4  }, targetXSS: { low: 50, high: 25, peak: 12 } },
+        { label: 'All at target', tl: { low: 52, high: 26, peak: 13 }, targetXSS: { low: 50, high: 25, peak: 11 } },
+      ];
+      const detectionRows = bucketTests.map(t => {
+        const b = detectBucket(t.tl, t.targetXSS);
+        return `<tr><td>${t.label}</td><td><span class="bucket ${b}">${BUCKET_LABELS[b]}</span></td></tr>`;
       }).join('');
+      html += `<h2>detectBucket results <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static — not affected by sliders)</span></h2>
+        <table><tr><th>Scenario</th><th>Detected bucket</th></tr>${detectionRows}</table>`;
 
-      container.innerHTML += `
-        <h2>Bucket: <span class="bucket ${bucket}">${BUCKET_LABELS[bucket]}</span></h2>
-        <table>
-          <tr><th>#</th><th>Route</th><th>Distance</th><th>Elevation</th><th>Gradient</th><th>Score</th></tr>
-          ${rows}
-        </table>
-      `;
-    });
+      // classifyWOTD
+      const mixedModeCases = [
+        {
+          label: 'Explicit mixed-mode workout tags',
+          wotd: { description: 'Repeated surges and recovery. #MIXEDMODE', xss: 72, lowXSS: 22, highXSS: 38, peakXSS: 12, duration: 3300 },
+          expected: 'mixed_mode',
+        },
+        {
+          label: 'Short hard interval with a long low-load profile',
+          wotd: { description: 'A tough interval day with lots of easy riding.', xss: 60, lowXSS: 42, highXSS: 12, peakXSS: 6, duration: 2400, intervalPower: 420, intervalDuration: 30, ftp: 250 },
+          expected: 'mixed_mode',
+        },
+      ];
+      const mixedModeRows = mixedModeCases.map(t => {
+        const actual = classifyWOTD(t.wotd, 250);
+        const pass = actual === t.expected;
+        return `<tr><td>${t.label}</td><td>${t.expected}</td><td>${actual ?? 'null'}</td>
+          <td style="color:${pass ? 'var(--green)' : 'var(--red)'}">${pass ? 'PASS' : 'FAIL'}</td></tr>`;
+      }).join('');
+      html += `<h2>classifyWOTD mixed-mode checks <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Scenario</th><th>Expected</th><th>Actual</th><th>Result</th></tr>${mixedModeRows}</table>`;
 
-    // Verify filters worked
-    const allRanked = rankRoutes(ROUTES, 'low');
-    const hasEventOnly = allRanked.some(r => r.eventOnly);
-    const hasRunning   = allRanked.some(r => !r.sports.includes('cycling'));
-    container.innerHTML += `
-      <h2>Filter check</h2>
-      <table>
-        <tr><th>Check</th><th>Result</th></tr>
-        <tr><td>eventOnly routes excluded</td><td style="color:${hasEventOnly ? '#f44336' : '#4caf50'}">${hasEventOnly ? 'FAIL — found eventOnly in results' : 'PASS'}</td></tr>
-        <tr><td>Non-cycling routes excluded</td><td style="color:${hasRunning ? '#f44336' : '#4caf50'}">${hasRunning ? 'FAIL — found non-cycling in results' : 'PASS'}</td></tr>
-      </table>
-    `;
+      // wotdTerrainScore
+      const terrainCases = [
+        {
+          label: 'Sprint power favors routes with real sprint segments',
+          route: { name: 'Sprint Route', world: 'watopia', distance: 12, elevation: 110 },
+          segments: { source: 'route', climbs: [], sprints: [{ name: 'A/B Sprint', climbType: null }] },
+          wotdStructure: 'sprint_power', expectedMin: 0.3,
+        },
+        {
+          label: 'Sprint power penalizes routes with no sprint segments',
+          route: { name: 'Climb Route', world: 'watopia', distance: 18, elevation: 900 },
+          segments: { source: 'route', climbs: [{ name: 'Epic Climb', climbType: '1' }], sprints: [] },
+          wotdStructure: 'sprint_power', expectedMax: 0.1,
+        },
+        {
+          label: 'Mixed-mode rewards routes with both sprint and flat support',
+          route: { name: 'Mixed Route', world: 'watopia', distance: 28, elevation: 220 },
+          segments: { source: 'route', climbs: [{ name: 'Punchy Rise', climbType: '3' }], sprints: [{ name: 'Banner Sprint', climbType: null }] },
+          wotdStructure: 'mixed_mode', expectedMin: 0.8,
+        },
+      ];
+      const terrainRows = terrainCases.map(t => {
+        const actual = wotdTerrainScore(t.route, t.wotdStructure, t.segments);
+        const pass = (t.expectedMin === undefined || actual >= t.expectedMin) && (t.expectedMax === undefined || actual <= t.expectedMax);
+        const expectation = [t.expectedMin !== undefined ? `>= ${t.expectedMin}` : '', t.expectedMax !== undefined ? `<= ${t.expectedMax}` : ''].filter(Boolean).join(' and ');
+        return `<tr><td>${t.label}</td><td>${expectation}</td><td>${actual.toFixed(2)}</td>
+          <td style="color:${pass ? 'var(--green)' : 'var(--red)'}">${pass ? 'PASS' : 'FAIL'}</td></tr>`;
+      }).join('');
+      html += `<h2>wotdTerrainScore checks <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Scenario</th><th>Expectation</th><th>Actual</th><th>Result</th></tr>${terrainRows}</table>`;
+
+      // Stability
+      const stabilityRoutes = [
+        { name: 'Alpha Loop', world: 'watopia', distance: 20, elevation: 50, eventOnly: false, sports: ['cycling'] },
+        { name: 'Beta Loop',  world: 'watopia', distance: 20, elevation: 50, eventOnly: false, sports: ['cycling'] },
+      ];
+      const stabilityRanked = optimizeRoutes(stabilityRoutes, { bucket: 'low', deficits: { low: 20, high: 0, peak: 0 }, availableMinutes: 40, estimateMinutes: () => 40 });
+      const stabilityPass = stabilityRanked[0]?.name === 'Alpha Loop' && stabilityRanked[1]?.name === 'Beta Loop';
+      html += `<h2>Stability check <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Expectation</th><th>Result</th></tr>
+        <tr><td>Exact ties resolve deterministically by route key</td>
+          <td style="color:${stabilityPass ? 'var(--green)' : 'var(--red)'}">${stabilityPass ? 'PASS' : 'FAIL'}</td></tr></table>`;
+
+      // Filters
+      const allRanked = rankRoutes(ROUTES, 'low');
+      const hasEventOnly = allRanked.some(r => r.eventOnly);
+      const hasRunning   = allRanked.some(r => !r.sports.includes('cycling'));
+      html += `<h2>Filter check <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Check</th><th>Result</th></tr>
+        <tr><td>eventOnly routes excluded</td>
+          <td style="color:${hasEventOnly ? 'var(--red)' : 'var(--green)'}">${hasEventOnly ? 'FAIL — found eventOnly in results' : 'PASS'}</td></tr>
+        <tr><td>Non-cycling routes excluded</td>
+          <td style="color:${hasRunning ? 'var(--red)' : 'var(--green)'}">${hasRunning ? 'FAIL — found non-cycling in results' : 'PASS'}</td></tr></table>`;
+
+      return html;
+    }
+
+    // ── Dynamic results (re-render on slider change) ─────────────────────────
+    function renderResults() {
+      let html = '';
+
+      // Heuristic checks (use current tuning)
+      const routeByName = Object.fromEntries(ROUTES.map(r => [r.name, r]));
+      const heuristicChecks = [
+        {
+          label: 'RECOVERY favors easy spins over long endurance',
+          pass: scoreRoute(routeByName['Tempus Fugit'], 'recovery', tuning) > scoreRoute(routeByName['London PRL Half'], 'recovery', tuning),
+        },
+        {
+          label: 'HIGH rewards real climbing routes over flat routes',
+          pass: scoreRoute(routeByName['Tour of Fire and Ice'], 'high', tuning) > scoreRoute(routeByName['Tempus Fugit'], 'high', tuning),
+        },
+        {
+          label: 'PEAK favors short punchy climbs over long sustained ones',
+          pass: scoreRoute(routeByName['Sea to Tree'], 'peak', tuning) > scoreRoute(routeByName['Lutscher'], 'peak', tuning),
+        },
+        {
+          label: 'PEAK excludes too-climby sustained routes (Lutscher scores 0)',
+          pass: scoreRoute(routeByName['Lutscher'], 'peak', tuning) === 0,
+          warn: 'This check will fail if PUNCH_ELEVATION_CAP is raised above 402 m',
+        },
+      ];
+      const heuristicRows = heuristicChecks.map(c => {
+        const color = c.pass ? 'var(--green)' : 'var(--red)';
+        return `<tr><td>${c.label}${c.warn ? `<br><span style="color:var(--muted);font-size:0.75rem">${c.warn}</span>` : ''}</td>
+          <td style="color:${color}">${c.pass ? 'PASS' : 'FAIL'}</td></tr>`;
+      }).join('');
+      html += `<h2>Heuristic checks <span style="color:var(--accent);font-weight:normal;font-size:0.8rem">(live — affected by sliders)</span></h2>
+        <table><tr><th>Expectation</th><th>Result</th></tr>${heuristicRows}</table>`;
+
+      // Per-bucket raw rankings
+      ['low', 'high', 'peak', 'recovery'].forEach(bucket => {
+        const ranked = rankRoutes(ROUTES, bucket, tuning);
+        const rows = ranked.slice(0, 6).map((r, i) => {
+          const gr = r.distance > 0 ? (r.elevation / r.distance).toFixed(1) : '—';
+          return `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.distance} km</td>
+            <td>${r.elevation} m</td><td>${gr} m/km</td><td class="score">${r.score}</td></tr>`;
+        }).join('');
+        html += `<h2>Bucket: <span class="bucket ${bucket}">${BUCKET_LABELS[bucket]}</span>
+          <span style="color:var(--accent);font-weight:normal;font-size:0.8rem"> — live</span></h2>
+          <table><tr><th>#</th><th>Route</th><th>Distance</th><th>Elevation</th><th>Gradient</th><th>Score</th></tr>
+          ${rows}</table>`;
+      });
+
+      // Optimizer scenarios
+      const optimizerScenarios = [
+        { label: 'Low-heavy day, 30 min target',  bucket: 'low',  deficits: { low: 35, high: 5, peak: 0  }, availableMinutes: 30 },
+        { label: 'Mixed deficits, 60 min target',  bucket: 'high', deficits: { low: 18, high: 20, peak: 6 }, availableMinutes: 60 },
+        { label: 'Peak-focused day, 40 min target', bucket: 'peak', deficits: { low: 4,  high: 6, peak: 18 }, availableMinutes: 40 },
+        { label: 'Equal deficits — specialist test', bucket: 'low', deficits: { low: 50, high: 50, peak: 50 }, availableMinutes: 60,
+          note: 'All deficits equal — a flat specialist should still beat an all-rounder for LOW at default ACTIVE_BUCKET_WEIGHT.' },
+      ];
+
+      optimizerScenarios.forEach(scenario => {
+        const ranked = optimizeRoutes(ROUTES, {
+          bucket: scenario.bucket,
+          deficits: scenario.deficits,
+          availableMinutes: scenario.availableMinutes,
+          estimateMinutes,
+          tuning,
+        });
+        const rows = ranked.slice(0, 6).map((r, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td>${r.name}</td>
+            <td>~${r.estimatedMinutes} min</td>
+            <td>${Math.round(r.optimizerBreakdown.low * 100)} / ${Math.round(r.optimizerBreakdown.high * 100)} / ${Math.round(r.optimizerBreakdown.peak * 100)}</td>
+            <td>${r.optimizerReason}</td>
+            <td class="score">${r.score}</td>
+          </tr>`).join('');
+        html += `<h2>Optimizer: <span class="bucket ${scenario.bucket}">${scenario.label}</span>
+          <span style="color:var(--accent);font-weight:normal;font-size:0.8rem"> — live</span></h2>
+          ${scenario.note ? `<p style="margin:4px 0 8px; color:var(--muted)">${scenario.note}</p>` : ''}
+          <table><tr><th>#</th><th>Route</th><th>Est. time</th><th>L/H/P</th><th>Why it ranked</th><th>Score</th></tr>
+          ${rows}</table>`;
+      });
+
+      document.getElementById('results').innerHTML = html;
+    }
+
+    // ── Initial render ───────────────────────────────────────────────────────
+    document.getElementById('results').insertAdjacentHTML('beforebegin', renderStaticChecks());
+    renderResults();
+    updateStatus();
   </script>
 </body>
 </html>

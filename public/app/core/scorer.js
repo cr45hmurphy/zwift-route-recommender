@@ -19,6 +19,21 @@ const WORLD_SEGMENT_FALLBACK_MULTIPLIER = 0.55;
 const ACTIVE_BUCKET_WEIGHT  = 0.65; // how strongly the active bucket's route contribution dominates deficit scoring (0–1)
 const OPTIMIZER_SORT_EPSILON = 0.001;
 
+/**
+ * DEFAULTS — exported snapshot of every tunable constant.
+ * Used by scorer-test.html to populate sliders and by the reset button.
+ * The production app never reads this — it uses the constants directly.
+ */
+export const DEFAULTS = {
+  FLAT_DISTANCE_TARGET,
+  FLAT_GRADIENT_MAX,
+  CLIMB_ELEVATION_TARGET,
+  PUNCH_ELEVATION_CAP,
+  PUNCH_DISTANCE_MAX,
+  PUNCH_GRADIENT_TARGET,
+  ACTIVE_BUCKET_WEIGHT,
+};
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -156,25 +171,32 @@ export function detectBucket(tl, targetXSS) {
  * @param {string} bucket — 'low' | 'high' | 'peak' | 'recovery'
  * @returns {number}
  */
-export function scoreRoute(route, bucket) {
+export function scoreRoute(route, bucket, C = {}) {
+  const flatDistTarget   = C.FLAT_DISTANCE_TARGET   ?? FLAT_DISTANCE_TARGET;
+  const flatGradMax      = C.FLAT_GRADIENT_MAX       ?? FLAT_GRADIENT_MAX;
+  const climbElevTarget  = C.CLIMB_ELEVATION_TARGET  ?? CLIMB_ELEVATION_TARGET;
+  const punchElevCap     = C.PUNCH_ELEVATION_CAP     ?? PUNCH_ELEVATION_CAP;
+  const punchDistMax     = C.PUNCH_DISTANCE_MAX      ?? PUNCH_DISTANCE_MAX;
+  const punchGradTarget  = C.PUNCH_GRADIENT_TARGET   ?? PUNCH_GRADIENT_TARGET;
+
   const { distance, elevation } = route;
   const gradientRatio = distance > 0 ? elevation / distance : 0;
 
   if (bucket === 'low') {
-    const distanceScore = Math.min(distance / FLAT_DISTANCE_TARGET, 1) * 60;
-    const flatnessScore = Math.max(0, 1 - gradientRatio / FLAT_GRADIENT_MAX) * 40;
+    const distanceScore = Math.min(distance / flatDistTarget, 1) * 60;
+    const flatnessScore = Math.max(0, 1 - gradientRatio / flatGradMax) * 40;
     return Math.round(distanceScore + flatnessScore);
   }
 
   if (bucket === 'recovery') {
     const distancePenalty  = Math.max(0, 1 - Math.max(0, distance - RECOVERY_DISTANCE_MAX) / RECOVERY_DISTANCE_MAX);
     const elevationPenalty = Math.max(0, 1 - Math.max(0, elevation - RECOVERY_ELEVATION_MAX) / RECOVERY_ELEVATION_MAX);
-    const flatnessScore    = Math.max(0, 1 - gradientRatio / FLAT_GRADIENT_MAX) * 100;
+    const flatnessScore    = Math.max(0, 1 - gradientRatio / flatGradMax) * 100;
     return Math.round(flatnessScore * distancePenalty * elevationPenalty);
   }
 
   if (bucket === 'high') {
-    const elevationScore = Math.min(elevation / CLIMB_ELEVATION_TARGET, 1) * 50;
+    const elevationScore = Math.min(elevation / climbElevTarget, 1) * 50;
     const distanceScore  = Math.min(distance / CLIMB_DISTANCE_TARGET, 1) * 30;
     const bigClimb    = elevation >= CLIMB_ELEVATION_BIG ? 20 : 0;
     const midGradient = (gradientRatio >= CLIMB_GRADIENT_MIN && gradientRatio <= CLIMB_GRADIENT_MAX) ? 20 : 0;
@@ -183,9 +205,9 @@ export function scoreRoute(route, bucket) {
   }
 
   if (bucket === 'peak') {
-    if (elevation > PUNCH_ELEVATION_CAP) return 0;
-    const punchScore = Math.min(gradientRatio / PUNCH_GRADIENT_TARGET, 1) * 60;
-    const shortScore = Math.max(0, 1 - distance / PUNCH_DISTANCE_MAX) * 40;
+    if (elevation > punchElevCap) return 0;
+    const punchScore = Math.min(gradientRatio / punchGradTarget, 1) * 60;
+    const shortScore = Math.max(0, 1 - distance / punchDistMax) * 40;
     return Math.round(punchScore + shortScore);
   }
 
@@ -200,25 +222,25 @@ export function scoreRoute(route, bucket) {
  * @param {string} bucket — 'low' | 'high' | 'peak' | 'recovery'
  * @returns {Array} routes with added `score` property, sorted descending
  */
-export function rankRoutes(routes, bucket) {
+export function rankRoutes(routes, bucket, tuning = {}) {
   const eligible = routes.filter(r =>
     !r.eventOnly &&
     Array.isArray(r.sports) &&
     r.sports.includes('cycling')
   );
 
-  const scored = eligible.map(r => ({ ...r, score: scoreRoute(r, bucket) }));
+  const scored = eligible.map(r => ({ ...r, score: scoreRoute(r, bucket, tuning) }));
   scored.sort((a, b) => b.score - a.score);
 
   return scored.slice(0, 15);
 }
 
-function routeContributions(route) {
+function routeContributions(route, C = {}) {
   return {
-    low: scoreRoute(route, 'low') / 100,
-    high: scoreRoute(route, 'high') / 100,
-    peak: scoreRoute(route, 'peak') / 100,
-    recovery: scoreRoute(route, 'recovery') / 100,
+    low: scoreRoute(route, 'low', C) / 100,
+    high: scoreRoute(route, 'high', C) / 100,
+    peak: scoreRoute(route, 'peak', C) / 100,
+    recovery: scoreRoute(route, 'recovery', C) / 100,
   };
 }
 
@@ -346,7 +368,8 @@ export function wotdTerrainScore(route, wotdStructure, routeSegments) {
   return 0.5;
 }
 
-function bucketDeficitScore(contributions, bucket, deficits) {
+function bucketDeficitScore(contributions, bucket, deficits, C = {}) {
+  const activeBucketWeight = C.ACTIVE_BUCKET_WEIGHT ?? ACTIVE_BUCKET_WEIGHT;
   const deficitState = normalizeDeficits(deficits);
   const weights = deficitState.weights;
   const weightedContribution =
@@ -354,12 +377,12 @@ function bucketDeficitScore(contributions, bucket, deficits) {
     contributions.high * weights.high +
     contributions.peak * weights.peak;
   const activeContribution = contributions[bucket] ?? 0;
-  // 65% weight on the active bucket's route fit so specialist routes win over all-rounders.
-  // 35% weight on the deficit-weighted balance so routes that address multiple depleted
-  // buckets still get credit when deficits are spread across buckets.
+  // activeBucketWeight (default 0.65) on the active bucket's route fit so specialist routes
+  // win over all-rounders. Remainder on the deficit-weighted balance so routes that address
+  // multiple depleted buckets still get credit when deficits are spread.
   return clamp(
-    activeContribution * ACTIVE_BUCKET_WEIGHT +
-    weightedContribution * (1 - ACTIVE_BUCKET_WEIGHT),
+    activeContribution * activeBucketWeight +
+    weightedContribution * (1 - activeBucketWeight),
     0, 1
   );
 }
@@ -434,6 +457,7 @@ export function optimizeRoutes(routes, options = {}) {
     wotdStructure = null,
     limit = 15,
     recoveryMode = bucket === 'recovery',
+    tuning = {},
   } = options;
 
   const eligible = routes.filter(r =>
@@ -447,8 +471,8 @@ export function optimizeRoutes(routes, options = {}) {
       .map(route => {
         const estimatedMinutes = estimateMinutes(route);
         const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
-        const score = scoreRoute(route, 'recovery');
-        const contributions = routeContributions(route);
+        const score = scoreRoute(route, 'recovery', tuning);
+        const contributions = routeContributions(route, tuning);
         const routeSegments = getRouteSegments(route);
         return {
           ...route,
@@ -468,10 +492,10 @@ export function optimizeRoutes(routes, options = {}) {
   return eligible
     .map(route => {
       const estimatedMinutes = estimateMinutes(route);
-      const contributions = routeContributions(route);
+      const contributions = routeContributions(route, tuning);
       const routeSegments = getRouteSegments(route);
       const terrainScore = wotdTerrainScore(route, wotdStructure, routeSegments);
-      const deficitScore = bucketDeficitScore(contributions, bucket, deficits);
+      const deficitScore = bucketDeficitScore(contributions, bucket, deficits, tuning);
       const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
       const weights = optimizerWeights(wotdStructure);
       let utility = (terrainScore * weights.terrain) + (deficitScore * weights.deficit) + (timeFit * weights.time);
