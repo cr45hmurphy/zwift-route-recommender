@@ -655,6 +655,7 @@ function recomputeRankedRoutes() {
     getRouteSegments: route => getSegmentsForRoute(route),
     wotdStructure: state.wotdStructure,
     recoveryMode: state.bucket === 'recovery',
+    favorites: loadFavorites(),
   });
 
   state.ranked = enrichRoutes(optimized, state.bucket, state.wotdStructure);
