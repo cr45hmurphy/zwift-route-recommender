@@ -10,6 +10,7 @@ import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
 // Rough XSS generation rate per bucket type (XSS per hour).
 // Used only for time-based planning estimates — not precise.
 const XSS_RATE = { low: 65, high: 90, peak: 50, recovery: 40 };
+const FAVORITES_KEY = 'xert_favorites';
 const DEFAULT_SPEED_KMH = 28;
 const TIMING_MODE_KEY = 'timing-mode';
 const DATA_SOURCE_KEY = 'data-source';
@@ -73,6 +74,15 @@ function loadHistory() {
 
 function saveHistory(history) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-HISTORY_LIMIT)));
+}
+
+function loadFavorites() {
+  try { return new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]')); }
+  catch { return new Set(); }
+}
+
+function saveFavorites(set) {
+  localStorage.setItem(FAVORITES_KEY, JSON.stringify([...set]));
 }
 
 function normalizeHistory(history) {
@@ -653,18 +663,19 @@ function recomputeRankedRoutes() {
 function renderRoutes() {
   const settings = getTimeSettings();
   const { minutes: timeMin } = settings;
+  const favorites = loadFavorites();
 
   const withinBudget = state.ranked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) <= timeMin);
   const overBudget   = state.ranked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) > timeMin);
 
   // Primary grid: top 5 within budget
   document.getElementById('route-grid').innerHTML =
-    withinBudget.slice(0, 5).map(r => routeCardHTML(r, false)).join('') ||
+    withinBudget.slice(0, 5).map(r => routeCardHTML(r, false, favorites)).join('') ||
     '<p class="no-routes">No routes fit your time budget — check the "If you had more time" section below.</p>';
 
   // Other options: within-budget overflow
   const otherList = document.getElementById('other-list');
-  otherList.innerHTML = withinBudget.slice(5).map(r => routeCardHTML(r, true)).join('');
+  otherList.innerHTML = withinBudget.slice(5).map(r => routeCardHTML(r, true, favorites)).join('');
   document.getElementById('other-toggle').textContent =
     `▼ Other options (${withinBudget.slice(5).length} more)`;
   document.getElementById('other-options').style.display =
@@ -673,13 +684,22 @@ function renderRoutes() {
   // "If you had more time": over-budget routes
   const moreSection = document.getElementById('more-time-options');
   const moreList    = document.getElementById('more-time-list');
-  moreList.innerHTML = overBudget.map(r => routeCardHTML(r, true)).join('');
+  moreList.innerHTML = overBudget.map(r => routeCardHTML(r, true, favorites)).join('');
   moreSection.style.display = overBudget.length ? 'block' : 'none';
   document.getElementById('more-time-toggle').textContent =
     `▼ If you had more time (${overBudget.length} routes)`;
 }
 
-function routeCardHTML(route, compact) {
+function buildShareText(route, estMin, fillPct, bucket) {
+  const lines = [];
+  const bucketLabel = (bucket && bucket !== 'recovery') ? bucket.toUpperCase() : null;
+  const fillPart = (fillPct !== null && bucketLabel) ? ` · covers ~${fillPct}% of ${bucketLabel} gap` : '';
+  lines.push(`${route.name} · ${worldName(route.world)} · ${(bucket || 'RECOVERY').toUpperCase()} day · ~${formatMinutes(estMin)}${fillPart}`);
+  if (route.rideCue) lines.push(`Ride cue: ${route.rideCue}`);
+  return lines.join('\n');
+}
+
+function routeCardHTML(route, compact, favorites = new Set()) {
   const gr    = route.distance > 0 ? (route.elevation / route.distance).toFixed(1) : '—';
   const world = worldName(route.world);
   const reason = routeReason(route, state.bucket);
@@ -694,10 +714,30 @@ function routeCardHTML(route, compact) {
     ? `<span class="time-tag over-time">~${formatMinutes(estMin)} · +${formatMinutes(overBy)} over</span>`
     : `<span class="time-tag fits-time">~${formatMinutes(estMin)}</span>`;
 
+  const riderWkg = getRiderWkg(state.trainingData);
+  const difficultyIndex = (riderWkg && gr !== '—' && settings.mode !== 'manual') ? parseFloat(gr) / riderWkg : null;
+  let difficultyBadge = '';
+  if (difficultyIndex !== null) {
+    if (difficultyIndex < 2.5) {
+      difficultyBadge = '<span class="difficulty-badge comfortable">Comfortable</span>';
+    } else if (difficultyIndex <= 5.0) {
+      difficultyBadge = '<span class="difficulty-badge moderate">Moderate</span>';
+    } else {
+      difficultyBadge = '<span class="difficulty-badge challenging">Challenging</span>';
+    }
+  }
+
+  const lapCount = estMin > 0 ? Math.floor(timeMin / estMin) : 1;
+  const lapTag = lapCount >= 2 && estMin <= timeMin * 0.6
+    ? `<span class="lap-suggestion">Consider ${lapCount} laps (~${formatMinutes(estMin * lapCount)})</span>`
+    : '';
+
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
   let fillTag = '';
   let impactTag = '';
   let matchTag = '';
+  let shareFillPct = null;
+  let shareBucket = state.bucket;
 
   if (displayTarget.mode === 'mixed') {
     const estimatedMixedXss = estimateMixedSupportXss(estMin, route);
@@ -713,6 +753,8 @@ function routeCardHTML(route, compact) {
     const remainingXss = (state.dailySummary && b !== 'recovery') ? state.dailySummary.remaining[b] : null;
     const estimatedBucketXss = estimateBucketImpactXss(estMin, b);
     const fillPct = remainingXss ? Math.min(Math.round(estimatedBucketXss / Math.max(remainingXss, 1) * 100), 100) : null;
+    shareFillPct = fillPct;
+    shareBucket = b;
     fillTag = fillPct !== null
       ? bucketBadgeHTML('xss-fill', b, `covers ~${fillPct}% of today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> gap`)
       : '';
@@ -724,7 +766,16 @@ function routeCardHTML(route, compact) {
       : bucketBadgeHTML('route-match', b, `Top fit for today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> need`);
   }
 
+  const routeKey = route.slug || route.name;
+  const isFavorited = favorites.has(routeKey);
+  const favoriteBtn = `<button class="favorite-btn${isFavorited ? ' favorited' : ''}" data-route-key="${routeKey}" aria-label="Favorite">★</button>`;
+  const shareText = buildShareText(route, estMin, shareFillPct, shareBucket);
+  const shareBtn = !compact
+    ? `<button class="share-btn" data-share-text="${shareText.replace(/"/g, '&quot;')}" aria-label="Copy to clipboard">Copy</button>`
+    : '';
+
   const cls = compact ? 'route-card compact' : 'route-card';
+  const favCls = isFavorited ? ` favorited` : '';
 
   const links = [
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
@@ -737,17 +788,23 @@ function routeCardHTML(route, compact) {
   ].join('');
 
   return `
-    <div class="${cls}">
+    <div class="${cls}${favCls}" data-route-key="${routeKey}">
       <div class="route-card-header">
         <span class="route-world">${world}</span>
-        <span class="route-score">${route.score}</span>
+        <div class="route-card-actions">
+          ${shareBtn}
+          ${favoriteBtn}
+          <span class="route-score">${route.score}</span>
+        </div>
       </div>
       <div class="route-name">${route.name}</div>
       <div class="route-stats">
         <span class="route-stat">${displayDist(route.distance)}</span>
         <span class="route-stat">${displayElev(route.elevation)}</span>
         <span class="gradient-badge">${displayGrad(parseFloat(gr))}</span>
+        ${difficultyBadge}
         ${timeTag}
+        ${lapTag}
         ${fillTag}
         ${impactTag}
         ${matchTag}
@@ -1440,6 +1497,63 @@ document.getElementById('settings-data-source').addEventListener('change', async
   }
 
   loadMockScenario();
+});
+
+// ── Delegated: Share button ───────────────────────
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.share-btn');
+  if (!btn) return;
+  const text = btn.getAttribute('data-share-text') || '';
+  const card = btn.closest('.route-card');
+
+  const finish = (label, success) => {
+    btn.textContent = label;
+    btn.classList.toggle('copied', success);
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  };
+
+  try {
+    const items = { 'text/plain': new Blob([text], { type: 'text/plain' }) };
+
+    if (card && window.html2canvas) {
+      const canvas = await window.html2canvas(card, { scale: 2, useCORS: true, backgroundColor: null });
+      await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(), 'image/png'));
+      const pngBlob = await new Promise((resolve, reject) =>
+        canvas.toBlob(b => b ? resolve(b) : reject(), 'image/png'));
+      items['image/png'] = pngBlob;
+    }
+
+    await navigator.clipboard.write([new ClipboardItem(items)]);
+    finish('Copied!', true);
+  } catch {
+    // Fall back to plain text
+    navigator.clipboard.writeText(text)
+      .then(() => finish('Copied!', true))
+      .catch(() => finish('Error', false));
+  }
+});
+
+// ── Delegated: Favorite button ────────────────────
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.favorite-btn');
+  if (!btn) return;
+  const routeKey = btn.getAttribute('data-route-key');
+  if (!routeKey) return;
+  const favs = loadFavorites();
+  if (favs.has(routeKey)) {
+    favs.delete(routeKey);
+  } else {
+    favs.add(routeKey);
+  }
+  saveFavorites(favs);
+  const isFav = favs.has(routeKey);
+  btn.classList.toggle('favorited', isFav);
+  // Update all cards with this route key (card may appear in multiple lists)
+  document.querySelectorAll(`.route-card[data-route-key="${CSS.escape(routeKey)}"]`).forEach(card => {
+    card.classList.toggle('favorited', isFav);
+  });
 });
 
 init();
