@@ -16,6 +16,8 @@ const TIMING_MODE_KEY = 'timing-mode';
 const DATA_SOURCE_KEY = 'data-source';
 const HISTORY_KEY = 'xert_history';
 const HISTORY_LIMIT = 10;
+const PLAN_HISTORY_KEY = 'xert_plan_history';
+const PLAN_HISTORY_LIMIT = 30;
 const MANUAL_SPEED_MIN_KMH = 15;
 const MANUAL_SPEED_MAX_KMH = 50;
 const DAILY_SUMMARY_BUFFER_HOURS = 12;
@@ -83,6 +85,56 @@ function loadFavorites() {
 
 function saveFavorites(set) {
   localStorage.setItem(FAVORITES_KEY, JSON.stringify([...set]));
+}
+
+function loadPlanHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PLAN_HISTORY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePlanHistory(history) {
+  localStorage.setItem(PLAN_HISTORY_KEY, JSON.stringify(history.slice(-PLAN_HISTORY_LIMIT)));
+}
+
+function savePlan() {
+  if (!isLiveDataSource()) return;
+  if (!state.ranked || state.ranked.length === 0) return;
+
+  const now = new Date();
+  const record = {
+    date: getLocalDayKey(now.getTime()),
+    bucket: state.bucket,
+    wotdClassification: state.wotdStructure ?? null,
+    savedAt: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    routes: state.ranked.slice(0, 5).map(r => ({
+      slug: r.slug,
+      name: r.name,
+      world: r.world,
+      distance: r.distance,
+      elevation: r.elevation,
+      rideCue: r.rideCue ?? null,
+    })),
+  };
+
+  const history = loadPlanHistory();
+  const existingIndex = history.findIndex(entry => entry.date === record.date);
+  if (existingIndex >= 0) {
+    history[existingIndex] = record;
+  } else {
+    history.push(record);
+  }
+  savePlanHistory(history);
+  showPlanSavedToast();
+}
+
+function loadTodaysPlan() {
+  const history = loadPlanHistory();
+  const todayKey = getLocalDayKey(Date.now());
+  return history.find(entry => entry.date === todayKey) ?? null;
 }
 
 function normalizeHistory(history) {
@@ -968,6 +1020,53 @@ function renderLastUpdated() {
   el.textContent = `${prefix} ${state.lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
+function renderTodaysPlan(record) {
+  const section = document.getElementById('today-plan');
+  if (!section) return;
+
+  if (!record) {
+    section.style.display = 'none';
+    return;
+  }
+
+  const units = getUnits();
+  const isImperial = units === 'imperial';
+
+  const cardRows = (record.routes ?? []).map(r => {
+    const dist = r.distance ?? 0;
+    const elev = r.elevation ?? 0;
+    const displayDist = isImperial
+      ? `${(dist * KM_TO_MI).toFixed(1)} mi`
+      : `${dist.toFixed(1)} km`;
+    const displayElev = isImperial
+      ? `${Math.round(elev * M_TO_FT)} ft`
+      : `${Math.round(elev)} m`;
+    const cue = r.rideCue ? `<div class="plan-card-cue">${r.rideCue}</div>` : '';
+    return `
+      <div class="plan-card">
+        <div class="plan-card-name">${r.name}</div>
+        <div class="plan-card-meta">${worldName(r.world)} · ${displayDist} · ${displayElev}</div>
+        ${cue}
+      </div>`;
+  }).join('');
+
+  section.innerHTML = `
+    <div class="today-plan-header">
+      <span class="today-plan-title">Today's plan</span>
+      <span class="today-plan-saved-at">saved at ${record.savedAt}</span>
+    </div>
+    <div class="today-plan-cards">${cardRows}</div>
+    <button id="plan-refresh-btn" class="btn-secondary today-plan-refresh">↺ Refresh for today's recommendations</button>
+  `;
+
+  section.style.display = 'block';
+
+  document.getElementById('plan-refresh-btn').addEventListener('click', () => {
+    section.style.display = 'none';
+    refresh();
+  });
+}
+
 // ── UI helpers ────────────────────────────────────
 
 function showAuth(message) {
@@ -999,6 +1098,13 @@ function showError(msg) {
 
 function hideError() {
   document.getElementById('app-error').style.display = 'none';
+}
+
+function showPlanSavedToast() {
+  const toast = document.getElementById('plan-saved-toast');
+  if (!toast) return;
+  toast.classList.add('visible');
+  setTimeout(() => toast.classList.remove('visible'), 2000);
 }
 
 function populateDataSourceOptions() {
