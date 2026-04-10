@@ -5,6 +5,9 @@ export const DATA_SOURCE_OPTIONS = [
   { id: 'mixed-deficit', label: 'Mock: Mixed Deficits' },
   { id: 'mixed-detail', label: 'Mock: Mixed WOTD Detail' },
   { id: 'peak-focus', label: 'Mock: Peak Focus' },
+  { id: 'missing-signature', label: 'Mock: Missing Signature' },
+  { id: 'empty-history', label: 'Mock: Empty History' },
+  { id: 'tired-deficit', label: 'Mock: Tired + Deficit' },
 ];
 
 export const MOCK_SCENARIOS = {
@@ -180,6 +183,60 @@ export const MOCK_SCENARIOS = {
       completed: { low: 5, high: 3, peak: 0, total: 8 },
       targets: { low: 20, high: 14, peak: 18, total: 52 },
       remaining: { low: 15, high: 11, peak: 18, total: 44 },
+    },
+  },
+  'missing-signature': {
+    title: 'Missing Signature',
+    trainingData: {
+      status: 'Fresh',
+      weight: null,
+      signature: { ftp: null, ltp: null, hie: null, pp: null },
+      tl: { low: 15, high: 8, peak: 2, total: 25 },
+      targetXSS: { low: 28, high: 12, peak: 4, total: 44 },
+      wotd: { name: null, difficulty: null, description: null },
+    },
+    rawWotd: { type: 'None' },
+    dailySummary: {
+      count: 0,
+      completed: { low: 0, high: 0, peak: 0, total: 0 },
+      targets: { low: 28, high: 12, peak: 4, total: 44 },
+      remaining: { low: 28, high: 12, peak: 4, total: 44 },
+    },
+  },
+  'empty-history': {
+    title: 'Empty History',
+    trainingData: {
+      status: 'Fresh',
+      weight: 75.0,
+      signature: { ftp: 250, ltp: 185, hie: 20, pp: 1100 },
+      tl: { low: 18, high: 9, peak: 2, total: 29 },
+      targetXSS: { low: 30, high: 15, peak: 5, total: 50 },
+      wotd: { name: null, difficulty: null, description: null },
+    },
+    rawWotd: { type: 'None' },
+    dailySummary: {
+      count: 0,
+      completed: { low: 0, high: 0, peak: 0, total: 0 },
+      targets: { low: 30, high: 15, peak: 5, total: 50 },
+      remaining: { low: 30, high: 15, peak: 5, total: 50 },
+    },
+  },
+  'tired-deficit': {
+    title: 'Tired + Deficit',
+    trainingData: {
+      status: 'Very Tired',
+      weight: 78.0,
+      signature: { ftp: 245, ltp: 180, hie: 19, pp: 1080 },
+      tl: { low: 55, high: 22, peak: 8, total: 85 },
+      targetXSS: { low: 30, high: 25, peak: 10, total: 65 },
+      wotd: { name: null, difficulty: null, description: null },
+    },
+    rawWotd: { type: 'None' },
+    dailySummary: {
+      count: 0,
+      completed: { low: 0, high: 0, peak: 0, total: 0 },
+      targets: { low: 30, high: 25, peak: 10, total: 65 },
+      remaining: { low: 30, high: 25, peak: 10, total: 65 },
     },
   },
 };

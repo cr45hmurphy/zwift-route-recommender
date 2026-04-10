@@ -223,6 +223,12 @@ let state = {
 // ── Init ──────────────────────────────────────────
 
 async function init() {
+  // Apply ?mock=<id> URL param before reading localStorage, so the param wins
+  const mockParam = new URLSearchParams(window.location.search).get('mock');
+  if (mockParam && MOCK_SCENARIOS[mockParam]) {
+    localStorage.setItem(DATA_SOURCE_KEY, mockParam);
+  }
+
   const ts = localStorage.getItem('xert_last_updated');
   if (ts) state.lastUpdated = new Date(parseInt(ts, 10));
   state.history = loadHistory();
