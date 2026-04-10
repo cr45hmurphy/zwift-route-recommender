@@ -6,13 +6,6 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
-### User-selectable guest worlds
-`zwift-data`'s built-in weekly guest world schedule is inaccurate. Zwift actually shows Watopia (always available) plus **two** other guest worlds at a time. The current `GUEST_WORLD_SCHEDULE` in `routes.js` maps each day-of-week to only one guest world, which means when `todayOnly` is on the route pool is missing an entire world's worth of routes.
-
-Fix: replace the static schedule with a lightweight UI that lets the user pick the **two** guest worlds themselves. Watopia is always checked and not removable. A row of world checkboxes in the Settings panel (or a small modal at app load) is enough. Persist the selection in `localStorage` so it survives a refresh. The change lives in `routes.js` (`todaysWorlds()`) and the settings section of `app.js`/`index.html`.
-
-Secondary benefit: this also solves the "same routes keep surfacing" problem. With `todayOnly` on and only two worlds in the pool, the deterministic scorer picks the same winners every time. A correct three-world pool gives the optimizer a much wider set to work with.
-
 ### WOTD live validation
 The workout fetch chain is wired but hasn't been tested end-to-end against a live mixed-mode day. When Xert schedules a `#MIXEDMODE` workout:
 - Confirm `training_info` returns a `workoutId`
@@ -32,10 +25,11 @@ After accumulating real ride data, revisit:
 - Consider a legend or tooltip for first-time users
 
 ### Scoring / optimizer tuning pass
-After accumulating real ride data, revisit:
+The live tuning panel in `scorer-test.html` makes this easy — adjust sliders and see ranking changes immediately. After accumulating real ride data, revisit:
+- `ACTIVE_BUCKET_WEIGHT` — currently 0.65 (specialist weight vs 0.35 deficit balance); fixed the all-rounder bias but may need further tuning
 - `PUNCH_ELEVATION_CAP` — currently 400m; may need adjustment
 - `PUNCH_DISTANCE_MAX` — currently 18 km; still heuristic
-- Whether LOW and mixed-deficit behavior still over-favors “all-rounder” routes when time budgets get long
+- Whether LOW and mixed-deficit behavior still over-favors “all-rounder” routes on long time budgets
 
 ### Daily Summary fidelity pass
 Confirm edge cases: multiple rides, imported rides, timezone boundaries, rounding differences with Xert's own UI.
