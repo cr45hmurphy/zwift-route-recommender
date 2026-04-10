@@ -16,8 +16,9 @@ const PUNCH_ELEVATION_CAP    = 400; // m    — routes above this score 0 in PEA
 const RECOVERY_DISTANCE_MAX  = 30;  // km   — routes above this score near 0 in RECOVERY
 const RECOVERY_ELEVATION_MAX = 200; // m    — routes above this score near 0 in RECOVERY
 const WORLD_SEGMENT_FALLBACK_MULTIPLIER = 0.55;
-const ACTIVE_BUCKET_WEIGHT  = 0.65; // how strongly the active bucket's route contribution dominates deficit scoring (0–1)
+const ACTIVE_BUCKET_WEIGHT   = 0.65; // how strongly the active bucket's route contribution dominates deficit scoring (0–1)
 const OPTIMIZER_SORT_EPSILON = 0.001;
+const FAVORITE_BOOST         = 0.08; // utility multiplier for starred routes (self-limiting: only matters when close to top)
 
 /**
  * DEFAULTS — exported snapshot of every tunable constant.
@@ -32,6 +33,7 @@ export const DEFAULTS = {
   PUNCH_DISTANCE_MAX,
   PUNCH_GRADIENT_TARGET,
   ACTIVE_BUCKET_WEIGHT,
+  FAVORITE_BOOST,
 };
 
 function clamp(value, min, max) {
@@ -458,6 +460,7 @@ export function optimizeRoutes(routes, options = {}) {
     limit = 15,
     recoveryMode = bucket === 'recovery',
     tuning = {},
+    favorites = null,
   } = options;
 
   const eligible = routes.filter(r =>
@@ -507,6 +510,10 @@ export function optimizeRoutes(routes, options = {}) {
         } else if (sprintCount >= 1) {
           utility = (utility * 1.4) + (contributions.peak * 0.35);
         }
+      }
+
+      if (favorites && favorites.has(route.slug || route.name)) {
+        utility = Math.min(1, utility * (1 + FAVORITE_BOOST));
       }
 
       return {
