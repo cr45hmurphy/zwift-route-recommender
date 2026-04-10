@@ -1124,7 +1124,7 @@ a.segment-chip:hover {
 /* ── Today's Plan section ───────────────────────── */
 
 #today-plan {
-  background: var(--card-bg, #1e1e2e);
+  background: var(--bg-card, #1a1a1a);
   border: 1px solid var(--border, #333);
   border-radius: 8px;
   padding: 1rem;
@@ -1156,7 +1156,7 @@ a.segment-chip:hover {
 }
 
 .plan-card {
-  background: var(--card-inner-bg, #252535);
+  background: #222;
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
 }

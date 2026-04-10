@@ -401,6 +401,8 @@ async function handleLogout() {
 async function refresh(username, password) {
   setLoading(true);
   hideError();
+  const todayPlanSection = document.getElementById('today-plan');
+  if (todayPlanSection) todayPlanSection.style.display = 'none';
 
   try {
     const raw = await fetchTrainingInfo(username, password);
