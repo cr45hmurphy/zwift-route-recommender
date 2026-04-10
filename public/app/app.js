@@ -320,12 +320,7 @@ async function init() {
 
   if (hasToken()) {
     showApp();
-    const savedPlan = loadTodaysPlan();
-    if (savedPlan) {
-      renderTodaysPlan(savedPlan);
-    } else {
-      await refresh();
-    }
+    await refresh();
   } else {
     showAuth();
   }
