@@ -320,7 +320,12 @@ async function init() {
 
   if (hasToken()) {
     showApp();
-    await refresh();
+    const savedPlan = loadTodaysPlan();
+    if (savedPlan) {
+      renderTodaysPlan(savedPlan);
+    } else {
+      await refresh();
+    }
   } else {
     showAuth();
   }
@@ -438,6 +443,7 @@ async function refresh(username, password) {
     state.bucket = bucket;
     state.bucketOverride = overrideNote;
     recomputeRankedRoutes();
+    savePlan();
     const now = Date.now();
     state.lastUpdated = new Date(now);
     state.history = recordHistorySnapshot(state.trainingData, now);
