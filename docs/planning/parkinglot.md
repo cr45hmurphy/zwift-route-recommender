@@ -19,11 +19,6 @@ After accumulating real ride data, revisit:
 - Whether world-fallback segment data should influence sprint-power ranking as strongly as route-linked segment data
 - Whether WOTD-first weighting should demote low/high support even further in `sprint_power` days
 
-### Trust-signal clarity pass
-- Validate whether `fills ~X% of low/high/peak` is intuitive enough in practice
-- Decide whether `XSS toward bucket` and `Best for bucket remaining` are both still needed
-- Consider a legend or tooltip for first-time users
-
 ### Scoring / optimizer tuning pass
 The live tuning panel in `scorer-test.html` makes this easy — adjust sliders and see ranking changes immediately. After accumulating real ride data, revisit:
 - `ACTIVE_BUCKET_WEIGHT` — currently 0.65 (specialist weight vs 0.35 deficit balance); fixed the all-rounder bias but may need further tuning
@@ -45,14 +40,11 @@ The app now has an in-app mock scenario switcher for QA. Good next additions:
 - Tired + nonzero bucket-deficit scenario to verify recovery override against nontrivial targets
 - Optional query-param support so a scenario can be linked directly for bug reports
 
-### W/kg difficulty contextualization
-The app already knows FTP and weight, but route cards still describe terrain in generic terms. Add a personalized difficulty label such as `Comfortable / Moderate / Challenging` so the rider sees what a given gradient means for them, not just in absolute terms. This is pure client-side math on data already present in Xert.
+### Recent Progress panel — reconsider or remove
+The bar chart is hard to read in practice (bars tend to be all-or-nothing), the history only accumulates when the live app is used daily, and it's unclear what value it provides. Deferred: leave it for now, evaluate whether to remove it or redesign it after more live usage.
 
-### "You've filled this before" context
+### “You've filled this before” context
 Recent Progress snapshots are currently used only for the small trend panel. Reuse that local history to show lightweight context on the banner or route card, e.g. “Last HIGH day you generated 87 XSS.” This would help riders calibrate whether today's recommendation is conservative or aggressive without any new API.
-
-### Lap / repeat suggestions for short routes
-Short PEAK-style routes can be the right answer but finish far before the rider's full time budget. When estimated route time is well below the selected budget, add a suggestion like `Consider 2-3 laps` so the recommendation is directly actionable rather than leaving the rider to do the math.
 
 ### Cue persistence / today's ride plan
 Right now the recommendation disappears once the rider closes the app. Add a lightweight `Save today's plan` flow that stores route name, ride cue, and target segments in localStorage and surfaces a persistent “Today's Plan” card when the app is reopened.
@@ -60,11 +52,11 @@ Right now the recommendation disappears once the rider closes the app. Add a lig
 ### Weekly progress overview
 The app now has a compact Recent Progress panel. A stronger next step would be a fuller 7-day overview showing completed vs target totals across the week rather than just a small per-bucket daily trend strip.
 
-### Favorite routes
-Let users star routes they enjoy. Starred routes get a visual indicator and a small score boost so they surface more often when they're a reasonable match. Pure localStorage, no API needed.
+### Favorite routes — score boost
+Favorites are now visually marked and persisted. Next step: give starred routes a small score boost so they surface more often when they're a reasonable match. Add to `optimizeRoutes()` or `bucketDeficitScore()` in `scorer.js`.
 
-### Share / export
-One-click copy of today's recommendation to clipboard. Plain text summary: route name, bucket, estimated time, XSS fill %, Xert status. Useful for sharing with a coach or dropping in a Zwift Discord. No API needed.
+### Share — format improvements
+Share button is live (PNG + plain text via ClipboardItem). Potential improvements: richer plain text formatting (emoji, markdown), better ride cue truncation, option to share just text without image.
 
 ### Post-ride feedback loop
 After the ride, ask for a lightweight completion signal such as `Executed / Partially / Not really` or a simple thumbs up/down on the recommendation. Even local-only storage would let the app start learning which route/cue combinations actually work for the rider.

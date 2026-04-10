@@ -95,6 +95,14 @@
 10. **Optimizer-based ranking** — uses remaining deficits + time-fit + WOTD terrain score
 11. **In-app mock scenarios** — main app can run canned recovery/low/mixed/peak scenarios
 12. **Imperial/metric toggle**, **Today's worlds filter**, **Recent Progress panel**, **Freshness override**
+13. **User-selectable guest worlds** — replaced hardcoded schedule with a user-driven picker; Watopia always on, rider picks two guest worlds; persists to localStorage
+14. **Specialist scoring fix** — rewrote `bucketDeficitScore()` to weight active bucket at 65% vs 35% deficit balance; fixed all-rounder-beats-specialist bias
+15. **Live tuning panel** — `scorer-test.html` now has 7 live sliders covering key scoring constants; rankings re-render on every slider move; `scorer.js` exports `DEFAULTS` and accepts optional overrides
+16. **Full route dataset in scorer-test** — rankings and optimizer tables use all ~300 real routes; fixtures kept only for pass/fail heuristic checks
+17. **W/kg difficulty labels** — Comfortable / Moderate / Challenging badge per route card, personalized to rider's gradient ratio vs W/kg; hidden in manual pace mode; thresholds `<2.5` / `2.5–5.0` / `>5.0`
+18. **Lap/repeat suggestions** — when estimated route time fills ≤60% of budget and 2+ laps fit, shows "↩ Consider N laps (~Xm)" in route stats
+19. **Share button** — copies PNG screenshot of card (html2canvas 2×) + plain text via `ClipboardItem`; paste destination picks best format; falls back to plain text
+20. **Favorite routes** — star button on every card; gold star + amber left border; persisted to `localStorage` under `xert_favorites`; in-place DOM toggle, no re-render
 
 ---
 
