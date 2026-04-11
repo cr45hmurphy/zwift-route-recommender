@@ -6,6 +6,118 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
+### Zwift public CDN integration — live schedules, authoritative route/segment data, and route-to-segment mapping
+
+#### Discovery
+
+Zwift serves several XML data files from its public CDN (`cdn.zwift.com/gameassets/`) with no authentication required. These are the same files the Zwift game client fetches on startup — source of truth for route data, segment data, world schedules, and Climb Portal schedules. Community tools like ZwiftHacks, What's on Zwift, and ZwiftMap all derive from these same sources.
+
+#### Confirmed public endpoints
+
+| Endpoint | Auth | Content | Update frequency |
+|---|---|---|---|
+| `cdn.zwift.com/gameassets/GameDictionary.xml` | None | 374 routes, 217 segments (195 with route mappings), 48 portal climbs | Updated with game patches |
+| `cdn.zwift.com/gameassets/MapSchedule_v2.xml` | None | Guest world rotation schedule with ISO 8601 dates | Monthly |
+| `cdn.zwift.com/gameassets/PortalRoadSchedule_v1.xml` | None | Climb Portal rotation schedule + portal climb metadata | Monthly |
+| `us-or-rly101.zwift.com/relay/worlds` | None | Live active worlds with real-time player counts | Real-time |
+| `cdn.zwift.com/gameassets/Zwift_Updates_Root/Zwift_ver_cur.xml` | None | Current game version string | Per release |
+
+**Confirmed inaccessible (401/403):** Events, profile data, activity data, ClimbSchedule.xml. These require Zwift developer API access not available to hobby developers.
+
+---
+
+#### Data source 1: GameDictionary.xml — the foundational one
+
+**374 routes** — each `<ROUTE>` element has:
+- `name`, `map` (world), `signature` (unique integer ID used by segments' `onRoutes`)
+- `distanceInMeters`, `ascentInMeters`, `leadinDistanceInMeters`, `leadinAscentInMeters`
+- `eventOnly` (1 = not available for free-ride), `levelLocked` (1 = requires rider level)
+- `supportedLaps` (1 = supports lapping)
+
+Route count by world: WATOPIA 129 · NEWYORK 50 · MAKURIISLANDS 47 · LONDON 24 · FRANCE 23 · SCOTLAND 16 · RICHMOND 10 · YORKSHIRE 9 · INNSBRUCK 7 · PARIS 4 · GRAVEL MOUNTAIN 4 · CRITCITY 2 · BOLOGNATT 1 · Climb Portal 48
+
+**217 segments** — each `<SEGMENT>` element has:
+- `name`, `world` (integer ID), `roadId`, `direction`
+- **`onRoutes`** — comma-separated list of route `signature` values that pass through this segment
+
+**This solves the route-to-segment mapping problem.** The `onRoutes` field maps every segment to the exact routes it appears on — authoritatively, from Zwift's own data. Verified examples:
+- Alpe du Zwift → Road to Sky, Four Horsemen, Tour of Fire and Ice, Uber Pretzel, Quatch Quest, Accelerate to Elevate
+- Epic KOM → Watopia Mountain Route, Pretzel, Three Sisters, Big Loop, Mega Pretzel, Four Horsemen, WBR Climbing Series
+- Fuego Flats Sprint → Tempus Fugit, Tick Tock, Big Flat 8, Spiral into the Volcano, and 6 others
+
+This **retires the Tier 3 "Route-segment lookup table (manual, high precision)"** item entirely.
+
+World ID integer mapping: 1=Watopia · 2=Richmond · 3=London · 4=NewYork · 5=Innsbruck · 6=Bologna · 7=Yorkshire · 8=France · 9=MakuriIslands · 10=Paris · 11=Scotland · 12=GravelMountain
+
+---
+
+#### Data source 2: MapSchedule_v2.xml
+
+Guest world rotation. `<appointment map="LONDON" start="2026-04-10T00:01-04" />` — filter for `start <= now`, take the most recent entry for today's guest world. Covers ~2 months; Watopia always implicitly available.
+
+**Replaces** the hardcoded `guestWorldSchedule` in `routes.js` (previously listed as a separate Tier 1 item — subsumed here).
+
+---
+
+#### Data source 3: PortalRoadSchedule_v1.xml
+
+Portal climb metadata + rotation schedule. Distances and elevations are in **centimeters** — divide by 100 for meters. `portal_of_month="true"` marks the featured climb. Enables "Today's Climb Portal" display; on HIGH/sustained_climb days, mention the portal as an alternative.
+
+---
+
+#### Data source 4: relay/worlds (live)
+
+Live player counts per world. `{"worldId":1,"name":"Public Watopia","playerCount":3483,...}`. Lower priority — possible "riders online" badge.
+
+---
+
+#### Implementation plan
+
+**Phase 1 — Replace hardcoded data (high value, well-scoped)**
+1. Fetch and parse `MapSchedule_v2.xml` on app load → replace hardcoded guest world schedule; cache in localStorage with 24h TTL; fallback to user-selectable picker if fetch fails
+2. Fetch and parse `GameDictionary.xml` → build `routeSignature → [segment names]` lookup; replace world-level segment association with precise per-route `onRoutes` mappings; ride cues and segment chips become precise instead of approximate
+3. Fetch and parse `PortalRoadSchedule_v1.xml` → show "Today's Climb Portal: [name] — [distance] / [elevation]"
+
+**Phase 2 — Enrich route cards**
+4. Surface `leadinDistanceInMeters`, `eventOnly`, `levelLocked`, `supportedLaps` flags on cards from GameDictionary data
+5. Evaluate whether GameDictionary can replace `zwift-data` + `bundle-routes.mjs` entirely (374 routes vs ~320; keep `zwift-data` only for Strava segment IDs and route slugs for ZwiftMap URLs)
+6. Version-check cache invalidation: fetch `Zwift_ver_cur.xml` to detect game patches and re-fetch GameDictionary when version changes
+
+**Phase 3 — Nice-to-haves**
+7. Live rider count badge from `relay/worlds`
+8. Portal climb difficulty contextualization (effort rating, estimated duration at rider's W/kg)
+
+---
+
+#### CORS considerations
+
+Test browser `fetch()` from Netlify before building a proxy. If blocked, add `netlify/functions/zwift-cdn-proxy.js` following the same pattern as the Xert proxy.
+
+---
+
+#### World name mapping (XML → app slug)
+
+```
+WATOPIA → watopia · LONDON → london · FRANCE → france · PARIS → paris
+MAKURIISLANDS → makuri-islands · NEWYORK → new-york · INNSBRUCK → innsbruck
+RICHMOND → richmond · SCOTLAND → scotland · YORKSHIRE → yorkshire
+CRITCITY → crit-city · BOLOGNATT → bologna · GRAVEL MOUNTAIN → gravel-mountain
+```
+
+Route name → slug mapping: GameDictionary uses `name` strings, not slugs. Build a one-time lookup: `GameDictionary.name → routes-data.js slug` by matching on name. Document mismatches in `zwift-data-reference.md`.
+
+---
+
+#### Files involved
+
+**New:** `zwift-cdn.js` (fetch + parse all CDN endpoints), `segment-route-map.js` (runtime-built mapping from `onRoutes`), possibly `netlify/functions/zwift-cdn-proxy.js`
+
+**Modified:** `routes.js` (live schedule), `segments.js` (precise per-route mappings), `app.js` (init fetch, portal display), `index.html` / `style.css` (portal element), `zwift-data-reference.md`
+
+**Unchanged:** `xert.js`, `proxy.js`, `netlify/functions/xert-proxy.js`, `mock-data.js`, `scorer.js` function signatures (better input data, same interface)
+
+---
+
 ### WOTD live validation
 The workout fetch chain is wired but hasn't been tested end-to-end against a live mixed-mode day. When Xert schedules a `#MIXEDMODE` workout:
 - Confirm `training_info` returns a `workoutId`
@@ -26,8 +138,83 @@ The live tuning panel in `scorer-test.html` makes this easy — adjust sliders a
 - `PUNCH_DISTANCE_MAX` — currently 18 km; still heuristic
 - Whether LOW and mixed-deficit behavior still over-favors “all-rounder” routes on long time budgets
 
+### Bucket bars: replace training load with completed-vs-target
+
+The status bars currently render `training_info.tl.low/high/peak` (accumulated training load) against `targetXSS` daily targets. Training load is always much larger than a single day's target, so the bars appear fully filled even on zero-activity days. This is confusing — it looks like "I crushed it" when the real message is "Xert set a small target today."
+
+**Fix — two-layer bar model:**
+- Bar total width = daily target (`targetXSS.low/high/peak` from `training_info`)
+- Bar fill = completed today (sum of `summary.xlss/xhss/xpss` from `GET /oauth/activity?from=&to=`)
+- When target is 0 for a bucket (like High/Peak on a low-only day), show a collapsed/empty bar with "0 / 0" — not a full bar
+- When completed exceeds target, cap the fill at 100% and show an overflow indicator (e.g. "77.9 / 26.7 — 291%")
+
+**Training load display:**
+- Remove `tl.low/high/peak` from the bar rendering entirely
+- Optionally surface training load as a small secondary text element (e.g. "TL: 77.9") near the bar or in a tooltip — it's useful context for why targets are low, but it doesn't belong in the progress visualization
+
+**Edge cases:**
+- Zero-activity day with non-zero targets: bars should be empty, showing "0 / 26.7 — 26.7 left"
+- Zero-target buckets: bar should be visually collapsed or minimal, not full
+- Multiple activities: sum all `xlss/xhss/xpss` values across today's activity list
+- Activity sync delay: when activity list is empty but `targetXSS > 0`, consider showing "Syncing..." rather than confidently displaying 0 completed (see existing parking lot note on API sync delay)
+
+**Files involved:**
+- `app.js` — bar rendering logic, data binding from `parseTrainingData` output
+- `style.css` — two-layer bar styling, overflow indicator
+- `index.html` — if bar markup needs structural changes for the second layer
+
+**Does not change:**
+- `scorer.js` — no scoring logic affected
+- `xert.js` — data fetch is already correct, just need to use the right fields
+- Recent Progress panel — separate concern, leave as-is
+
 ### Daily Summary fidelity pass
 Confirm edge cases: multiple rides, imported rides, timezone boundaries, rounding differences with Xert's own UI.
+
+### Route segment ordering, duplicate hits, and route inspection
+The new Zwift CDN route-to-segment mapping is now much better for **membership** — we can accurately say which segments belong to a route — but it still does **not** preserve the order those segments occur on the route, nor whether a route hits the same segment multiple times.
+
+This matters because the app is now showing route-specific segment chips and using those segments in ride cues, but the displayed order is still a sorting heuristic, not true route order. Repeated sprint routes are where this is most obvious.
+
+**Observed example — Triple Flat Loops**
+- Zwift Insider lists:
+  - `Fuego Flats Sprint`
+  - `JWB Sprint Reverse`
+  - `JWB Sprint Reverse`
+  - `Fuego Flats Sprint`
+- The app currently shows:
+  - `Fuego Flats`
+  - `Sprint Forward End`
+
+So the app is correctly detecting multiple sprint memberships, but it is **not yet able to express duplicate occurrences cleanly**, and one XML-only sprint label is still not mapping to the rider-facing name we actually want.
+
+**Current technical limitation**
+- `GameDictionary.xml` gives us `onRoutes`, which is route membership only
+- The generated `segmentsOnRoute` entries currently use `from: null` / `to: null`
+- We therefore do not know:
+  - exact route order
+  - repeated occurrences
+  - whether a cue should say "first sprint", "second sprint", or "hit this twice"
+
+**Why this matters**
+- Segment chips are membership-accurate, but not sequence-accurate
+- Ride cues can name good targets, but not reliably say when they happen
+- Duplicate sprint routes can understate how many opportunities a rider actually gets
+- UI validation is harder because some routes are not visible under today's world filter, and there is no dedicated route-inspection test page
+
+**Future implementation direction**
+1. Investigate whether Zwift has another public source with route-position data for segments, or whether existing community datasets can provide ordered segment positions per route
+2. If no better source exists, evaluate a compatibility bridge using legacy `zwift-data` `segmentsOnRoute.from/to` data where available
+3. Extend generated route data to support ordered segment occurrences, not just unique segment membership
+4. Update route chips and ride cues to express duplicate occurrences, e.g. `JWB Sprint Rev. ×2`
+5. Prefer rider-facing names like `JWB Sprint Reverse` over internal XML labels like `Sprint Forward End`
+6. Add a lightweight route inspection/test harness so specific routes like `Road to Sky`, `Tempus Fugit`, `Surrey Hills`, and `Triple Flat Loops` can be checked regardless of today's worlds
+
+**Acceptance criteria when this is tackled**
+- Segment chips reflect route order, not just sorted importance
+- Duplicate segment hits are shown explicitly
+- Triple Flat Loops resolves to two named sprint targets with correct duplicate counts
+- Route-specific checks are possible even when the route is outside today's active worlds
 
 ---
 
@@ -49,6 +236,41 @@ The app now has a compact Recent Progress panel. A stronger next step would be a
 
 ### Share — format improvements
 Share button is live (PNG + plain text via ClipboardItem). Potential improvements: richer plain text formatting (emoji, markdown), better ride cue truncation, option to share just text without image.
+
+### ZwiftMap iframe — expandable route map on cards
+
+Adds an expandable map panel to route cards using ZwiftMap's public website via iframe. Riders can visually inspect the route — road layout, elevation profile, segment locations, road surfaces — before starting their ride.
+
+**Confirmed feasibility:**
+- ZwiftMap does NOT send `X-Frame-Options` or `Content-Security-Policy` frame-ancestors headers — iframe embedding is allowed (verified via response header check)
+- URL pattern: `https://zwiftmap.com/{world}/{route-slug}` — predictable and clean
+- ZwiftMap uses `zwift-data` as its data source (same package this app uses), so route slugs should match directly
+
+**Implementation — expandable panel approach:**
+- "🗺️ View Map" button on each route card; tap to expand a panel below the card containing an iframe
+- Only one map panel open at a time — opening a new one collapses the previous
+- Iframe dimensions: 100% width, 350–400px height
+- Lazy load: iframe `src` is only set when the panel is opened — no iframes rendered until tapped
+- Collapse button to close the panel
+
+**URL construction:**
+```javascript
+const zwiftMapUrl = `https://zwiftmap.com/${route.world}/${route.slug}`;
+```
+World slug mapping is 1:1 with `routes-data.js` slugs (`watopia`, `london`, `makuri-islands`, `france`, `paris`, `new-york`, `innsbruck`, `richmond`, `scotland`, `yorkshire`).
+
+**Validation before shipping:** Test top 20 recommended routes' ZwiftMap URLs to confirm slugs resolve. Document any mismatches in `zwift-data-reference.md`. Hide the "View Map" button for any route that 404s.
+
+**Fallback:** If ZwiftMap ever adds `X-Frame-Options` blocking, degrade to an external "View on ZwiftMap" link in a new tab. If the iframe fails to load, show an error message with a "Try opening in new tab" link.
+
+**Data enrichment note:** ZwiftMap cannot be used as a data source. The iframe is sandboxed — the app cannot read any DOM or JavaScript data from inside it. Visual enrichment only.
+
+**Files involved:**
+- `app.js` — zwiftMapUrl on route card data, expandable panel toggle logic
+- `index.html` — expandable panel markup with iframe container
+- `style.css` — panel expand/collapse animation, iframe sizing, button styling
+
+**Does not change:** `scorer.js`, `routes-data.js`, `xert.js`
 
 ### Post-ride feedback loop
 After the ride, ask for a lightweight completion signal such as `Executed / Partially / Not really` or a simple thumbs up/down on the recommendation. Even local-only storage would let the app start learning which route/cue combinations actually work for the rider.
@@ -187,8 +409,8 @@ Implementation shape:
 Operational note:
 - The library can grow opportunistically. No minimum route count is required before shipping the button.
 
-### Route-segment lookup table (manual, high precision)
-World-level segment association (all segments in Watopia shown for any Watopia route) is an approximation — some segments won't appear on a given route. Long-term, maintain a manual lookup: route slug → [segment slugs]. Roughly 50 key routes covers the most-ridden content. Would make ride cues and PR chips precise rather than approximate. Prerequisite: segment bundling (Tier 1) must be complete first. Build opportunistically — add entries as routes get ridden and verified.
+### ~~Route-segment lookup table (manual, high precision)~~ — RETIRED
+Superseded by `GameDictionary.xml` `onRoutes` field (see Tier 1 CDN integration). The authoritative mapping is already there — no manual work needed.
 
 ### Route profiles (elevation graphs)
 Not available via any API. `zwift-data` has only totals (distance, elevation), not segment-level profiles. Zwift Insider has profile images per route — we already link to their pages. Options: link directly to ZwiftInsider profile page, or source a community dataset if one exists. Needed for proportional per-segment bucket attribution (see multi-bucket scoring above).
@@ -242,6 +464,6 @@ Rather than labeling a route as "LOW" or "HIGH", estimate how much XSS each buck
 
 ## Operational
 - Token TTL is hardcoded to 1 hour in `xert.js`. Xert's actual TTL may differ — worth checking if users hit unexpected logouts.
-- `routes-data.js` needs regenerating when Zwift adds new worlds: `node bundle-routes.mjs` then commit.
+- Generated route data should be refreshed when Zwift publishes new world or route data: `npm run build-routes` then commit the updated snapshot files.
 - Local dev still requires two terminals (`node proxy.js` + `npx serve .`). A `start.sh`/`start.bat` launcher would simplify this.
 - QA docs now live in `test-plan.md` and `rapid-qa-checklist.md`; keep them updated whenever major recommendation logic or testing affordances change.

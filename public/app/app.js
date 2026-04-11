@@ -1,6 +1,7 @@
 import { authenticate, fetchTrainingInfo, fetchWorkout, fetchActivitiesInRange, fetchActivityDetail, parseTrainingData, clearToken, hasToken } from './core/xert.js';
 import { routes } from './core/routes.js';
-import { filterToAvailableWorlds, todaysWorlds, worldName } from './core/routes.js';
+import { filterToAvailableWorlds, getWorldScheduleContext, worldName } from './core/routes.js';
+import { getTodaysPortalRoad } from './core/portal.js';
 import { getSegmentsForRoute } from './core/segments.js';
 import { analyzeTrainingDay, generateRideCue, optimizeRoutes, wotdTerrainScore } from './core/scorer.js';
 import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
@@ -21,6 +22,9 @@ const PLAN_HISTORY_LIMIT = 30;
 const MANUAL_SPEED_MIN_KMH = 15;
 const MANUAL_SPEED_MAX_KMH = 50;
 const DAILY_SUMMARY_BUFFER_HOURS = 12;
+const TIME_SLIDER_MIN = 15;
+const TIME_SLIDER_MAX = 480;
+const TIME_SLIDER_STEP = 15;
 
 // Unit conversion factors (metric is the internal standard; these are display-only)
 const KM_TO_MI = 0.621371;
@@ -186,6 +190,25 @@ function displaySpeed(kmh) {
     : `${Math.round(kmh)} km/h`;
 }
 
+function formatClockMinutes(minutes) {
+  const safe = Math.max(0, Math.round(minutes));
+  const h = Math.floor(safe / 60);
+  const m = safe % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+function formatDurationText(minutes) {
+  const safe = Math.max(0, Math.round(minutes));
+  if (safe < 60) return `${safe} min`;
+  const h = Math.floor(safe / 60);
+  const m = safe % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function snapMinutes(value) {
+  return clamp(Math.round(value / TIME_SLIDER_STEP) * TIME_SLIDER_STEP, TIME_SLIDER_MIN, TIME_SLIDER_MAX);
+}
+
 function bucketColorClass(bucket) {
   if (bucket === 'low' || bucket === 'high' || bucket === 'peak') return bucket;
   return '';
@@ -310,6 +333,7 @@ async function init() {
   updateGuestWorldsLabel();
   updateGuestWorldsPickerVisibility();
   updateGuestWorldCheckboxes();
+  updateTimeLabel();
   renderTimingControls();
   renderSourceNotes();
 
@@ -684,6 +708,16 @@ function renderRecommendation() {
   } else {
     overrideEl.style.display = 'none';
   }
+
+  const portalEl = document.getElementById('portal-today');
+  const portal = getTodaysPortalRoad();
+  if (portal) {
+    const featured = portal.portalOfMonth ? ' · portal of the month' : '';
+    portalEl.innerHTML = `<strong>Today's Climb Portal:</strong> ${portal.name} · ${displayDist(portal.distance)} / ${displayElev(portal.elevation)} · ${portal.worldName}${featured}`;
+    portalEl.style.display = 'block';
+  } else {
+    portalEl.style.display = 'none';
+  }
 }
 
 function enrichRoutes(rankedRoutes, bucket, wotdStructure) {
@@ -843,6 +877,11 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
     route.whatsOnZwiftUrl ? `<a href="${route.whatsOnZwiftUrl}" target="_blank" rel="noopener">What's on Zwift</a>` : '',
   ].filter(Boolean).join('');
+  const routeFlags = [
+    route.leadInDistance > 0.1 ? `<span class="route-flag">+${displayDist(route.leadInDistance)} lead-in</span>` : '',
+    route.supportedLaps ? '<span class="route-flag">Lap route</span>' : '',
+    route.levelLocked ? '<span class="route-flag warning">Level locked</span>' : '',
+  ].filter(Boolean).join('');
   const showSegmentRow = route.segmentSource !== 'world';
   const segmentItems = [
     ...(route.relevantClimbs ?? []).map(segment => segmentChipHTML(segment, 'climb')),
@@ -872,6 +911,7 @@ function routeCardHTML(route, compact, favorites = new Set()) {
         ${matchTag}
       </div>
       ${route.rideCue ? `<div class="ride-cue"><span class="ride-cue-icon">🎯</span><span>${route.rideCue}</span></div>` : ''}
+      ${routeFlags ? `<div class="route-flags">${routeFlags}</div>` : ''}
       ${showSegmentRow && segmentItems ? `
         <div class="segment-row">
           <span class="segment-label">Segments on this route:</span>
@@ -968,6 +1008,59 @@ function formatMinutes(min) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+function getRecommendedTimeMinutes() {
+  if (!state.trainingData || !state.dailySummary) return null;
+
+  const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
+  if (displayTarget.mode === 'mixed') {
+    const remainingTotal = state.dailySummary?.remaining?.total ?? 0;
+    if (remainingTotal <= 0) return TIME_SLIDER_MIN;
+
+    const workoutTotalXss = Number(
+      state.rawWotd?.xss ??
+      state.rawWotd?.totalXSS ??
+      state.rawWotd?.total_xss ??
+      state.rawWotd?.workoutXss ??
+      state.rawWotd?.plannedXSS
+    );
+    const workoutDurationMin = wotdDurationMinutes(state.rawWotd);
+
+    if (Number.isFinite(workoutTotalXss) && workoutTotalXss > 0 && Number.isFinite(workoutDurationMin) && workoutDurationMin > 0) {
+      return snapMinutes((remainingTotal / workoutTotalXss) * workoutDurationMin);
+    }
+
+    const blendedRate = ((XSS_RATE.low ?? 0) + (XSS_RATE.high ?? 0) + (XSS_RATE.peak ?? 0)) / 3;
+    return snapMinutes((remainingTotal / Math.max(blendedRate, 1)) * 60);
+  }
+
+  if (displayTarget.bucket === 'recovery') {
+    return snapMinutes(45);
+  }
+
+  const remainingXss = state.dailySummary?.remaining?.[displayTarget.bucket] ?? 0;
+  const xssRate = XSS_RATE[displayTarget.bucket] ?? 65;
+  return snapMinutes((remainingXss / Math.max(xssRate, 1)) * 60);
+}
+
+function updateTimeLabel() {
+  const slider = document.getElementById('time-available');
+  const label = document.getElementById('time-label');
+  if (!slider || !label) return;
+  label.textContent = formatClockMinutes(parseInt(slider.value || '60', 10));
+}
+
+function applyTimeAvailable(minutes) {
+  const slider = document.getElementById('time-available');
+  if (!slider) return;
+  slider.value = String(snapMinutes(minutes));
+  updateTimeLabel();
+  if (state.trainingData) {
+    recomputeRankedRoutes();
+    renderTimeSummary();
+    renderRoutes();
+  }
+}
+
 function renderTimeSummary() {
   if (!state.trainingData) return;
   const d = state.trainingData;
@@ -991,11 +1084,11 @@ function renderTimeSummary() {
         ? Math.min(Math.round(estimatedXss / Math.max(remainingTotal, 1) * 100), 100)
         : 100;
       el.innerHTML =
-        `${timingLead}${timeMin} min should support roughly ${estimatedXss} XSS of today's mixed workout` +
+        `${timingLead}${formatDurationText(timeMin)} should support roughly ${estimatedXss} XSS of today's mixed workout` +
         ` — about ${fillPct}% of today's remaining <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> gap.`;
     } else {
       el.innerHTML =
-        `${timingLead}${timeMin} min should support today's mixed workout across your remaining ` +
+        `${timingLead}${formatDurationText(timeMin)} should support today's mixed workout across your remaining ` +
         `<span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> load.`;
     }
     return;
@@ -1007,11 +1100,11 @@ function renderTimeSummary() {
   const remainingXss = (b !== 'recovery') ? state.dailySummary.remaining[b] : null;
 
   if (b === 'recovery' || !remainingXss) {
-    el.textContent = `${timingLead}with ${timeMin} min available, an easy spin is plenty today.`;
+    el.textContent = `${timingLead}with ${formatDurationText(timeMin)} available, an easy spin is plenty today.`;
   } else {
     const fillPct = Math.min(Math.round(estimatedXss / Math.max(remainingXss, 1) * 100), 100);
     el.textContent =
-      `${timingLead}${timeMin} min should generate roughly ${estimatedXss} XSS` +
+      `${timingLead}${formatDurationText(timeMin)} should generate roughly ${estimatedXss} XSS` +
       ` — about ${fillPct}% of today's remaining ${b.toUpperCase()} gap (${remainingXss.toFixed(0)} XSS).`;
   }
 }
@@ -1222,13 +1315,25 @@ function setTimingMode(mode) {
 }
 
 function updateGuestWorldsLabel() {
-  const worlds = [...todaysWorlds(state.guestWorlds)].map(worldName).join(' · ');
-  document.getElementById('today-worlds-label').textContent = worlds;
+  const context = getWorldScheduleContext(state.guestWorlds);
+  const worlds = [...context.worlds].map(worldName).join(' · ');
+  document.getElementById('today-worlds-label').textContent =
+    context.source === 'schedule'
+      ? `${worlds} · Zwift schedule`
+      : `${worlds} · manual fallback`;
+
+  const hint = document.querySelector('.world-cb-hint');
+  if (hint) {
+    hint.textContent = context.source === 'schedule'
+      ? 'Zwift schedule is active. Manual world picks are hidden unless schedule data is unavailable.'
+      : 'Fallback mode: select up to 2 guest worlds alongside Watopia.';
+  }
 }
 
 function updateGuestWorldsPickerVisibility() {
+  const context = getWorldScheduleContext(state.guestWorlds);
   document.getElementById('guest-worlds-picker').style.display =
-    state.todayOnly ? '' : 'none';
+    state.todayOnly && context.source !== 'schedule' ? '' : 'none';
 }
 
 function updateGuestWorldCheckboxes() {
@@ -1244,6 +1349,7 @@ function renderTimingControls() {
   const manualBtn = document.getElementById('timing-manual');
   const manualRow = document.getElementById('manual-speed-row');
   const hintEl = document.getElementById('timing-hint');
+  const recommendedBtn = document.getElementById('time-recommended');
   const auto = state.timingMode === 'auto';
 
   autoBtn.classList.toggle('active', auto);
@@ -1259,6 +1365,14 @@ function renderTimingControls() {
     }
   } else {
     hintEl.textContent = 'Manual pace override for route time estimates.';
+  }
+
+  if (recommendedBtn) {
+    const recommended = getRecommendedTimeMinutes();
+    recommendedBtn.disabled = !recommended;
+    recommendedBtn.textContent = recommended
+      ? `Use recommended time (${formatClockMinutes(recommended)})`
+      : 'Use recommended time';
   }
 }
 
@@ -1516,8 +1630,7 @@ document.getElementById('refresh-btn').addEventListener('click', handleRefresh);
 document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
 document.getElementById('time-available').addEventListener('input', () => {
-  const val = document.getElementById('time-available').value;
-  document.getElementById('time-label').textContent = `${val} min`;
+  updateTimeLabel();
   if (state.trainingData) {
     recomputeRankedRoutes();
     renderTimeSummary();
@@ -1538,6 +1651,13 @@ document.getElementById('avg-speed').addEventListener('input', () => {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+  }
+});
+
+document.getElementById('time-recommended').addEventListener('click', () => {
+  const recommended = getRecommendedTimeMinutes();
+  if (recommended) {
+    applyTimeAvailable(recommended);
   }
 });
 

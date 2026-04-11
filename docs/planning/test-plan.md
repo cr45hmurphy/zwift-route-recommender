@@ -1,7 +1,7 @@
 # Test Plan — Zwift Route Recommender
 
 ## Purpose
-Validate the current app across both live Xert data and the new in-app mock scenarios. This plan covers route ranking, optimizer behavior, recovery override behavior, manual pace controls, browser-local history, and the scorer harnesses.
+Validate the current app across both live Xert data and the new in-app mock scenarios. This plan covers route ranking, optimizer behavior, recovery override behavior, manual pace controls, browser-local history, the Zwift CDN-generated route snapshot, and the scorer harnesses.
 
 ## Test Environment
 - Terminal 1: `node proxy.js`
@@ -67,13 +67,28 @@ Expected result:
 Expected result:
 - Existing route-card structure remains intact. Pass
 
+### Zwift route snapshot integrity
+1. Run `npm run build-routes`.
+2. Confirm generated files update with no script errors:
+   - `public/app/data/routes-data.js`
+   - `public/app/data/segments-data.js`
+   - `public/app/data/zwift-metadata.js`
+3. Confirm generated metadata includes a Zwift version string and non-zero route/segment counts.
+4. Confirm `Road to Sky` still includes `Alpe du Zwift` in route-linked segments.
+5. Confirm at least one route card shows a lead-in badge or lap-route badge.
+
+Expected result:
+- Zwift CDN data generates cleanly and preserves route-linked segment context. Pass
+
 ### Filtering and settings
 1. Toggle `Today's worlds only` on and off.
 2. Confirm unavailable worlds disappear when enabled and reappear when disabled.
-3. Switch between `km / m` and `mi / ft`.
-4. Confirm distance, elevation, gradient, and speed labels convert correctly.
-5. Switch between `Auto (W/kg)` and `Manual pace`.
-6. Confirm timing hint text changes and no console errors appear.
+3. Confirm the worlds label reflects Zwift's published schedule when data is present.
+4. If schedule data is intentionally removed or unavailable, confirm the manual guest-world picker reappears.
+5. Switch between `km / m` and `mi / ft`.
+6. Confirm distance, elevation, gradient, and speed labels convert correctly.
+7. Switch between `Auto (W/kg)` and `Manual pace`.
+8. Confirm timing hint text changes and no console errors appear.
 
 Expected result:
 - Core settings still work in live mode. Pass
@@ -897,6 +912,9 @@ Expected result:
 - Xert integration data still matches what the main app shows.
 
 ## Acceptance Criteria
+- Zwift CDN route data generates successfully into the tracked browser snapshot files.
+- `Today's worlds only` prefers the generated Zwift world schedule and falls back safely if schedule data is unavailable.
+- Route-linked segment chips come from authoritative route membership instead of generic world fallback when that data exists.
 - Live Xert auth, refresh, and route rendering still work.
 - Mock scenarios cover recovery, low-deficit, mixed-deficit, and peak-focused behavior without requiring live training-state luck.
 - Ranking changes when time budget changes.

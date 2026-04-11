@@ -467,6 +467,15 @@ section { margin-bottom: 32px; }
   margin-top: 8px;
 }
 
+.portal-today {
+  font-size: 0.82rem;
+  color: #b8d7ff;
+  background: rgba(65, 120, 196, 0.12);
+  border: 1px solid rgba(95, 148, 222, 0.45);
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
 /* ── Time Controls ───────────────────────────────── */
 
 #time-section {
@@ -508,7 +517,12 @@ section { margin-bottom: 32px; }
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text);
-  min-width: 50px;
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-recommended-btn {
+  white-space: nowrap;
 }
 
 #avg-speed {
@@ -777,6 +791,29 @@ section { margin-bottom: 32px; }
 .ride-cue-icon {
   line-height: 1;
   transform: translateY(1px);
+}
+
+.route-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.route-flag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.route-flag.warning {
+  color: var(--yellow);
+  border-color: var(--yellow);
+  background: var(--yellow-dim);
 }
 
 .segment-row {

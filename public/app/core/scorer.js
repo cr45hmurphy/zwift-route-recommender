@@ -169,7 +169,7 @@ export function detectBucket(tl, targetXSS) {
 /**
  * scoreRoute — score a single route 0-100 against a target bucket.
  *
- * @param {object} route  — zwift-data route object
+ * @param {object} route  — normalized route object from the generated Zwift snapshot
  * @param {string} bucket — 'low' | 'high' | 'peak' | 'recovery'
  * @returns {number}
  */
@@ -220,7 +220,7 @@ export function scoreRoute(route, bucket, C = {}) {
  * rankRoutes — filter, score, and sort routes for a given bucket.
  * Returns top 15 (top 5 primary + up to 10 "other options").
  *
- * @param {Array}  routes — full zwift-data routes array
+ * @param {Array}  routes — full normalized routes array
  * @param {string} bucket — 'low' | 'high' | 'peak' | 'recovery'
  * @returns {Array} routes with added `score` property, sorted descending
  */

@@ -10,10 +10,10 @@
 - **`proxy.js`** — Node.js local proxy (ESM). Run with `node proxy.js`. Listens on port 3000, forwards all requests to `https://www.xertonline.com`. Required for local dev only.
 - **`netlify/functions/xert-proxy.js`** — Serverless proxy for production. Replaces `proxy.js` on Netlify. Uses built-in `fetch` (Node 18+).
 - **`netlify.toml`** — Sets publish dir to `.`, points to functions directory, pins Node 18.
-- **`package.json`** — `"type": "module"` (ESM), single dependency: `zwift-data`. Includes `build-routes` and `build-segments` scripts, both pointing at the same bundler.
-- **`bundle-routes.mjs`** — bundler script that reads `routes` and `segments` from `zwift-data` and writes `routes-data.js` plus `segments-data.js`. Already been run — 320 routes and 102 climb/sprint segments written.
+- **`package.json`** — `"type": "module"` (ESM). `build-routes` and `build-segments` both run the Zwift CDN generator.
+- **`build-zwift-data.mjs`** — generator script that fetches Zwift public CDN XML, normalizes the route/segment/world-schedule data, and writes `routes-data.js`, `segments-data.js`, and `zwift-metadata.js`. Temporary cutover note: `zwift-data` remains installed only to preserve slugs, external links, and Strava segment URLs while the migration settles.
 - **`xert-api-reference.md`** — local notes for auth, endpoint usage, and Daily Summary field mapping from Xert activity summaries.
-- **`zwift-data-reference.md`** — local notes for package usage, route fields, segment fields, slug conventions, and the route/segment bundling flow.
+- **`zwift-data-reference.md`** — local notes for the Zwift CDN data flow, generated route fields, schedule metadata, and the temporary compatibility bridge.
 
 ### Core Logic
 - **`scorer.js`** — pure functions, no DOM/API dependencies. Exports:
@@ -36,7 +36,7 @@
   - `authenticate`, `fetchTrainingInfo`, `fetchWorkout(workoutId)`, `fetchActivitiesInRange`, `fetchActivityDetail`, `parseTrainingData`, `clearToken`, `hasToken`
   - `fetchWorkout(workoutId)` — calls `GET /oauth/workout/{id}`, returns full workout with `workout[]` interval array plus `xlss`/`xhss`/`xpss`/`xss`/`duration`/`max_power`
 
-- **`routes.js`** — re-exports from `routes-data.js`, exports `WORLD_NAMES`, the fixed guest-world schedule, `todaysWorlds()`, `filterToAvailableWorlds()`, and `worldName(slug)`.
+- **`routes.js`** — re-exports from `routes-data.js`, exports `WORLD_NAMES`, generated guest-world schedule helpers, `todaysWorlds()`, `filterToAvailableWorlds()`, and `worldName(slug)`.
 
 - **`segments.js`** — segment lookup helpers over `segments-data.js`. Exports `climbWeight`, `getSegmentsForWorld`, `getSegmentsForRoute`.
 
@@ -53,6 +53,9 @@
   - **Time section:** slider (20–180 min), W/kg auto timing, manual speed override
   - **Ride cue strip:** `🎯` cue on each route card
   - **Segment chips / PR targeting:** climb and sprint chips with Strava links
+  - **Zwift schedule integration:** `Today's worlds only` now prefers Zwift's published guest-world rotation and falls back to the manual picker only if schedule data is unavailable
+  - **Climb Portal note:** HIGH / sustained-climb days surface today's scheduled portal climb as an alternate option
+  - **Route metadata badges:** route cards can now show lead-in distance, lap support, and level-lock warnings from Zwift-native data
   - **Imperial/metric toggle**, **Today's worlds filter**, **Recent Progress panel**
 
 ### WOTD fetch flow (live mode)
@@ -83,6 +86,15 @@
 
 ## Recently completed
 
+1. **Favorites score boost** — `FAVORITE_BOOST = 0.08` constant in `scorer.js`; `optimizeRoutes()` accepts `favorites` option (Set of route keys); starred routes get an 8% utility nudge, self-limiting so they only move up when already competitive; `recomputeRankedRoutes()` passes `loadFavorites()` automatically
+2. **Plan history persistence** — `savePlan()` fires after every live `refresh()`, storing top-5 route slugs + ride cues + bucket + date in `xert_plan_history` localStorage key (max 30 records); lays groundwork for last-ridden tracking and post-ride feedback; mock mode is excluded from saves
+3. **Mock scenario expansion** — three new QA scenarios: `missing-signature` (null FTP/weight), `empty-history` (zero completed rides), `tired-deficit` (Very Tired + nonzero deficits); all added to `MOCK_SCENARIOS` and `DATA_SOURCE_OPTIONS`
+4. **`?mock=<id>` URL query-param** — loading `?mock=tired-deficit` (or any valid scenario id) sets and persists the scenario without touching the switcher; unknown values silently ignored
+
+---
+
+### Previously completed
+
 1. **mixed_mode classification** — `classifyWOTD` detects mixed workouts via description text, tags array, and interval structure
 2. **Workout fetch** — `fetchWorkout(workoutId)` added to xert.js; wired into `refresh()` with sprint interval extraction
 3. **WOTD display patch** — when training_info returns a sparse wotd, name/description are backfilled from the fetched workout detail
@@ -95,7 +107,7 @@
 10. **Optimizer-based ranking** — uses remaining deficits + time-fit + WOTD terrain score
 11. **In-app mock scenarios** — main app can run canned recovery/low/mixed/peak scenarios
 12. **Imperial/metric toggle**, **Today's worlds filter**, **Recent Progress panel**, **Freshness override**
-13. **User-selectable guest worlds** — replaced hardcoded schedule with a user-driven picker; Watopia always on, rider picks two guest worlds; persists to localStorage
+13. **Zwift schedule-backed worlds filter** — `Today’s worlds only` now uses `MapSchedule_v2.xml` when available; the old user world picker remains as a fallback only when schedule data is unavailable
 14. **Specialist scoring fix** — rewrote `bucketDeficitScore()` to weight active bucket at 65% vs 35% deficit balance; fixed all-rounder-beats-specialist bias
 15. **Live tuning panel** — `scorer-test.html` now has 7 live sliders covering key scoring constants; rankings re-render on every slider move; `scorer.js` exports `DEFAULTS` and accepts optional overrides
 16. **Full route dataset in scorer-test** — rankings and optimizer tables use all ~300 real routes; fixtures kept only for pass/fail heuristic checks

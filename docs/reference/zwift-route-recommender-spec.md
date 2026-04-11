@@ -39,11 +39,11 @@ weight              — rider weight in kg
 
 ---
 
-### 2. zwift-data npm package
-- **Package:** `zwift-data` (npm, MIT license)
-- **Usage:** Import the `routes` array directly — no API calls, no auth, data is bundled
-- **Install:** `npm install zwift-data`
-- **Import:** `import { routes } from 'zwift-data'`
+### 2. Zwift public CDN snapshot
+- **Authoritative source:** Zwift public CDN XML
+- **Usage:** Normalize Zwift route and schedule XML into generated browser modules during a build step
+- **Generator:** `node scripts/build-zwift-data.mjs`
+- **Generated outputs:** `routes-data.js`, `segments-data.js`, `zwift-metadata.js`
 
 **Key fields per route:**
 ```
@@ -54,8 +54,9 @@ elevation           — Total elevation gain in meters
 eventOnly           — Boolean: true = can't free ride this route
 levelLocked         — Boolean: true = requires a certain Zwift level
 sports              — Array: ["cycling"] or ["running"] or both
-lap                 — Boolean: true = lap route
-leadInDistance      — Lead-in km (not counted in distance)
+supportedLaps       — Boolean: true = lap-friendly route
+leadInDistance      — Lead-in distance in kilometers
+leadInElevation     — Lead-in elevation in meters
 zwiftInsiderUrl     — Link to ZwiftInsider page for the route
 whatsOnZwiftUrl     — Link to What's on Zwift page
 ```
@@ -188,11 +189,11 @@ Below the primary 5, show a collapsed/expandable section "Other options" with th
 Keep this simple and dependency-light:
 
 - **Vanilla HTML + CSS + JavaScript** — no framework required
-- **zwift-data** — bundled via a build step or CDN-compatible import
+- **Zwift CDN snapshot generator** — bundled route/schedule metadata built ahead of time
 - **Fetch API** — for Xert OAuth and training_info calls
 - **No backend** — all API calls go directly from the browser to Xert's API
 
-> **CORS note:** Xert's API may block direct browser requests due to CORS headers. If this is an issue, a minimal local proxy may be needed (a single Node.js `http-proxy` script running on localhost is sufficient — not a full backend).
+> **CORS note:** Xert's API still needs a proxy in practice. Zwift route data is generated ahead of time from public XML so the browser app does not depend on runtime CDN fetches.
 
 ---
 
@@ -203,7 +204,7 @@ zwift-recommender/
 ├── index.html
 ├── style.css
 ├── app.js              # Main logic — auth, API calls, scoring, rendering
-├── routes.js           # Zwift route data (imported from zwift-data or pre-bundled)
+├── routes.js           # Zwift route data helpers over generated snapshot data
 ├── xert.js             # Xert API wrapper (auth, training_info fetch)
 ├── scorer.js           # Route scoring logic (isolated, easy to tune)
 └── README.md
@@ -213,22 +214,23 @@ zwift-recommender/
 
 ## World Name Map
 
-The zwift-data package uses slugs. Map them to display names:
+The generated Zwift snapshot is normalized to these slugs:
 
 ```javascript
 const WORLD_NAMES = {
   watopia: "Watopia",
   london: "London",
-  newyork: "New York",
+  "new-york": "New York",
   innsbruck: "Innsbruck",
   richmond: "Richmond",
   bologna: "Bologna",
   yorkshire: "Yorkshire",
-  critcity: "Crit City",
-  makuriislands: "Makuri Islands",
+  "crit-city": "Crit City",
+  "makuri-islands": "Makuri Islands",
   france: "France",
   paris: "Paris",
   scotland: "Scotland",
+  "gravel-mountain": "Gravel Mountain",
 };
 ```
 
@@ -264,7 +266,7 @@ const WORLD_NAMES = {
 
 ## Known Limitations
 
-- zwift-data does not classify routes by energy system — the scoring is a heuristic based on distance/elevation
+- Zwift route data still does not classify routes by energy system — the scoring is a heuristic based on distance/elevation and route-linked segment cues
 - Xert's MPA algorithm is proprietary — live bucket tracking during a ride is not possible via REST API
 - Xert CORS behavior may require a local proxy — test this first before building the full UI
 

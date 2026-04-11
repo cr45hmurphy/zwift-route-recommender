@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build-routes": "node scripts/bundle-routes.mjs",
-    "build-segments": "node scripts/bundle-routes.mjs",
+    "build-routes": "node scripts/build-zwift-data.mjs",
+    "build-segments": "node scripts/build-zwift-data.mjs",
     "serve": "npx serve public"
   },
   "dependencies": {
