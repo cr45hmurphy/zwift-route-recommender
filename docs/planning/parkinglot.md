@@ -33,13 +33,6 @@ Confirm edge cases: multiple rides, imported rides, timezone boundaries, roundin
 
 ## Tier 2 — Good features, moderate effort
 
-### Mock scenario expansion
-The app now has an in-app mock scenario switcher for QA. Good next additions:
-- Missing FTP / weight scenario for auto-timing fallback validation
-- Empty activity-history scenario
-- Tired + nonzero bucket-deficit scenario to verify recovery override against nontrivial targets
-- Optional query-param support so a scenario can be linked directly for bug reports
-
 ### Recent Progress panel — reconsider or remove
 The bar chart is hard to read in practice (bars tend to be all-or-nothing), the history only accumulates when the live app is used daily, and it's unclear what value it provides. Deferred: leave it for now, evaluate whether to remove it or redesign it after more live usage.
 
@@ -47,13 +40,12 @@ The bar chart is hard to read in practice (bars tend to be all-or-nothing), the 
 Recent Progress snapshots are currently used only for the small trend panel. Reuse that local history to show lightweight context on the banner or route card, e.g. “Last HIGH day you generated 87 XSS.” This would help riders calibrate whether today's recommendation is conservative or aggressive without any new API.
 
 ### Cue persistence / today's ride plan
-Right now the recommendation disappears once the rider closes the app. Add a lightweight `Save today's plan` flow that stores route name, ride cue, and target segments in localStorage and surfaces a persistent “Today's Plan” card when the app is reopened.
+Plan history now saves silently to `xert_plan_history` in localStorage after every live refresh (top-5 routes with slug, name, world, distance, elevation, and ride cue; max 30 records; upserted by date). This is the data foundation but the reopen UI — showing the saved plan before fetching fresh data — was intentionally removed after testing: it got in the way rather than helping.
+
+Next step when this resurfaces: use `xert_plan_history` as the basis for last-ridden context (“ridden X days ago”), post-ride feedback matching, or a dedicated history view rather than a reopen gate.
 
 ### Weekly progress overview
 The app now has a compact Recent Progress panel. A stronger next step would be a fuller 7-day overview showing completed vs target totals across the week rather than just a small per-bucket daily trend strip.
-
-### Favorite routes — score boost
-Favorites are now visually marked and persisted. Next step: give starred routes a small score boost so they surface more often when they're a reasonable match. Add to `optimizeRoutes()` or `bucketDeficitScore()` in `scorer.js`.
 
 ### Share — format improvements
 Share button is live (PNG + plain text via ClipboardItem). Potential improvements: richer plain text formatting (emoji, markdown), better ride cue truncation, option to share just text without image.
