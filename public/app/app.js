@@ -849,7 +849,7 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
 
   return {
     ...route,
-    rideCue: generateRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline),
+    rideCue: generateRideCue({ ...route, bucketSupport }, bucket, wotdStructure, routeSegments, routeTimeline),
     wotdTerrainScore: route.wotdTerrainScore ?? wotdTerrainScore(route, wotdStructure, routeSegments),
     relevantClimbs,
     relevantSprints,

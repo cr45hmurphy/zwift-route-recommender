@@ -422,6 +422,29 @@
       html += `<h2>Route truth checks <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
         <table><tr><th>Scenario</th><th>Actual</th><th>Result</th></tr>${routeTruthRows}</table>`;
 
+      const peakScenarioRoutes = [
+        routeByNameData['Tempus Fugit'],
+        routeByNameData['Watopia Figure 8'],
+        routeByNameData['2018 Worlds Short Lap'],
+      ].filter(Boolean);
+      const peakScenarioRanked = optimizeRoutes(peakScenarioRoutes, {
+        bucket: 'peak',
+        deficits: { low: 15, high: 11, peak: 18 },
+        availableMinutes: 60,
+        estimateMinutes,
+        getRouteSegments: route => getSegmentsForRoute(route),
+        getRouteSupport: route => supportForRouteName(route.name, 60).support,
+        wotdStructure: 'sprint_power',
+      });
+      const peakOrder = peakScenarioRanked.map(route => route.name).join(' > ');
+      const peakStrictPass =
+        peakScenarioRanked[0]?.name === '2018 Worlds Short Lap' &&
+        peakScenarioRanked.at(-1)?.name === 'Tempus Fugit';
+      html += `<h2>PEAK-day strictness <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Expectation</th><th>Actual</th><th>Result</th></tr>
+        <tr><td>Punchy climb route outranks flat sprint route on PEAK day</td><td>${peakOrder}</td>
+          <td style="color:${peakStrictPass ? 'var(--green)' : 'var(--red)'}">${peakStrictPass ? 'PASS' : 'FAIL'}</td></tr></table>`;
+
       // Stability
       const stabilityRoutes = [
         { name: 'Alpha Loop', world: 'watopia', distance: 20, elevation: 50, eventOnly: false, sports: ['cycling'] },
