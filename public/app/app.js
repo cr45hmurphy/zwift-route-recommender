@@ -1184,6 +1184,7 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     : '';
 
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
+  const executionFirstLowDay = state.wotdStructure === 'aerobic_endurance' && displayTarget.mode === 'bucket' && displayTarget.bucket === 'low';
   let bucketXssTag = '';
   let matchTag = '';
   let shareFillPct = null;
@@ -1191,11 +1192,18 @@ function routeCardHTML(route, compact, favorites = new Set()) {
 
   // Per-bucket XSS estimates use the same weighted support model as ranking + honesty labels.
   const bucketSupport = route.bucketSupport ?? { low: 1, high: 0, peak: 0, source: route.segmentSource ?? 'world' };
-  const perBucketXss = {
+  const perBucketOpportunityXss = {
     low: Math.round(estimateBucketImpactXss(estMin, 'low') * Math.max(bucketSupport.low ?? 0, 0.15)),
     high: Math.round(estimateBucketImpactXss(estMin, 'high') * Math.max(bucketSupport.high ?? 0, 0)),
     peak: Math.round(estimateBucketImpactXss(estMin, 'peak') * Math.max(bucketSupport.peak ?? 0, 0)),
   };
+  const perBucketXss = executionFirstLowDay
+    ? {
+      low: estimateBucketImpactXss(estMin, 'low'),
+      high: 0,
+      peak: 0,
+    }
+    : perBucketOpportunityXss;
   const viableRecommendation = routeRecommendationViable(route);
 
   if (displayTarget.mode === 'mixed') {
@@ -1219,7 +1227,7 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     } else {
       const parts = ['low', 'high', 'peak'].map(bkt => {
         const xss = perBucketXss[bkt];
-        if (xss === null) return '';
+        if (xss === null || (executionFirstLowDay && bkt !== 'low')) return '';
         const rem = state.dailySummary?.remaining?.[bkt] ?? null;
         const target = rem !== null ? `<span class="xss-target">/${Math.round(rem)}</span>` : '';
         return `<span class="xss-fill ${bkt}"><span class="bucket-word ${bkt}">${bkt.toUpperCase()}</span> ~${xss}${target}</span>`;
@@ -1302,6 +1310,17 @@ function segmentChipHTML(segment, kind) {
 }
 
 function routeReason(route, bucket) {
+  if (state.wotdStructure === 'aerobic_endurance' && bucket === 'low') {
+    const timeFitTag = route.estimatedMinutes > getTimeSettings().minutes
+      ? 'over-time'
+      : route.estimatedMinutes < (getTimeSettings().minutes * 0.9)
+        ? 'under-time'
+        : 'near-time';
+    if (timeFitTag === 'near-time') return 'Strong venue for steady Z2 work at your target time.';
+    if (timeFitTag === 'under-time') return 'Strong low match that fits comfortably inside your time budget.';
+    return 'Reasonable venue for steady Z2 work if you can go a little longer today.';
+  }
+
   const baseReason = route.optimizerReason || defaultRouteReason(route, bucket);
   if (!routeRecommendationViable(route) && bucket !== 'recovery') {
     return `Compromise venue only. ${baseReason}`;
