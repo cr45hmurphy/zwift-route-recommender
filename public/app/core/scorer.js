@@ -23,6 +23,11 @@ const FAVORITE_BOOST         = 0.08; // utility multiplier for starred routes (s
 // Segment bucket classification thresholds
 const PUNCHY_GRADE_MIN    = 8;   // % — climbs at/above this grade are PEAK-capable when short
 const PUNCHY_DISTANCE_MAX = 2;   // km — climbs shorter than this can generate PEAK neuromuscular work
+const PEAK_COMPACT_DISTANCE_MAX = 0.55; // km — very short rises can still be PEAK even when avg grade is muted by smoothing
+const PEAK_COMPACT_GAIN_MIN     = 18;   // m  — compact punchy climbs should gain meaningful elevation quickly
+const PEAK_SUPPORT_THRESHOLD    = 0.42; // route-level support needed before calling a route truly mixed
+const HIGH_SUPPORT_TARGET       = 1.6;  // summed segment support needed for "full" HIGH support
+const PEAK_SUPPORT_TARGET       = 1.2;  // summed segment support needed for "full" PEAK support
 
 /**
  * DEFAULTS — exported snapshot of every tunable constant.
@@ -130,6 +135,154 @@ function firstNumber(obj, keys) {
   return valueOr(...keys.map(key => obj?.[key]));
 }
 
+function segmentDistanceKm(segment = {}) {
+  return valueOr(segment.distanceKm, segment.distance, segment.lengthKm, 0) ?? 0;
+}
+
+function segmentAverageGradePct(segment = {}) {
+  return valueOr(segment.avgGradePct, segment.avgIncline);
+}
+
+function segmentElevationGainM(segment = {}) {
+  return Math.max(
+    valueOr(segment.elevationGainM, segment.elevation, segment.elevationDeltaM, 0) ?? 0,
+    0
+  );
+}
+
+function segmentSupport(segment) {
+  if (!segment) return { high: 0, peak: 0 };
+
+  if (segment?.type !== 'climb') {
+    const distance = segmentDistanceKm(segment);
+    const grade = segmentAverageGradePct(segment);
+    const flatness = grade === null ? 0.7 : clamp(1 - (Math.abs(grade) / 5), 0.3, 1);
+    const sprintLength = clamp(distance / 0.35, 0.45, 1);
+    return {
+      high: clamp(0.45 + (flatness * 0.3) + (sprintLength * 0.2), 0.45, 0.95),
+      peak: 0,
+    };
+  }
+
+  const distance = segmentDistanceKm(segment);
+  const avgGrade = segmentAverageGradePct(segment);
+  const elevationGain = segmentElevationGainM(segment);
+  const shortness = distance > 0 ? clamp(1 - (distance / 1.4), 0, 1) : 0;
+  const compactRise = clamp(elevationGain / 28, 0, 1);
+  const steepness = avgGrade === null ? 0.35 : clamp((avgGrade - 4.5) / 4, 0, 1);
+  const sustainedness = Math.max(
+    clamp(distance / 2.6, 0, 1),
+    clamp(elevationGain / 140, 0, 1),
+    avgGrade === null ? 0.25 : clamp((avgGrade - 3.5) / 4.5, 0, 1)
+  );
+
+  const explicitPunch = (
+    avgGrade !== null &&
+    avgGrade >= PUNCHY_GRADE_MIN &&
+    distance > 0 &&
+    distance < PUNCHY_DISTANCE_MAX
+  ) ? 1 : 0;
+  const compactPunch = (
+    distance > 0 &&
+    distance <= PEAK_COMPACT_DISTANCE_MAX &&
+    elevationGain >= PEAK_COMPACT_GAIN_MIN
+  ) ? 0.92 : 0;
+  const shortRisePunch = (
+    distance > 0 &&
+    distance <= 0.9 &&
+    elevationGain >= 24 &&
+    (avgGrade === null || avgGrade >= 5.5)
+  ) ? 0.8 : 0;
+
+  let peak = Math.max(
+    explicitPunch,
+    compactPunch,
+    shortRisePunch,
+    (steepness * 0.45) + (shortness * 0.35) + (compactRise * 0.3)
+  );
+
+  if (distance >= 3 || elevationGain >= 140) {
+    peak *= 0.12;
+  } else if (distance >= 2 || elevationGain >= 90) {
+    peak *= 0.35;
+  }
+
+  return {
+    high: clamp(0.35 + (sustainedness * 0.6) + Math.min(peak * 0.18, 0.12), 0.35, 1),
+    peak: clamp(peak, 0, 1),
+  };
+}
+
+function normalizeSupportValue(value) {
+  if (value === null || value === undefined) return null;
+  return clamp(value, 0, 1);
+}
+
+function aggregateSegmentSupport(segments = []) {
+  if (!segments.length) return { high: 0, peak: 0, maxPeak: 0, peakOccurrences: 0 };
+
+  let totalHigh = 0;
+  let totalPeak = 0;
+  let maxPeak = 0;
+  let peakOccurrences = 0;
+
+  for (const segment of segments) {
+    const support = segmentSupport(segment);
+    totalHigh += support.high;
+    totalPeak += support.peak;
+    maxPeak = Math.max(maxPeak, support.peak);
+    if (support.peak >= 0.5) peakOccurrences += 1;
+  }
+
+  const peakRepeatBonus = peakOccurrences > 1 ? Math.min((peakOccurrences - 1) * 0.08, 0.18) : 0;
+
+  return {
+    high: clamp(totalHigh / HIGH_SUPPORT_TARGET, 0, 1),
+    peak: clamp(Math.max(totalPeak / PEAK_SUPPORT_TARGET, maxPeak * 0.85) + peakRepeatBonus, 0, 1),
+    maxPeak,
+    peakOccurrences,
+  };
+}
+
+export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = null, lapCount = 1, C = {}) {
+  const low = scoreRoute(route, 'low', C) / 100;
+  const fallback = {
+    low,
+    high: scoreRoute(route, 'high', C) / 100,
+    peak: scoreRoute(route, 'peak', C) / 100,
+    source: routeSegments?.source ?? 'world',
+    peakMeaningful: false,
+  };
+
+  if (!routeSegments || routeSegments.source === 'world') {
+    return fallback;
+  }
+
+  const occurrenceSource = Array.isArray(routeTimeline?.occurrences) && routeTimeline.occurrences.length
+    ? routeTimeline.occurrences
+    : [...(routeSegments.climbs ?? []), ...(routeSegments.sprints ?? [])];
+
+  const aggregated = aggregateSegmentSupport(occurrenceSource);
+  const peakThreshold = C.PEAK_SUPPORT_THRESHOLD ?? PEAK_SUPPORT_THRESHOLD;
+  const routeDistance = route?.distance ?? 0;
+  const peakDistanceFactor = clamp(1 - (routeDistance / 60), 0.25, 1);
+  const peak = normalizeSupportValue(aggregated.peak * peakDistanceFactor);
+  const peakMeaningful =
+    peak >= peakThreshold &&
+    aggregated.maxPeak >= 0.6 &&
+    (aggregated.peakOccurrences >= 2 || routeDistance <= 25);
+
+  return {
+    low,
+    high: normalizeSupportValue(aggregated.high),
+    peak,
+    source: routeSegments.source,
+    peakMeaningful,
+    peakOccurrences: aggregated.peakOccurrences,
+    lapCount,
+  };
+}
+
 function wotdDurationMinutes(wotd) {
   const durationSeconds = firstNumber(wotd, ['duration', 'durationSeconds', 'seconds', 'totalDuration']);
   if (durationSeconds === null) return null;
@@ -146,21 +299,7 @@ function wotdDurationMinutes(wotd) {
  * @returns {'high'|'peak'}
  */
 export function classifySegmentBucket(segment) {
-  if (segment?.type !== 'climb') return 'high'; // all sprint-banner segments → HIGH
-
-  const avgIncline = segment?.avgIncline ?? null;
-  const distance = segment?.distance ?? segment?.distanceKm ?? 0;
-
-  // Short and steep enough to force neuromuscular effort
-  if (avgIncline !== null && avgIncline >= PUNCHY_GRADE_MIN && distance < PUNCHY_DISTANCE_MAX) {
-    return 'peak';
-  }
-  // Very short with no grade data (e.g. Leg Snapper KOM, 0.43 km) — assume punchy
-  if (avgIncline === null && distance > 0 && distance < 1.0) {
-    return 'peak';
-  }
-
-  return 'high';
+  return segmentSupport(segment).peak >= 0.5 ? 'peak' : 'high';
 }
 
 /**
@@ -169,17 +308,13 @@ export function classifySegmentBucket(segment) {
  * @param {object} routeSegments — { climbs, sprints, source }
  * @returns {'low'|'low-high'|'true-mixed'|null}
  */
-export function routeHonestyLabel(routeSegments) {
+export function routeHonestyLabel(route, routeSegments, routeTimeline = null, lapCount = 1, C = {}) {
   if (!routeSegments || routeSegments.source === 'world') return null;
 
-  const allSegments = [...(routeSegments.climbs ?? []), ...(routeSegments.sprints ?? [])];
-  if (!allSegments.length) return null;
+  const support = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount, C);
+  if ((support.high ?? 0) < 0.12) return null;
 
-  const hasPeak = allSegments.some(s => classifySegmentBucket(s) === 'peak');
-
-  // classifySegmentBucket returns 'high' or 'peak' — so hasPeak is the only discriminant.
-  // All segments are at least HIGH (sprints + non-punchy climbs), so 'low-only' is unreachable.
-  return hasPeak ? 'true-mixed' : 'low-high';
+  return support.peakMeaningful ? 'true-mixed' : 'low-high';
 }
 
 export function classifyWOTD(wotd, ftp = null) {
@@ -554,6 +689,7 @@ export function optimizeRoutes(routes, options = {}) {
     availableMinutes = 60,
     estimateMinutes = () => null,
     getRouteSegments = () => ({ climbs: [], sprints: [] }),
+    getRouteSupport = null,
     wotdStructure = null,
     limit = 15,
     recoveryMode = bucket === 'recovery',
@@ -573,8 +709,10 @@ export function optimizeRoutes(routes, options = {}) {
         const estimatedMinutes = estimateMinutes(route);
         const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
         const score = scoreRoute(route, 'recovery', tuning);
-        const contributions = routeContributions(route, tuning);
         const routeSegments = getRouteSegments(route);
+        const contributions = getRouteSupport
+          ? getRouteSupport(route, routeSegments, estimatedMinutes)
+          : routeContributions(route, tuning);
         return {
           ...route,
           score,
@@ -593,8 +731,10 @@ export function optimizeRoutes(routes, options = {}) {
   return eligible
     .map(route => {
       const estimatedMinutes = estimateMinutes(route);
-      const contributions = routeContributions(route, tuning);
       const routeSegments = getRouteSegments(route);
+      const contributions = getRouteSupport
+        ? getRouteSupport(route, routeSegments, estimatedMinutes)
+        : routeContributions(route, tuning);
       const terrainScore = wotdTerrainScore(route, wotdStructure, routeSegments);
       const deficitScore = bucketDeficitScore(contributions, bucket, deficits, tuning);
       const timeFit = timeFitScore(estimatedMinutes, availableMinutes);

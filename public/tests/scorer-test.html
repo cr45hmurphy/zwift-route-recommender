@@ -125,8 +125,10 @@
   <script type="module">
     import {
       scoreRoute, rankRoutes, detectBucket, optimizeRoutes,
-      classifyWOTD, wotdTerrainScore, DEFAULTS,
+      classifyWOTD, deriveRouteBucketSupport, routeHonestyLabel, wotdTerrainScore, DEFAULTS,
     } from '../app/core/scorer.js';
+    import { getSegmentsForRoute } from '../app/core/segments.js';
+    import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, withRecoveryGaps } from '../app/core/timelines.js';
     import { routes as ALL_ROUTES } from '../app/data/routes-data.js';
 
     // ── Slider definitions ──────────────────────────────────────────────────
@@ -294,6 +296,21 @@
     ];
 
     const estimateMinutes = r => Math.round((r.distance / 28) * 60 + (r.elevation / 700) * 60);
+    const routeByNameData = Object.fromEntries(ALL_ROUTES.map(route => [route.name, route]));
+
+    function supportForRouteName(name, availableMinutes = 60) {
+      const route = routeByNameData[name];
+      const routeSegments = getSegmentsForRoute(route);
+      const timeline = getRouteTimeline(route);
+      const lapCount = recommendedLapCount({ ...route, estimatedMinutes: estimateMinutes(route) }, availableMinutes);
+      const occurrences = timeline ? withRecoveryGaps(expandTimelineForLaps({ ...route, estimatedMinutes: estimateMinutes(route) }, timeline, lapCount)) : [];
+      const routeTimeline = timeline ? { ...timeline, occurrences } : null;
+      const support = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
+      return {
+        support,
+        label: routeHonestyLabel(route, routeSegments, routeTimeline, lapCount),
+      };
+    }
 
     const BUCKET_LABELS = {
       low: 'LOW (aerobic)',
@@ -372,6 +389,38 @@
       }).join('');
       html += `<h2>wotdTerrainScore checks <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
         <table><tr><th>Scenario</th><th>Expectation</th><th>Actual</th><th>Result</th></tr>${terrainRows}</table>`;
+
+      const routeTruthCases = [
+        {
+          label: 'Tempus Fugit stays LOW+HIGH with negligible PEAK',
+          actual: supportForRouteName('Tempus Fugit', 45),
+          pass: ({ support, label }) => label === 'low-high' && (support.peak ?? 0) <= 0.1,
+        },
+        {
+          label: 'Road to Sky stays climb-oriented, not TRUE mixed',
+          actual: supportForRouteName('Road to Sky', 75),
+          pass: ({ support, label }) => label === 'low-high' && (support.peak ?? 0) <= 0.1 && (support.high ?? 0) >= 0.6,
+        },
+        {
+          label: 'Leg Snapper route gets meaningful PEAK credit',
+          actual: supportForRouteName('2018 Worlds Short Lap', 60),
+          pass: ({ support }) => (support.peak ?? 0) >= 0.4,
+        },
+        {
+          label: 'Watopia Figure 8 does not overclaim TRUE mixed',
+          actual: supportForRouteName('Watopia Figure 8', 60),
+          pass: ({ label, support }) => label === 'low-high' && (support.peak ?? 0) < 0.42,
+        },
+      ];
+      const routeTruthRows = routeTruthCases.map(t => {
+        const result = t.actual;
+        const pass = t.pass(result);
+        const detail = `label=${result.label ?? 'null'} · L/H/P ${(result.support.low ?? 0).toFixed(2)}/${(result.support.high ?? 0).toFixed(2)}/${(result.support.peak ?? 0).toFixed(2)}`;
+        return `<tr><td>${t.label}</td><td>${detail}</td>
+          <td style="color:${pass ? 'var(--green)' : 'var(--red)'}">${pass ? 'PASS' : 'FAIL'}</td></tr>`;
+      }).join('');
+      html += `<h2>Route truth checks <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Scenario</th><th>Actual</th><th>Result</th></tr>${routeTruthRows}</table>`;
 
       // Stability
       const stabilityRoutes = [

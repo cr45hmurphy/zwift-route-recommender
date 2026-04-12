@@ -4,7 +4,7 @@ import { getPreferredWorldContext, getWorldScheduleContext, filterRoutesToWorlds
 import { getTodaysPortalRoad } from './core/portal.js';
 import { getSegmentsForRoute } from './core/segments.js';
 import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, uniqueTimelineSegments, withRecoveryGaps } from './core/timelines.js';
-import { analyzeTrainingDay, classifySegmentBucket, generateRideCue, optimizeRoutes, routeHonestyLabel, wotdTerrainScore } from './core/scorer.js';
+import { analyzeTrainingDay, deriveRouteBucketSupport, generateRideCue, optimizeRoutes, routeHonestyLabel, wotdTerrainScore } from './core/scorer.js';
 import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
 
 // ── Constants ─────────────────────────────────────
@@ -845,6 +845,7 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
     : [];
   const relevantClimbs = timelineClimbs.length ? timelineClimbs.slice(0, 4) : preferNamedSegments(routeSegments.climbs).slice(0, 4);
   const relevantSprints = timelineSprints.length ? timelineSprints : preferNamedSegments(routeSegments.sprints);
+  const bucketSupport = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
 
   return {
     ...route,
@@ -853,7 +854,8 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
     relevantClimbs,
     relevantSprints,
     segmentSource: routeSegments.source,
-    honestyLabel: routeHonestyLabel(routeSegments),
+    bucketSupport,
+    honestyLabel: routeHonestyLabel(route, routeSegments, routeTimeline, lapCount),
     routeTimeline,
     timelineOccurrences: expandedTimeline,
     orderedSegments,
@@ -863,6 +865,15 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
 
 function enrichRoutes(rankedRoutes, bucket, wotdStructure, availableMinutes) {
   return rankedRoutes.map(route => enrichRoute(route, bucket, wotdStructure, availableMinutes));
+}
+
+function getRouteSupportForScenario(route, availableMinutes) {
+  const routeSegments = getSegmentsForRoute(route);
+  const timeline = getRouteTimeline(route);
+  const lapCount = recommendedLapCount(route, availableMinutes);
+  const expandedTimeline = timeline ? withRecoveryGaps(expandTimelineForLaps(route, timeline, lapCount)) : [];
+  const routeTimeline = timeline ? { ...timeline, occurrences: expandedTimeline } : null;
+  return deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
 }
 
 function recomputeRankedRoutes() {
@@ -879,6 +890,7 @@ function recomputeRankedRoutes() {
     availableMinutes: settings.minutes,
     estimateMinutes: route => estimateRouteMinutes(route, settings, state.trainingData),
     getRouteSegments: route => getSegmentsForRoute(route),
+    getRouteSupport: route => getRouteSupportForScenario(route, settings.minutes),
     wotdStructure: state.wotdStructure,
     recoveryMode: state.bucket === 'recovery',
     favorites: loadFavorites(),
@@ -999,6 +1011,7 @@ function renderRouteInspector() {
     availableMinutes: settings.minutes,
     estimateMinutes: item => estimateRouteMinutes(item, settings, state.trainingData),
     getRouteSegments: item => getSegmentsForRoute(item),
+    getRouteSupport: item => getRouteSupportForScenario(item, settings.minutes),
     wotdStructure: state.wotdStructure,
     recoveryMode: state.bucket === 'recovery',
     favorites: loadFavorites(),
@@ -1078,18 +1091,13 @@ function routeCardHTML(route, compact, favorites = new Set()) {
   let shareFillPct = null;
   let shareBucket = state.bucket;
 
-  // Per-bucket XSS estimates using classified segment types
-  const cardSegments = {
-    climbs: route.relevantClimbs ?? [],
-    sprints: route.relevantSprints ?? [],
-    source: route.segmentSource ?? 'world',
-  };
-  const allCardSegs = [...cardSegments.climbs, ...cardSegments.sprints];
-  const hasRouteSegs = allCardSegs.length > 0 && cardSegments.source !== 'world';
+  // Per-bucket XSS estimates use the same weighted support model as ranking + honesty labels.
+  const bucketSupport = route.bucketSupport ?? { low: 1, high: 0, peak: 0, source: route.segmentSource ?? 'world' };
+  const hasRouteSegs = bucketSupport.source !== 'world';
   const perBucketXss = {
-    low: estimateBucketImpactXss(estMin, 'low'),
-    high: !hasRouteSegs ? null : (allCardSegs.some(s => classifySegmentBucket(s) === 'high') ? estimateBucketImpactXss(estMin, 'high') : 0),
-    peak: !hasRouteSegs ? null : (allCardSegs.some(s => classifySegmentBucket(s) === 'peak') ? estimateBucketImpactXss(estMin, 'peak') : 0),
+    low: Math.round(estimateBucketImpactXss(estMin, 'low') * Math.max(bucketSupport.low ?? 0, 0.15)),
+    high: !hasRouteSegs ? null : Math.round(estimateBucketImpactXss(estMin, 'high') * Math.max(bucketSupport.high ?? 0, 0)),
+    peak: !hasRouteSegs ? null : Math.round(estimateBucketImpactXss(estMin, 'peak') * Math.max(bucketSupport.peak ?? 0, 0)),
   };
 
   if (displayTarget.mode === 'mixed') {
