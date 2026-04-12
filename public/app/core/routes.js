@@ -4,6 +4,14 @@
 export { routes } from '../data/routes-data.js';
 import { guestWorldAppointments } from '../data/zwift-metadata.js';
 
+const LIVE_WORLDS_CACHE_KEY = 'live-world-context-v1';
+const LIVE_WORLDS_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+const RELAY_WORLDS_URL = 'https://us-or-rly101.zwift.com/relay/worlds';
+const WORLDS_PROXY_URL =
+  window.location.hostname === 'localhost' && window.location.port !== '8888'
+    ? 'http://localhost:8888/.netlify/functions/worlds-proxy'
+    : '/.netlify/functions/worlds-proxy';
+
 export const WORLD_NAMES = {
   watopia:         'Watopia',
   london:          'London',
@@ -24,6 +32,123 @@ function parseScheduleDate(value) {
   return new Date(String(value).replace(/([+-]\d{2})$/, '$1:00'));
 }
 
+function normalizeWorldToken(value = '') {
+  return String(value)
+    .toLowerCase()
+    .replace(/^public\s+/, '')
+    .replace(/&amp;/g, '&')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function worldSlugFromName(value = '') {
+  const normalized = normalizeWorldToken(value);
+  const aliases = {
+    watopia: 'watopia',
+    london: 'london',
+    'new york': 'new-york',
+    newyork: 'new-york',
+    innsbruck: 'innsbruck',
+    richmond: 'richmond',
+    bologna: 'bologna',
+    yorkshire: 'yorkshire',
+    'crit city': 'crit-city',
+    'makuri islands': 'makuri-islands',
+    france: 'france',
+    paris: 'paris',
+    scotland: 'scotland',
+    'gravel mountain': 'gravel-mountain',
+  };
+  return aliases[normalized] ?? null;
+}
+
+function defaultWorldContext(guestWorldsFallback = [], now = new Date()) {
+  const scheduled = getWorldScheduleContext(guestWorldsFallback, now);
+  if (scheduled.source === 'Zwift schedule fallback') return scheduled;
+  return {
+    source: 'manual fallback',
+    guestWorlds: guestWorldsFallback,
+    worlds: new Set(['watopia', ...guestWorldsFallback]),
+  };
+}
+
+function serializeWorldContext(context) {
+  return {
+    source: context.source,
+    guestWorlds: [...(context.guestWorlds ?? [])],
+    worlds: [...(context.worlds ?? [])],
+    fetchedAt: Date.now(),
+  };
+}
+
+function deserializeWorldContext(raw) {
+  if (!raw || !Array.isArray(raw.worlds) || !Array.isArray(raw.guestWorlds)) return null;
+  return {
+    source: raw.source ?? 'unknown',
+    guestWorlds: raw.guestWorlds,
+    worlds: new Set(raw.worlds),
+    fetchedAt: raw.fetchedAt ?? null,
+  };
+}
+
+function loadCachedLiveWorldContext() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LIVE_WORLDS_CACHE_KEY) || 'null');
+    if (!parsed || !parsed.fetchedAt) return null;
+    if ((Date.now() - parsed.fetchedAt) > LIVE_WORLDS_CACHE_MAX_AGE_MS) return null;
+    return deserializeWorldContext(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedLiveWorldContext(context) {
+  try {
+    localStorage.setItem(LIVE_WORLDS_CACHE_KEY, JSON.stringify(serializeWorldContext(context)));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+async function fetchRelayWorldContext() {
+  const response = await fetch(RELAY_WORLDS_URL, {
+    headers: {
+      accept: 'application/json, text/plain, */*',
+    },
+  });
+  if (!response.ok) throw new Error(`relay worlds ${response.status}`);
+
+  const rows = await response.json();
+  const guestWorlds = [...new Set(
+    (Array.isArray(rows) ? rows : [])
+      .map(item => worldSlugFromName(item?.name))
+      .filter(Boolean)
+      .filter(world => world !== 'watopia')
+  )];
+
+  if (!guestWorlds.length) return null;
+
+  return {
+    source: 'live worlds',
+    guestWorlds,
+    worlds: new Set(['watopia', ...guestWorlds]),
+  };
+}
+
+async function fetchProxyWorldContext(source) {
+  const response = await fetch(`${WORLDS_PROXY_URL}?source=${encodeURIComponent(source)}`);
+  if (!response.ok) throw new Error(`${source} proxy ${response.status}`);
+  const payload = await response.json();
+  const guestWorlds = [...new Set((payload?.guestWorlds ?? []).map(worldSlugFromName).filter(Boolean).filter(world => world !== 'watopia'))];
+  if (!guestWorlds.length) return null;
+
+  return {
+    source: payload?.sourceLabel ?? source,
+    guestWorlds,
+    worlds: new Set(['watopia', ...guestWorlds]),
+  };
+}
+
 export function getWorldScheduleContext(guestWorldsFallback = [], now = new Date()) {
   const eligible = guestWorldAppointments
     .filter(item => parseScheduleDate(item.start) <= now)
@@ -37,10 +162,33 @@ export function getWorldScheduleContext(guestWorldsFallback = [], now = new Date
   const guestWorlds = scheduled.length ? scheduled : guestWorldsFallback;
 
   return {
-    source: scheduled.length ? 'schedule' : 'fallback',
+    source: scheduled.length ? 'Zwift schedule fallback' : 'manual fallback',
     guestWorlds,
     worlds: new Set(['watopia', ...guestWorlds]),
   };
+}
+
+export async function getPreferredWorldContext(guestWorldsFallback = [], now = new Date()) {
+  const cached = loadCachedLiveWorldContext();
+  if (cached) return cached;
+
+  for (const fetcher of [
+    () => fetchRelayWorldContext(),
+    () => fetchProxyWorldContext('woz'),
+    () => fetchProxyWorldContext('zi'),
+  ]) {
+    try {
+      const context = await fetcher();
+      if (context?.guestWorlds?.length) {
+        saveCachedLiveWorldContext(context);
+        return context;
+      }
+    } catch {
+      // try next source
+    }
+  }
+
+  return defaultWorldContext(guestWorldsFallback, now);
 }
 
 // Watopia is always included. Uses Zwift's published world schedule when present,
@@ -52,6 +200,10 @@ export function todaysWorlds(guestWorldsFallback = [], now = new Date()) {
 export function filterToAvailableWorlds(routes, guestWorldsFallback = [], now = new Date()) {
   const available = todaysWorlds(guestWorldsFallback, now);
   return routes.filter(r => available.has(r.world));
+}
+
+export function filterRoutesToWorlds(routes, worlds) {
+  return routes.filter(route => worlds.has(route.world));
 }
 
 export function worldName(slug) {

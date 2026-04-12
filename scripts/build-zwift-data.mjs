@@ -559,6 +559,170 @@ function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, 'utf8'));
 }
 
+function clamp01(value) {
+  return Math.min(Math.max(Number(value) || 0, 0), 1);
+}
+
+function roadPointFromNode(node) {
+  if (!Array.isArray(node) || node.length < 3) return null;
+  return {
+    x: Number(node[0]) / 100,
+    y: Number(node[1]) / 100,
+    z: Number(node[2]) / 100,
+  };
+}
+
+function distance3d(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dz = b.z - a.z;
+  return Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
+}
+
+function buildRoadGeometry(road) {
+  const points = (road.path ?? [])
+    .map(roadPointFromNode)
+    .filter(Boolean);
+
+  if (points.length < 2) {
+    return {
+      looped: Boolean(road.looped),
+      totalLengthM: 0,
+      points,
+      cumulativeM: [0],
+    };
+  }
+
+  const cumulativeM = [0];
+  for (let index = 1; index < points.length; index += 1) {
+    cumulativeM[index] = cumulativeM[index - 1] + distance3d(points[index - 1], points[index]);
+  }
+
+  return {
+    looped: Boolean(road.looped),
+    totalLengthM: cumulativeM.at(-1) ?? 0,
+    points,
+    cumulativeM,
+  };
+}
+
+function positionForRoadTime(roadGeometry, roadTime) {
+  const t = clamp01(roadTime);
+  const totalLengthM = roadGeometry?.totalLengthM ?? 0;
+  const points = roadGeometry?.points ?? [];
+  const cumulativeM = roadGeometry?.cumulativeM ?? [];
+
+  if (!points.length) {
+    return { x: 0, y: 0, z: 0, distanceM: 0 };
+  }
+
+  if (points.length === 1 || totalLengthM <= 0) {
+    return { ...points[0], distanceM: 0 };
+  }
+
+  const targetDistanceM = totalLengthM * t;
+  for (let index = 1; index < cumulativeM.length; index += 1) {
+    if (targetDistanceM > cumulativeM[index]) continue;
+
+    const segmentStartM = cumulativeM[index - 1];
+    const segmentLengthM = cumulativeM[index] - segmentStartM;
+    const ratio = segmentLengthM > 0 ? (targetDistanceM - segmentStartM) / segmentLengthM : 0;
+    const start = points[index - 1];
+    const end = points[index];
+
+    return {
+      x: start.x + ((end.x - start.x) * ratio),
+      y: start.y + ((end.y - start.y) * ratio),
+      z: start.z + ((end.z - start.z) * ratio),
+      distanceM: targetDistanceM,
+    };
+  }
+
+  return {
+    ...points.at(-1),
+    distanceM: totalLengthM,
+  };
+}
+
+function distanceAlongRoad(roadGeometry, startTime, endTime) {
+  const start = positionForRoadTime(roadGeometry, startTime);
+  const end = positionForRoadTime(roadGeometry, endTime);
+  const totalLengthM = roadGeometry?.totalLengthM ?? 0;
+  const looped = Boolean(roadGeometry?.looped);
+
+  if (totalLengthM <= 0) return 0;
+
+  if (looped && end.distanceM < start.distanceM) {
+    return (totalLengthM - start.distanceM) + end.distanceM;
+  }
+
+  return Math.abs(end.distanceM - start.distanceM);
+}
+
+function sampleRoadSectionStats(roadGeometry, startTime, endTime, steps = 24) {
+  if (!roadGeometry || (roadGeometry.totalLengthM ?? 0) <= 0) {
+    return {
+      distanceM: 0,
+      elevationDeltaM: 0,
+      elevationGainM: 0,
+      avgGradePct: null,
+      roadLengthM: 0,
+    };
+  }
+
+  const normalizedSteps = Math.max(2, steps);
+  const samples = [];
+
+  for (let index = 0; index < normalizedSteps; index += 1) {
+    const ratio = normalizedSteps === 1 ? 0 : index / (normalizedSteps - 1);
+    let t = startTime + ((endTime - startTime) * ratio);
+    if (roadGeometry.looped && endTime < startTime) {
+      t = startTime + (((endTime + 1) - startTime) * ratio);
+      if (t > 1) t -= 1;
+    }
+    samples.push(positionForRoadTime(roadGeometry, t));
+  }
+
+  let distanceM = 0;
+  let elevationGainM = 0;
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1];
+    const current = samples[index];
+    distanceM += distance3d(previous, current);
+    const deltaZ = current.z - previous.z;
+    if (deltaZ > 0) elevationGainM += deltaZ;
+  }
+
+  const elevationDeltaM = samples.at(-1).z - samples[0].z;
+  const avgGradePct = distanceM > 0 ? Number(((elevationDeltaM / distanceM) * 100).toFixed(2)) : null;
+
+  return {
+    distanceM,
+    elevationDeltaM: Number(elevationDeltaM.toFixed(1)),
+    elevationGainM: Number(elevationGainM.toFixed(1)),
+    avgGradePct,
+    roadLengthM: Number((roadGeometry.totalLengthM ?? 0).toFixed(1)),
+  };
+}
+
+function buildRoadGeometryIndex(sauceDataDir) {
+  const byWorldId = new Map();
+  const worldsDir = join(sauceDataDir, 'worlds');
+
+  for (const worldId of readdirSync(worldsDir)) {
+    const roadsPath = join(worldsDir, worldId, 'roads.json');
+    if (!existsSync(roadsPath)) continue;
+
+    const roads = readJson(roadsPath);
+    byWorldId.set(
+      Number(worldId),
+      new Map(roads.map(road => [Number(road.id), buildRoadGeometry(road)]))
+    );
+  }
+
+  return byWorldId;
+}
+
 function buildAppSegmentIndexes(appSegments) {
   const exact = new Map();
   const byWorld = new Map();
@@ -597,6 +761,61 @@ function matchAppSegment(occurrenceName, worldSlug, routeSegmentSlugs, appSegmen
   return null;
 }
 
+function enrichSegmentsWithSauceGeometry(appSegments, sauceDataDir, roadGeometryByWorldId) {
+  const appSegmentsBySlug = new Map(appSegments.map(segment => [segment.slug, segment]));
+  const appSegmentIndexes = buildAppSegmentIndexes(appSegments);
+  const worldSegmentFiles = readdirSync(join(sauceDataDir, 'worlds'));
+
+  for (const worldIdText of worldSegmentFiles) {
+    const worldId = Number(worldIdText);
+    const worldSlug = SEGMENT_WORLD_TO_SLUG[worldId];
+    if (!worldSlug) continue;
+
+    const segmentsPath = join(sauceDataDir, 'worlds', worldIdText, 'segments.json');
+    if (!existsSync(segmentsPath)) continue;
+
+    const worldSegments = readJson(segmentsPath);
+    const roadGeometryById = roadGeometryByWorldId.get(worldId) ?? new Map();
+
+    for (const sauceSegment of worldSegments) {
+      const appSegment = matchAppSegment(
+        sauceSegment?.name ?? '',
+        worldSlug,
+        [],
+        appSegmentsBySlug,
+        appSegmentIndexes
+      );
+      if (!appSegment) continue;
+
+      const roadGeometry = roadGeometryById.get(Number(sauceSegment.roadId));
+      if (!roadGeometry) continue;
+      const sauceType = classifySauceSegment(sauceSegment, null);
+      if (sauceType && appSegment.type && sauceType !== appSegment.type) continue;
+
+      const stats = sampleRoadSectionStats(
+        roadGeometry,
+        sauceSegment.roadStart,
+        sauceSegment.roadFinish
+      );
+      const computedDistanceKm = Number((stats.distanceM / 1000).toFixed(3));
+      if ((appSegment.distance ?? 0) > 0 && computedDistanceKm > 0) {
+        const ratio = Math.max(appSegment.distance, computedDistanceKm) / Math.max(Math.min(appSegment.distance, computedDistanceKm), 0.001);
+        if (ratio > 2.5) continue;
+      }
+
+      if ((appSegment.avgIncline ?? null) === null && stats.avgGradePct !== null) {
+        appSegment.avgIncline = stats.avgGradePct;
+      }
+      if ((appSegment.elevation ?? null) === null && stats.elevationGainM > 0) {
+        appSegment.elevation = Math.round(stats.elevationGainM);
+      }
+      if ((appSegment.distance ?? 0) <= 0 && stats.distanceM > 0) {
+        appSegment.distance = computedDistanceKm;
+      }
+    }
+  }
+}
+
 function buildSauceRouteIndex(sauceRoutes) {
   const index = new Map();
 
@@ -630,7 +849,7 @@ function matchSauceRoute(appRoute, sauceRouteIndex) {
   return uniqueCandidates[0];
 }
 
-function buildRouteTimelines(appRoutes, appSegments, sauceDataDir) {
+function buildRouteTimelines(appRoutes, appSegments, sauceDataDir, roadGeometryByWorldId) {
   const sauceRoutes = readJson(join(sauceDataDir, 'routes.json'));
   const worldSegmentMaps = new Map();
   const sauceRouteIndex = buildSauceRouteIndex(sauceRoutes);
@@ -659,6 +878,7 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir) {
     }
 
     const worldSegmentsById = worldSegmentMaps.get(sauceRoute.worldId);
+    const worldRoadGeometry = roadGeometryByWorldId.get(Number(sauceRoute.worldId)) ?? new Map();
     const routeSegmentSlugs = [
       ...new Set([
         ...(appRoute.segmentsOnRoute ?? []).map(item => item.segment).filter(Boolean),
@@ -681,7 +901,15 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir) {
         );
         const type = classifySauceSegment(sauceSegment, appSegment?.type ?? null);
         const offsetMeters = Number(occurrence.offset ?? 0);
-        const distanceKm = Number(((occurrence.distance ?? sauceSegment?.distance ?? 0) / 1000).toFixed(3));
+        const roadGeometry = sauceSegment ? worldRoadGeometry.get(Number(sauceSegment.roadId)) : null;
+        const geometryStats = sauceSegment && roadGeometry
+          ? sampleRoadSectionStats(roadGeometry, sauceSegment.roadStart, sauceSegment.roadFinish)
+          : null;
+        const rawDistanceMeters =
+          Number(occurrence.distance ?? 0) ||
+          Number(sauceSegment?.distance ?? 0) ||
+          Number(geometryStats?.distanceM ?? 0);
+        const distanceKm = Number((rawDistanceMeters / 1000).toFixed(3));
         const startKm = Number(((offsetMeters + (sauceRoute.leadinDistanceInMeters ?? 0)) / 1000).toFixed(3));
         const endKm = Number((startKm + distanceKm).toFixed(3));
 
@@ -698,6 +926,12 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir) {
           routeOffsetKm: Number((offsetMeters / 1000).toFixed(3)),
           roadId: sauceSegment?.roadId ?? null,
           reverse: Boolean(sauceSegment?.reverse),
+          roadStart: Number.isFinite(Number(sauceSegment?.roadStart)) ? Number(sauceSegment.roadStart) : null,
+          roadFinish: Number.isFinite(Number(sauceSegment?.roadFinish)) ? Number(sauceSegment.roadFinish) : null,
+          roadLengthKm: geometryStats ? Number((geometryStats.roadLengthM / 1000).toFixed(3)) : null,
+          avgGradePct: geometryStats?.avgGradePct ?? appSegment?.avgIncline ?? null,
+          elevationDeltaM: geometryStats?.elevationDeltaM ?? null,
+          elevationGainM: geometryStats?.elevationGainM ?? null,
           sourceSection: occurrence.leadinOnly ? 'leadin' : (appRoute.supportedLaps ? 'lap' : 'route'),
           leadinOnly: Boolean(occurrence.leadinOnly),
         };
@@ -732,6 +966,7 @@ function writeModule(filePath, exportName, value) {
 
 async function main() {
   const sauceDataDir = await ensureSauceDataDir();
+  const roadGeometryByWorldId = buildRoadGeometryIndex(sauceDataDir);
   const [gameDictionaryXml, mapScheduleXml, portalScheduleXml, zwiftVersionXml] = await Promise.all([
     fetchText(GAME_DICTIONARY_URL),
     fetchText(MAP_SCHEDULE_URL),
@@ -740,8 +975,9 @@ async function main() {
   ]);
 
   const { segments, routeSegmentMap } = buildSegments(gameDictionaryXml);
+  enrichSegmentsWithSauceGeometry(segments, sauceDataDir, roadGeometryByWorldId);
   const routes = buildRoutes(gameDictionaryXml, routeSegmentMap);
-  const { routeTimelinesBySignature, unmatchedRoutes } = buildRouteTimelines(routes, segments, sauceDataDir);
+  const { routeTimelinesBySignature, unmatchedRoutes } = buildRouteTimelines(routes, segments, sauceDataDir, roadGeometryByWorldId);
   const worldSchedule = buildWorldSchedule(mapScheduleXml);
   const portalData = buildPortalData(portalScheduleXml);
   const versionAttrs = parseAttributes((zwiftVersionXml.match(/<Zwift\s+([^>]+?)\/?>/) ?? [])[1] ?? '');

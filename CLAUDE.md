@@ -20,8 +20,7 @@ A single-page web app (no backend required) that pulls Xert fitness data, calcul
 This is a static frontend app using vanilla HTML/CSS/JS with one npm dependency.
 
 ```bash
-npm install          # installs zwift-data
-# Open index.html directly in browser, OR serve locally:
+npm install
 npm run serve
 ```
 
@@ -33,24 +32,37 @@ node scripts/proxy.js
 ## File Architecture
 
 ```
-public/index.html            — single page shell
-public/assets/style.css      — app styles
-public/app/app.js            — orchestration: init, auth flow, rendering
-public/app/core/xert.js      — Xert OAuth2 + API wrapper; stores token in localStorage
-public/app/core/scorer.js    — route scoring logic (pure functions, no side effects)
-public/app/core/routes.js    — route metadata helpers and world filters
-public/app/core/segments.js  — segment metadata helpers
-public/app/data/*.js         — mock and generated browser data
-public/tests/*.html          — manual validation harnesses
-scripts/bundle-routes.mjs    — generates route and segment data
-scripts/proxy.js             — local proxy for CORS debugging
+public/index.html              — single page shell
+public/assets/style.css        — app styles
+public/app/app.js              — orchestration: init, auth flow, rendering
+public/app/core/xert.js        — Xert OAuth2 + API wrapper; stores token in localStorage
+public/app/core/scorer.js      — route scoring logic (pure functions, no side effects)
+public/app/core/routes.js      — route metadata helpers and world filters
+public/app/core/segments.js    — segment metadata helpers
+public/app/core/timelines.js   — route timeline helpers, lap expansion, recovery gaps
+public/app/data/*.js           — mock and generated browser data
+public/tests/*.html            — manual validation harnesses
+scripts/build-zwift-data.mjs   — generates route, segment, schedule, and route timeline data
+scripts/proxy.js               — local proxy for CORS debugging
 ```
 
 ## Key Architecture Decisions
 
 **No framework** — vanilla JS only. Avoid introducing React/Vue/etc.
 
-**zwift-data** is imported as an npm package (`import { routes } from 'zwift-data'`). Route data is bundled at build time — no API calls needed for route data.
+## Route Data Pipeline
+
+The route-data story has changed from the original prototype.
+
+- We no longer treat `zwift-data` as the primary route source.
+- We do not depend on Sauce for Zwift at runtime.
+- We do use Sauce for Zwift's release bundle as a build-time source for route manifests and route-position timelines.
+- The authoritative build entry point is `scripts/build-zwift-data.mjs`.
+
+Read this before changing the route pipeline:
+- `docs/reference/sauce-update-workflow.md`
+
+Use `docs/reference/zwift.mjs` only as a reference for the authenticated Zwift `/api/game_info` fallback path.
 
 **Xert auth** uses OAuth2 password grant with public client credentials (`xert_public`/`xert_public`). Token stored in `localStorage`. Endpoint: `POST https://www.xertonline.com/oauth/token`.
 
