@@ -816,6 +816,17 @@ section { margin-bottom: 32px; }
   background: var(--yellow-dim);
 }
 
+.route-flag.honesty.true-mixed {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.route-flag.honesty.low-high {
+  color: var(--bucket-high);
+  border-color: var(--bucket-high);
+  background: rgba(33, 150, 243, 0.08);
+}
+
 .segment-row {
   display: flex;
   flex-direction: column;
@@ -1014,6 +1025,11 @@ a.segment-chip:hover {
 .xss-fill.mixed {
   border-color: rgba(255, 255, 255, 0.16);
   white-space: normal;
+}
+
+.xss-target {
+  color: var(--text-muted);
+  opacity: 0.65;
 }
 
 .route-impact,

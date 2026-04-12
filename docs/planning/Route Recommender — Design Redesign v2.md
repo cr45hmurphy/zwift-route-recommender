@@ -2,40 +2,86 @@
 
 ## Based on Test Ride #1: Sugar Cookie, Watopia — April 11 2026
 
-## Implementation Status — April 11 2026
+## Implementation Status — April 12 2026 (updated)
 
-This document started as a redesign brief. It now needs to serve double duty as a status document for the `feature/zwift-cdn-overhaul` branch.
+This document started as a redesign brief. It now serves as the status document for the `feature/zwift-cdn-overhaul` branch. Update this section at the end of each session.
 
-### What is already implemented on this branch
+---
 
-- **Route positioning / timeline layer exists.** We are no longer limited to unordered route segment lists. The app now has route timelines keyed by route `signature`, generated into `public/app/data/route-timelines-data.js`.
-- **The build step already integrates Sauce-derived route structure.** We are not cloning or depending on the Sauce repo at runtime, but `scripts/build-zwift-data.mjs` now extracts the data needed from Sauce for Zwift's public release bundle and writes normalized route timelines into this repo.
-- **Cue generation is timeline-aware.** `generateRideCue()` now uses ordered effort occurrences when timeline data exists, including recovery-gap notes and route-order cues for sprints and climbs.
-- **Lap logic exists in first-pass form.** Recommended lap count is now computed and surfaced in the UI, and the timeline layer can expand lap routes for repeated occurrences.
-- **Route inspection tooling exists.** There is now a Route Inspector in the UI that lets us pick a specific route and inspect the current recommendation/cue output directly.
-- **Ordered route sequence inspection now exists.** Route cards now show an ordered preview of effort points and an expander for the full one-pass route sequence, including repeats.
-- **Recovery spacing exists in first-pass form.** Closely spaced efforts are now called out in the cue copy instead of pretending every effort is equally fresh.
-- **Today's worlds / event-only visibility exists.** Cards can now surface `Not in today's worlds`, `Event only`, and `Direct inspection` status flags.
+### ✅ Fully implemented
 
-### What is only partially implemented
+- **Route positioning / timeline layer.** Route timelines keyed by route `signature` are generated into `public/app/data/route-timelines-data.js` via `scripts/build-zwift-data.mjs` (Sauce-derived route manifests, not a runtime dependency).
+- **Cue generation is timeline-aware.** `generateRideCue()` uses ordered effort occurrences, recovery-gap notes, and route-order cues when timeline data exists.
+- **Lap logic.** Recommended lap count computed and surfaced in UI; timeline layer can expand lap routes for repeated occurrences.
+- **Route inspection tooling.** Route Inspector in the UI lets you pick any route regardless of today's worlds.
+- **Ordered route sequence inspection.** Route cards show an ordered preview of effort points with a full-sequence expander.
+- **Recovery spacing (first pass).** Closely spaced efforts flagged in cue copy.
+- **Today's worlds / event-only / level-locked visibility.** Cards surface `Not in today's worlds`, `Event only`, `Direct inspection`, and `Level locked` flags.
+- **Live-world source stack.** The app now prefers live current-world truth over `MapSchedule_v2.xml`: `relay/worlds` if it yields guest worlds, then What's on Zwift, then ZwiftInsider, with schedule/manual fallback only if all live sources fail.
+- **`classifySegmentBucket(segment)` — scorer.js.** Classifies each segment as `'high'` or `'peak'` based on type + `avgIncline` + `distance`. Sprints always → HIGH. Short steep climbs (≥8%, <2 km) → PEAK. Very short climbs with no grade data (<1 km) → PEAK. Sustained/moderate climbs → HIGH. Exported from `scorer.js`.
+- **`routeHonestyLabel(routeSegments)` — scorer.js.** Returns `'true-mixed'` if any PEAK-classified segment is present, `'low-high'` otherwise, `null` for world-fallback routes. Computed in `enrichRoute` using the full segment list and stored on the route object as `route.honestyLabel`.
+- **Per-bucket XSS badges on route cards — app.js.** Replaced the single blended "~89% of HIGH gap" badge with three per-bucket badges: `LOW ~X/Y · HIGH ~X/Y · PEAK ~X/Y`. HIGH and PEAK show `~0` when no qualifying segments exist. World-fallback routes (no route segment data) show only the LOW badge. Recovery path shows a single LOW estimate.
+- **Route honesty label in route flags.** "TRUE mixed" or "LOW+HIGH route" pill shown in the flags row on each card. Styled with bucket-appropriate colors.
 
-- **Cue honesty is better, but not finished.** The app now uses more of the actual route opportunity set, but the cue copy is still being refined so it reads naturally on busy routes.
-- **Per-bucket honesty is still incomplete.** The app is better at not pretending everything is one neat blended match, but the redesign goal of explicit LOW / HIGH / PEAK fill estimates per route is not fully delivered yet.
-- **Segment-to-bucket mapping is still mostly label-based.** We now know where efforts occur and in what order, but we are not yet using true grade/terrain-derived classification to distinguish flat sprint vs punchy climb vs sustained climb behavior.
-- **Route honesty labels are not finished.** The card copy and reason text are better, but we do not yet have a clean explicit LOW / LOW+HIGH / TRUE mixed labeling system.
-- **Fallback honesty is still partial.** The app behaves more safely than before, but the explicit "no good PEAK route in this time budget" style fallback is not yet a first-class UX path.
-- **Time estimation is still not solved.** We added lap support and route-position awareness, but the underlying ride-time model is still our own estimate rather than Zwift's estimate or a calibrated history-backed model.
+---
 
-### Known current gaps
+### 🔶 Partially implemented
 
-- 5 routes still have no generated timeline match in the current dataset and fall back to older behavior:
-  - `Red Rock Loop`
-  - `Red Rock Loop Arcade`
-  - `Red Rock Loop Reverse`
-  - `Red Rock Run`
-  - `Yumezi Grit`
-- Cue phrasing for long mixed or sprint-heavy routes can still be too compressed or too verbose depending on the route.
-- The full route sequence expander is now the truth source for inspection, but the main cue still needs better truncation rules.
+- **Cue copy rules.** Better than before, but truncation rules for long routes with many segments still need refinement. Some routes read too compressed, others too verbose.
+- **Route-truth combos.** `LOW+HIGH` and `TRUE mixed` are useful, but we do not yet surface broader combo states like `HIGH+PEAK` or `LOW+PEAK`, and there is no dedicated filter/view for those yet.
+- **Geometry-driven route truth.** The build now carries road-geometry-derived fields into segment and timeline data, but scoring and route-truth labels are not yet using that data deeply enough. This is why some punchy-climb routes still read `LOW+HIGH`, and some `TRUE mixed` labels are still too generous.
+- **Fallback honesty.** The app is safer than before, but the explicit "no good PEAK route in this time budget — here's why" path is not yet a first-class UX state.
+- **Time estimation.** Lap support and route-position awareness exist, but the underlying ride-time model is still our own W/kg estimate. Sugar Cookie predicted 1h 27m, Zwift said 1h 45m, actual was 1h 44m. Not solved yet.
+- **XSS rate calibration.** The per-bucket badges are honest about which buckets a route can fill (PEAK = 0 for flat routes), but the absolute XSS estimates still use flat rates (65/90/50 XSS/hr). These rates represent "doing that intensity for the full hour" — the real per-segment contribution is much smaller. Needs calibration from real ride data. Noted as a future task.
+
+---
+
+### ❌ Not yet started (from priority list)
+
+3. **Refine cue copy rules** — better truncation, clearer "×2" repeat language, better mixed-route wording
+4. ~~**Route honesty labels**~~ — **done** (see above)
+5. **WOTD fallback logic** — honest "no route fits this bucket mix" instead of forcing a bad match
+6. **Recalibrate time estimates** — buffer for real-world pace vs. theoretical W/kg
+7. **Refactor recommendation scoring** — time-first, then bucket-segment type match, then density
+8. **Handle unmatched timeline routes** — 5 routes still fall back to older behavior (Red Rock Loop, Red Rock Loop Arcade, Red Rock Loop Reverse, Red Rock Run, Yumezi Grit)
+9. **Post-ride feedback storage** — predicted vs. actual per-bucket deltas for calibration
+10. **Elevation/grade data (Phase 3)** — road coordinate paths for accurate per-segment grade classification
+11. **Expose richer route-truth combos** — `HIGH+PEAK`, `LOW+PEAK`, and filtering/browsing affordances for combo-capable routes
+
+---
+
+### 🧪 Current testing status
+
+**A first validation pass is now complete.** Key takeaways from route-by-route inspection:
+
+- `Tempus Fugit` is moving in the right direction. Flat sprint routes now read as `LOW+HIGH` with `PEAK ~0`, which is much closer to the truth.
+- `Road to Sky` reads correctly as a climb-oriented `LOW+HIGH` route rather than a fake sprint/PEAK route.
+- `Knights of the Roundabout` and `The Greenway` confirm that timeline order is materially better, but cue copy still gets awkward on interleaved routes and when repeats need explaining.
+- `2018 Worlds Short Lap` / `Leg Snapper KOM` show the next big scoring gap: short punchy climb routes still are not reliably getting PEAK credit, even though the geometry suggests they should be candidates.
+- `Watopia Figure 8` and similar routes show that `TRUE mixed` is still too generous in some cases. A route with `PEAK ~0` should not be presented as truly mixed just because it has climbs and sprints.
+
+Use the following checks before merging future scoring changes:
+
+- `Mock: Peak Focus` — PEAK badges should be non-zero only on routes with short steep climbs (Volcano Circuit, Cobbled Climbs style). Tempus Fugit should show `PEAK ~0`.
+- `Mock: Low Deficit` — flat route recommendations should show `PEAK ~0` consistently.
+- `Mock: Mixed Deficits` — all three bucket badges appear; HIGH and PEAK show 0 on known flat routes.
+- `Mock: Recovery` — single LOW XSS estimate badge only, no per-bucket breakdown.
+- Route flags — flat sprint routes like `Tempus Fugit` should show `LOW+HIGH route`; routes should only show `TRUE mixed` when the PEAK contribution is non-trivial in practice, not just theoretically possible.
+- World-fallback routes (no segment data) — no honesty label, only `LOW ~X` badge.
+- No console errors during mock switching, time slider changes, or unit toggling.
+- `scorer-test.html` loads and heuristic checks pass.
+
+---
+
+### Known gaps (updated)
+
+- 5 routes have no timeline match and fall back to older behavior: `Red Rock Loop`, `Red Rock Loop Arcade`, `Red Rock Loop Reverse`, `Red Rock Run`, `Yumezi Grit`
+- Cue phrasing for long mixed or sprint-heavy routes can still be too compressed or too verbose.
+- The full route sequence expander is the truth source for inspection, but the main cue still needs better truncation rules.
+- We are not yet using full road geometry as an active scoring/classification input, so segment bucket-mapping is still less honest than it could be.
+- `TRUE mixed` is still over-applied on some routes that effectively behave as `LOW+HIGH` because PEAK contribution remains near zero.
+- Short punchy climbs are still under-detected as PEAK opportunities in the current scorer pass.
+- Portal road geometry is not yet pulled into the same recommendation path, so Climb Portal support is still shallower than normal route support.
 
 -----
 
@@ -115,9 +161,11 @@ Be honest if a route cannot meaningfully fill a bucket. Do not overstate.
 
 ### Problem 3: Segment type is not matching bucket type
 
-**Current behavior:** Sprints are being used as PEAK targets regardless of segment profile.
+**Status:** Partially addressed, not finished.
 
-**What's wrong:** Flat sprints (e.g., Woodland Sprint at -2% grade) are essentially HIGH work at best. They do not generate meaningful PEAK XSS even at 100% effort. PEAK requires truly maximal neuromuscular efforts — punchy climbs, steep short segments, not flat runway sprints.
+**Current behavior:** The app now does a first-pass split between HIGH and PEAK using segment incline/distance, and flat sprints like Tempus Fugit are behaving better. But the scorer still is not using geometry deeply enough, so punchy climbs can miss PEAK credit and route-level truth can still overstate mixed capability.
+
+**What's wrong:** Flat sprints (e.g., Woodland Sprint at -2% grade) are essentially HIGH work at best. They do not generate meaningful PEAK XSS even at 100% effort. PEAK requires truly maximal neuromuscular efforts — punchy climbs, steep short segments, not flat runway sprints. The opposite failure mode is also now visible: short punchy climbs like Leg Snapper are still being under-credited.
 
 **Fix needed:** Segment type needs to map to bucket type more honestly:
 
@@ -126,7 +174,7 @@ Be honest if a route cannot meaningfully fill a bucket. Do not overstate.
 - Sustained climbs → HIGH/LOW depending on duration
 - Long flat sections → LOW only
 
-Route scoring for PEAK should require segments that can actually deliver PEAK XSS, not just any sprint segment.
+Route scoring for PEAK should require segments that can actually deliver PEAK XSS, not just any sprint segment. The next pass should explicitly consume the geometry-derived timeline fields so PEAK classification is based on real punch, not just coarse segment metadata.
 
 -----
 
@@ -184,11 +232,19 @@ Route scoring for PEAK should require segments that can actually deliver PEAK XS
 
 **Status:** Partially addressed, not finished.
 
-**Current behavior:** The app now exposes more honest reason text and visible route flags, but does not yet have the clean route-truth labeling system described below.
+**Current behavior:** The app now exposes more honest reason text and visible route flags, including `LOW+HIGH route` and `TRUE mixed`. This is already useful, and riders are responding well to those labels.
 
-**What's wrong:** A flat route with sprint segments looks like a mixed recommendation but is fundamentally a LOW route. The rider discovers this mid-ride, not before.
+**What's wrong:** The label system is not strict enough yet. A flat route with sprint segments can still look more mixed than it really is, and some routes currently labeled `TRUE mixed` still show `PEAK ~0` in practice. That is a contradiction, and it weakens trust in the whole honesty model.
 
-**Fix needed:** Tag each route with a terrain-honest label based on its segment profile: "LOW route," "LOW+HIGH route," or "TRUE mixed route." This label should be visible before the rider selects a route, setting expectations before the cue is even generated.
+**Fix needed:** Keep the label system, but make it stricter and more expressive:
+
+- `LOW route`
+- `LOW+HIGH route`
+- `HIGH+PEAK route`
+- `LOW+PEAK route`
+- `TRUE mixed route`
+
+Only use `TRUE mixed` when all three buckets have meaningful support. This label should be visible before the rider selects a route, setting expectations before the cue is even generated. Longer term, these route-truth combos may deserve their own filter or browsing section.
 
 -----
 
@@ -245,6 +301,15 @@ Segments on the same `roadId` can be ordered by `roadTime`. Three of Sugar Cooki
 
 **Phase 3: Enrich with elevation and grade data (long term).** Still pending. This remains the key to honest segment-to-bucket mapping.
 
+**Necessary remaining Sauce-derived inputs to pull more deeply:**
+
+- **`worlds/{worldId}/roads.json` as a first-class build input.** This is now necessary, not optional. We need it to:
+  - calculate actual segment grade/profile instead of relying mostly on labels
+  - distinguish flat sprint vs punchy climb vs sustained climb more honestly
+  - improve recovery modeling and eventually improve time modeling
+- **`portal_roads.json` as a first-class build input.** This is necessary if Climb Portal routes are going to be treated as real route recommendations rather than side notes.
+- **Better route alias / matching metadata.** This is necessary to reduce the small set of unmatched routes that still fall back to old behavior.
+
 **Fallback if sauce4zwift data is inaccessible:** The sauce4zwift developer confirmed that the Zwift public API endpoint `/api/game_info` (requires authentication but not OAuth — same auth the game client uses) returns route and segment data in JSON format. This is an alternative path to the same data. Additionally, manual mapping from Zwift Insider profiles remains viable for a small number of priority routes.
 
 -----
@@ -272,9 +337,9 @@ Segments on the same `roadId` can be ordered by `roadTime`. Three of Sugar Cooki
 |File|What it gives you|
 |---|---|
 |`shared/deps/data/routes.json`|All routes with **manifests** — the ordered road sequence for each route. Each manifest entry has `roadId`, `start`, `end` (roadTime range), and `reverse`. This is the missing link between segment road positions and absolute route positions. We are already deriving normalized route timelines from this data in the build step.|
-|`shared/deps/data/worlds/{worldId}/roads.json`|Full road geometry — coordinate paths with elevation, spline type, loop flag. Enables actual distance calculation and grade profiles.|
+|`shared/deps/data/worlds/{worldId}/roads.json`|Full road geometry — coordinate paths with elevation, spline type, loop flag. Enables actual distance calculation and grade profiles. This should now be treated as a necessary next-phase input, not just nice-to-have reference data.|
 |`shared/deps/data/worlds/{worldId}/segments.json`|Segments with `roadId`, `roadStart`, `roadFinish`, direction. Richer than GameDictionary segment data.|
-|`shared/deps/data/portal_roads.json`|Road geometry for Climb Portal roads.|
+|`shared/deps/data/portal_roads.json`|Road geometry for Climb Portal roads. This should be treated as necessary if portal climbs are meant to participate honestly in route selection and cue generation.|
 |`shared/deps/data/worldlist.json`|World metadata — courseId, worldId, name, coordinate system parameters.|
 
 ### Key sauce4zwift Code References
@@ -325,16 +390,16 @@ A flat route dressed up with sprint segments is a LOW route. The app should say 
 
 Priority order for Claude Code:
 
-1. **Fix per-bucket coverage estimates** — replace blended % with honest per-bucket numbers
-1. **Fix segment-to-bucket type mapping** — flat sprints ≠ PEAK, punchy climbs = PEAK
+1. **Finish geometry-driven scoring** — use the new road-geometry-derived fields more deeply so punchy climbs earn PEAK and flat sprints stay HIGH
+1. **Tighten route-truth labels** — keep `LOW+HIGH`, add richer combo labels where justified, and stop using `TRUE mixed` when `PEAK ~0`
 1. **Refine cue copy rules** — better truncation rules, clearer explanation of repeats, and better mixed-route wording
-1. **Finish route honesty labels** — explicit LOW / LOW+HIGH / TRUE mixed style labels
 1. **Add WOTD fallback logic** — honest no-result when no route fits the required bucket mix
-1. **Recalibrate time estimates** — add real-world buffer or surface Zwift's estimate
 1. **Refactor recommendation scoring** — time first, then bucket-segment type match, then density
+1. **Recalibrate time estimates** — add real-world buffer or surface Zwift's estimate
 1. **Handle unmatched timeline routes deliberately** — either map them or clearly classify them as known fallback-only routes
+1. **Pull portal road geometry into the build path** — make portal routes first-class if we want portal recommendations to be honest
+1. **Add combo-based browsing affordances** — filters or sections for `LOW+HIGH`, `HIGH+PEAK`, `LOW+PEAK`, and `TRUE mixed`
 1. **Add post-ride feedback storage** — store predicted vs. actual per-bucket deltas to calibrate segment-to-bucket mapping over time
-1. **Enrich with elevation/grade data (Phase 3)** — use road coordinate paths to calculate grade profiles per segment, enabling honest segment-to-bucket type mapping based on actual terrain rather than segment labels
 
 -----
 
@@ -343,6 +408,7 @@ Priority order for Claude Code:
 - **Primary data sources are still the GameDictionary XML and Sauce-derived route data.** But the implementation path has changed: the build step now produces app-specific normalized route timelines rather than trying to mirror Sauce's internal app structure.
 - **Do not clone Sauce as a runtime dependency.** The current branch already proved the better shape: build-time extraction and normalization into committed app data.
 - **The next logic work is not "get route positioning."** That part is already here for most routes. The next logic work is honest bucket modeling, route-truth labeling, and cleaner cue generation on top of the positioning layer.
+- **The next data work is to promote road geometry from reference data to actual model input.** We should explicitly pull `roads.json` and `portal_roads.json` into the recommendation pipeline so segment classification and portal support are terrain-truthful.
 - The GameDictionary contains 374 routes (with signature, distance, ascent, world, lead-in data) and 217 segments (with type, road position, jersey info, and route mappings)
 - Segment type classification should drive bucket prediction, not just segment presence — use `archSegmentDistanceInKilometers` and jersey type (polka = KOM/climb, green = sprint) to distinguish effort types
 - Segments on the same `roadId` can be ordered by `roadTime` — this gives intra-road ordering for free even without the full manifest

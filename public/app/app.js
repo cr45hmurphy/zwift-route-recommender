@@ -1,10 +1,10 @@
 import { authenticate, fetchTrainingInfo, fetchWorkout, fetchActivitiesInRange, fetchActivityDetail, parseTrainingData, clearToken, hasToken } from './core/xert.js';
 import { routes } from './core/routes.js';
-import { filterToAvailableWorlds, getWorldScheduleContext, worldName } from './core/routes.js';
+import { getPreferredWorldContext, getWorldScheduleContext, filterRoutesToWorlds, worldName } from './core/routes.js';
 import { getTodaysPortalRoad } from './core/portal.js';
 import { getSegmentsForRoute } from './core/segments.js';
 import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, uniqueTimelineSegments, withRecoveryGaps } from './core/timelines.js';
-import { analyzeTrainingDay, generateRideCue, optimizeRoutes, wotdTerrainScore } from './core/scorer.js';
+import { analyzeTrainingDay, classifySegmentBucket, generateRideCue, optimizeRoutes, routeHonestyLabel, wotdTerrainScore } from './core/scorer.js';
 import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
 
 // ── Constants ─────────────────────────────────────
@@ -363,8 +363,30 @@ let state = {
   timingMode:     'auto',
   todayOnly:      true,
   guestWorlds:    [],
+  worldContext:   getWorldScheduleContext(getGuestWorlds()),
   wotdDetailLoaded: false,
 };
+
+function activeWorldContext() {
+  return state.worldContext ?? getWorldScheduleContext(state.guestWorlds);
+}
+
+async function refreshWorldContext({ rerender = true } = {}) {
+  const previousWorlds = [...activeWorldContext().worlds].sort().join(',');
+  state.worldContext = await getPreferredWorldContext(state.guestWorlds);
+  const nextWorlds = [...activeWorldContext().worlds].sort().join(',');
+
+  updateGuestWorldsLabel();
+  updateGuestWorldsPickerVisibility();
+
+  if (!rerender || !state.trainingData) return;
+
+  if (previousWorlds !== nextWorlds || state.todayOnly) {
+    recomputeRankedRoutes();
+    renderRoutes();
+    renderRouteInspector();
+  }
+}
 
 // ── Init ──────────────────────────────────────────
 
@@ -399,6 +421,7 @@ async function init() {
 
   state.todayOnly = getTodayOnly();
   state.guestWorlds = getGuestWorlds();
+  state.worldContext = getWorldScheduleContext(state.guestWorlds);
   document.getElementById('today-only-toggle').checked = state.todayOnly;
   document.querySelectorAll('.guest-world-cb').forEach(cb => {
     cb.checked = state.guestWorlds.includes(cb.value);
@@ -411,14 +434,17 @@ async function init() {
   renderSourceNotes();
 
   if (!isLiveDataSource()) {
+    void refreshWorldContext();
     loadMockScenario();
     return;
   }
 
   if (hasToken()) {
     showApp();
+    void refreshWorldContext();
     await refresh();
   } else {
+    void refreshWorldContext({ rerender: false });
     showAuth();
   }
 }
@@ -482,10 +508,14 @@ async function handleLogout() {
     lastUpdated:    null,
     timingMode:     getTimingMode(),
     todayOnly:      getTodayOnly(),
+    guestWorlds:    getGuestWorlds(),
+    worldContext:   getWorldScheduleContext(getGuestWorlds()),
     wotdDetailLoaded: false,
   };
   syncDataSourceControls();
   renderSourceNotes();
+  updateGuestWorldsLabel();
+  updateGuestWorldsPickerVisibility();
   showAuth();
 }
 
@@ -823,6 +853,7 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
     relevantClimbs,
     relevantSprints,
     segmentSource: routeSegments.source,
+    honestyLabel: routeHonestyLabel(routeSegments),
     routeTimeline,
     timelineOccurrences: expandedTimeline,
     orderedSegments,
@@ -840,7 +871,7 @@ function recomputeRankedRoutes() {
     return;
   }
 
-  const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes, state.guestWorlds) : routes;
+  const eligibleRoutes = state.todayOnly ? filterRoutesToWorlds(routes, activeWorldContext().worlds) : routes;
   const settings = getTimeSettings();
   const optimized = optimizeRoutes(eligibleRoutes, {
     bucket: state.bucket,
@@ -891,12 +922,12 @@ function renderRoutes() {
 }
 
 function currentEligibleRouteKeys() {
-  const eligible = state.todayOnly ? filterToAvailableWorlds(routes, state.guestWorlds) : routes;
+  const eligible = state.todayOnly ? filterRoutesToWorlds(routes, activeWorldContext().worlds) : routes;
   return new Set(eligible.map(route => route.slug || route.name));
 }
 
 function todaysAvailableRouteKeys() {
-  return new Set(filterToAvailableWorlds(routes, state.guestWorlds).map(route => route.slug || route.name));
+  return new Set(filterRoutesToWorlds(routes, activeWorldContext().worlds).map(route => route.slug || route.name));
 }
 
 function routeCardStatus(route) {
@@ -1042,37 +1073,56 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     : '';
 
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
-  let fillTag = '';
-  let impactTag = '';
+  let bucketXssTag = '';
   let matchTag = '';
   let shareFillPct = null;
   let shareBucket = state.bucket;
 
+  // Per-bucket XSS estimates using classified segment types
+  const cardSegments = {
+    climbs: route.relevantClimbs ?? [],
+    sprints: route.relevantSprints ?? [],
+    source: route.segmentSource ?? 'world',
+  };
+  const allCardSegs = [...cardSegments.climbs, ...cardSegments.sprints];
+  const hasRouteSegs = allCardSegs.length > 0 && cardSegments.source !== 'world';
+  const perBucketXss = {
+    low: estimateBucketImpactXss(estMin, 'low'),
+    high: !hasRouteSegs ? null : (allCardSegs.some(s => classifySegmentBucket(s) === 'high') ? estimateBucketImpactXss(estMin, 'high') : 0),
+    peak: !hasRouteSegs ? null : (allCardSegs.some(s => classifySegmentBucket(s) === 'peak') ? estimateBucketImpactXss(estMin, 'peak') : 0),
+  };
+
   if (displayTarget.mode === 'mixed') {
-    const estimatedMixedXss = estimateMixedSupportXss(estMin, route);
-    const remainingTotal = state.dailySummary?.remaining?.total ?? null;
-    const fillPct = remainingTotal ? Math.min(Math.round(estimatedMixedXss / Math.max(remainingTotal, 1) * 100), 100) : null;
-    fillTag = fillPct !== null
-      ? '<span class="xss-fill mixed">covers ~' + fillPct + '% of today\'s <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> gap</span>'
-      : '';
-    impactTag = '<span class="route-impact mixed">Est. ' + estimatedMixedXss + ' mixed-workout XSS</span>';
+    const parts = ['low', 'high', 'peak'].map(b => {
+      const xss = perBucketXss[b];
+      if (xss === null) return '';
+      const rem = state.dailySummary?.remaining?.[b] ?? null;
+      const target = rem !== null ? `<span class="xss-target">/${Math.round(rem)}</span>` : '';
+      return `<span class="xss-fill ${b}"><span class="bucket-word ${b}">${b.toUpperCase()}</span> ~${xss}${target}</span>`;
+    }).filter(Boolean);
+    bucketXssTag = parts.join('');
     matchTag = '<span class="route-match mixed">Top fit for today\'s mixed workout</span>';
   } else {
     const b = displayTarget.bucket;
-    const remainingXss = (state.dailySummary && b !== 'recovery') ? state.dailySummary.remaining[b] : null;
-    const estimatedBucketXss = estimateBucketImpactXss(estMin, b);
-    const fillPct = remainingXss ? Math.min(Math.round(estimatedBucketXss / Math.max(remainingXss, 1) * 100), 100) : null;
-    shareFillPct = fillPct;
     shareBucket = b;
-    fillTag = fillPct !== null
-      ? bucketBadgeHTML('xss-fill', b, `covers ~${fillPct}% of today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> gap`)
-      : '';
-    impactTag = b === 'recovery'
-      ? '<span class="route-impact recovery">Recovery-friendly</span>'
-      : bucketBadgeHTML('route-impact', b, `Est. ${estimatedBucketXss} <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> XSS`);
-    matchTag = b === 'recovery'
-      ? '<span class="route-match">Recovery day</span>'
-      : bucketBadgeHTML('route-match', b, `Top fit for today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> need`);
+    if (b === 'recovery') {
+      bucketXssTag = `<span class="xss-fill">${perBucketXss.low} LOW XSS est.</span>`;
+      matchTag = '<span class="route-match">Recovery day</span>';
+    } else {
+      const parts = ['low', 'high', 'peak'].map(bkt => {
+        const xss = perBucketXss[bkt];
+        if (xss === null) return '';
+        const rem = state.dailySummary?.remaining?.[bkt] ?? null;
+        const target = rem !== null ? `<span class="xss-target">/${Math.round(rem)}</span>` : '';
+        return `<span class="xss-fill ${bkt}"><span class="bucket-word ${bkt}">${bkt.toUpperCase()}</span> ~${xss}${target}</span>`;
+      }).filter(Boolean);
+      bucketXssTag = parts.join('');
+      const bXss = perBucketXss[b] ?? estimateBucketImpactXss(estMin, b);
+      shareFillPct = state.dailySummary?.remaining?.[b]
+        ? Math.min(Math.round(bXss / Math.max(state.dailySummary.remaining[b], 1) * 100), 100)
+        : null;
+      matchTag = bucketBadgeHTML('route-match', b, `Top fit for today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> need`);
+    }
   }
 
   const routeKey = route.slug || route.name;
@@ -1091,9 +1141,11 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     route.whatsOnZwiftUrl ? `<a href="${route.whatsOnZwiftUrl}" target="_blank" rel="noopener">What's on Zwift</a>` : '',
   ].filter(Boolean).join('');
   const status = routeCardStatus(route);
+  const honestyFlagText = { 'true-mixed': 'TRUE mixed', 'low-high': 'LOW+HIGH route' };
   const routeFlags = [
     route.leadInDistance > 0.1 ? `<span class="route-flag">+${displayDist(route.leadInDistance)} lead-in</span>` : '',
     route.supportedLaps ? '<span class="route-flag">Lap route</span>' : '',
+    route.honestyLabel ? `<span class="route-flag honesty ${route.honestyLabel}">${honestyFlagText[route.honestyLabel]}</span>` : '',
     status.outsideTodayWorlds ? '<span class="route-flag warning">Not in today\'s worlds</span>' : '',
     status.eventOnly ? '<span class="route-flag warning">Event only</span>' : '',
     status.inspectorOnly ? '<span class="route-flag">Direct inspection</span>' : '',
@@ -1120,8 +1172,7 @@ function routeCardHTML(route, compact, favorites = new Set()) {
         ${difficultyBadge}
         ${timeTag}
         ${lapTag}
-        ${fillTag}
-        ${impactTag}
+        ${bucketXssTag}
         ${matchTag}
       </div>
       ${route.rideCue ? `<div class="ride-cue"><span class="ride-cue-icon">🎯</span><span>${route.rideCue}</span></div>` : ''}
@@ -1528,25 +1579,22 @@ function setTimingMode(mode) {
 }
 
 function updateGuestWorldsLabel() {
-  const context = getWorldScheduleContext(state.guestWorlds);
+  const context = activeWorldContext();
   const worlds = [...context.worlds].map(worldName).join(' · ');
-  document.getElementById('today-worlds-label').textContent =
-    context.source === 'schedule'
-      ? `${worlds} · Zwift schedule`
-      : `${worlds} · manual fallback`;
+  document.getElementById('today-worlds-label').textContent = `${worlds} · ${context.source}`;
 
   const hint = document.querySelector('.world-cb-hint');
   if (hint) {
-    hint.textContent = context.source === 'schedule'
-      ? 'Zwift schedule is active. Manual world picks are hidden unless schedule data is unavailable.'
-      : 'Fallback mode: select up to 2 guest worlds alongside Watopia.';
+    hint.textContent = context.source === 'manual fallback'
+      ? 'Fallback mode: select up to 2 guest worlds alongside Watopia.'
+      : `Current worlds are coming from ${context.source}. Manual picks stay hidden unless all live and fallback sources fail.`;
   }
 }
 
 function updateGuestWorldsPickerVisibility() {
-  const context = getWorldScheduleContext(state.guestWorlds);
+  const context = activeWorldContext();
   document.getElementById('guest-worlds-picker').style.display =
-    state.todayOnly && context.source !== 'schedule' ? '' : 'none';
+    state.todayOnly && context.source === 'manual fallback' ? '' : 'none';
 }
 
 function updateGuestWorldCheckboxes() {
@@ -1892,13 +1940,16 @@ document.getElementById('guest-worlds-picker').addEventListener('change', () => 
   const checked = [...document.querySelectorAll('.guest-world-cb:checked')].map(el => el.value);
   state.guestWorlds = checked.slice(0, 2);
   saveGuestWorlds(state.guestWorlds);
+  state.worldContext = getWorldScheduleContext(state.guestWorlds);
   updateGuestWorldsLabel();
+  updateGuestWorldsPickerVisibility();
   updateGuestWorldCheckboxes();
   if (state.trainingData) {
     recomputeRankedRoutes();
     renderRoutes();
     renderRouteInspector();
   }
+  void refreshWorldContext();
 });
 
 document.getElementById('route-picker').addEventListener('change', (e) => {

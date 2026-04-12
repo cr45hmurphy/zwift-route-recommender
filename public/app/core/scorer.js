@@ -20,6 +20,10 @@ const ACTIVE_BUCKET_WEIGHT   = 0.65; // how strongly the active bucket's route c
 const OPTIMIZER_SORT_EPSILON = 0.001;
 const FAVORITE_BOOST         = 0.08; // utility multiplier for starred routes (self-limiting: only matters when close to top)
 
+// Segment bucket classification thresholds
+const PUNCHY_GRADE_MIN    = 8;   // % — climbs at/above this grade are PEAK-capable when short
+const PUNCHY_DISTANCE_MAX = 2;   // km — climbs shorter than this can generate PEAK neuromuscular work
+
 /**
  * DEFAULTS — exported snapshot of every tunable constant.
  * Used by scorer-test.html to populate sliders and by the reset button.
@@ -34,6 +38,8 @@ export const DEFAULTS = {
   PUNCH_GRADIENT_TARGET,
   ACTIVE_BUCKET_WEIGHT,
   FAVORITE_BOOST,
+  PUNCHY_GRADE_MIN,
+  PUNCHY_DISTANCE_MAX,
 };
 
 function clamp(value, min, max) {
@@ -128,6 +134,52 @@ function wotdDurationMinutes(wotd) {
   const durationSeconds = firstNumber(wotd, ['duration', 'durationSeconds', 'seconds', 'totalDuration']);
   if (durationSeconds === null) return null;
   return durationSeconds > 300 ? durationSeconds / 60 : durationSeconds;
+}
+
+/**
+ * classifySegmentBucket — which energy bucket a segment primarily fills.
+ *
+ * Flat/rolling sprint banners are threshold (HIGH) work, not neuromuscular.
+ * Only short, steep climb segments demand PEAK effort.
+ *
+ * @param {object} segment — segment record (from segments-data.js or merged timeline entry)
+ * @returns {'high'|'peak'}
+ */
+export function classifySegmentBucket(segment) {
+  if (segment?.type !== 'climb') return 'high'; // all sprint-banner segments → HIGH
+
+  const avgIncline = segment?.avgIncline ?? null;
+  const distance = segment?.distance ?? segment?.distanceKm ?? 0;
+
+  // Short and steep enough to force neuromuscular effort
+  if (avgIncline !== null && avgIncline >= PUNCHY_GRADE_MIN && distance < PUNCHY_DISTANCE_MAX) {
+    return 'peak';
+  }
+  // Very short with no grade data (e.g. Leg Snapper KOM, 0.43 km) — assume punchy
+  if (avgIncline === null && distance > 0 && distance < 1.0) {
+    return 'peak';
+  }
+
+  return 'high';
+}
+
+/**
+ * routeHonestyLabel — terrain-honest description of what buckets a route can fill.
+ *
+ * @param {object} routeSegments — { climbs, sprints, source }
+ * @returns {'low'|'low-high'|'true-mixed'|null}
+ */
+export function routeHonestyLabel(routeSegments) {
+  if (!routeSegments || routeSegments.source === 'world') return null;
+
+  const allSegments = [...(routeSegments.climbs ?? []), ...(routeSegments.sprints ?? [])];
+  if (!allSegments.length) return null;
+
+  const hasPeak = allSegments.some(s => classifySegmentBucket(s) === 'peak');
+
+  // classifySegmentBucket returns 'high' or 'peak' — so hasPeak is the only discriminant.
+  // All segments are at least HIGH (sprints + non-punchy climbs), so 'low-only' is unreachable.
+  return hasPeak ? 'true-mixed' : 'low-high';
 }
 
 export function classifyWOTD(wotd, ftp = null) {

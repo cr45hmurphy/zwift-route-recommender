@@ -17,7 +17,6 @@ Zwift serves several XML data files from its public CDN (`cdn.zwift.com/gameasse
 | Endpoint | Auth | Content | Update frequency |
 |---|---|---|---|
 | `cdn.zwift.com/gameassets/GameDictionary.xml` | None | 374 routes, 217 segments (195 with route mappings), 48 portal climbs | Updated with game patches |
-| `cdn.zwift.com/gameassets/MapSchedule_v2.xml` | None | Guest world rotation schedule with ISO 8601 dates | Monthly |
 | `cdn.zwift.com/gameassets/PortalRoadSchedule_v1.xml` | None | Climb Portal rotation schedule + portal climb metadata | Monthly |
 | `us-or-rly101.zwift.com/relay/worlds` | None | Live active worlds with real-time player counts | Real-time |
 | `cdn.zwift.com/gameassets/Zwift_Updates_Root/Zwift_ver_cur.xml` | None | Current game version string | Per release |
@@ -51,11 +50,17 @@ World ID integer mapping: 1=Watopia · 2=Richmond · 3=London · 4=NewYork · 5=
 
 ---
 
-#### Data source 2: MapSchedule_v2.xml
+#### Data source 2: Live-world truth stack
 
-Guest world rotation. `<appointment map="LONDON" start="2026-04-10T00:01-04" />` — filter for `start <= now`, take the most recent entry for today's guest world. Covers ~2 months; Watopia always implicitly available.
+**Primary:** `us-or-rly101.zwift.com/relay/worlds` when it returns guest-world data beyond Watopia.
 
-**Replaces** the hardcoded `guestWorldSchedule` in `routes.js` (previously listed as a separate Tier 1 item — subsumed here).
+**Fallbacks:** scrape the current-world listings from:
+- `whatsonzwift.com`
+- `zwiftinsider.com/schedule`
+
+**Last resort only:** `MapSchedule_v2.xml` or the manual world picker.
+
+The schedule XML is still useful as an emergency fallback, but it should no longer be treated as the truth source for "today's worlds" because it can drift from the real active-world set.
 
 ---
 
@@ -74,7 +79,7 @@ Live player counts per world. `{"worldId":1,"name":"Public Watopia","playerCount
 #### Implementation plan
 
 **Phase 1 — Replace hardcoded data (high value, well-scoped)**
-1. Fetch and parse `MapSchedule_v2.xml` on app load → replace hardcoded guest world schedule; cache in localStorage with 24h TTL; fallback to user-selectable picker if fetch fails
+1. Use live-world truth stack on app load: `relay/worlds` first, then What's on Zwift, then ZwiftInsider, then schedule/manual fallback; cache for short TTL
 2. Fetch and parse `GameDictionary.xml` → build `routeSignature → [segment names]` lookup; replace world-level segment association with precise per-route `onRoutes` mappings; ride cues and segment chips become precise instead of approximate
 3. Fetch and parse `PortalRoadSchedule_v1.xml` → show "Today's Climb Portal: [name] — [distance] / [elevation]"
 
@@ -219,6 +224,22 @@ So the app is correctly detecting multiple sprint memberships, but it is **not y
 ---
 
 ## Tier 2 — Good features, moderate effort
+
+### Cue card editorial tuning
+The route timelines and honesty labels are in much better shape now, but the copy still gets awkward on medium and busy routes. The next editorial pass should focus on:
+- when to list the full effort sequence vs summarize
+- better repeat language than `plus 8 later efforts`
+- clearer mixed-route narration when sprints and KOMs interleave
+- better handling for routes that are honest `LOW+HIGH` rather than true mixed
+
+This is a product-quality pass, not a data-plumbing pass.
+
+### Bucket-combo route discovery
+The new honesty labels (`LOW+HIGH`, `TRUE mixed`) are useful enough that the UI may want a second layer of route browsing:
+- filters or tabs for `LOW+HIGH`, `HIGH+PEAK`, `LOW+PEAK`, `TRUE mixed`
+- optional section near the bottom for "routes that are honest at this bucket combo, even if they are not the top recommendation"
+
+This should wait until the geometry-driven classification pass is a little more mature, so the combos are trustworthy.
 
 ### Recent Progress panel — reconsider or remove
 The bar chart is hard to read in practice (bars tend to be all-or-nothing), the history only accumulates when the live app is used daily, and it's unclear what value it provides. Deferred: leave it for now, evaluate whether to remove it or redesign it after more live usage.
