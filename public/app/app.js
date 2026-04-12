@@ -27,6 +27,7 @@ const DAILY_SUMMARY_BUFFER_HOURS = 12;
 const TIME_SLIDER_MIN = 15;
 const TIME_SLIDER_MAX = 480;
 const TIME_SLIDER_STEP = 15;
+let recommendedTimeCache = { key: null, value: null };
 
 // Unit conversion factors (metric is the internal standard; these are display-only)
 const KM_TO_MI = 0.621371;
@@ -913,6 +914,15 @@ function visibleRankedRoutes() {
     : state.ranked;
 }
 
+function recommendationSettingsForMinutes(minutes) {
+  const baseSettings = getTimeSettings();
+  return {
+    minutes,
+    mode: baseSettings.mode,
+    speed: baseSettings.speed,
+  };
+}
+
 function recommendationAvailability(settings = getTimeSettings()) {
   const { minutes: timeMin } = settings;
   const visible = visibleRankedRoutes();
@@ -1332,10 +1342,7 @@ function formatMinutes(min) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-function getRecommendedTimeMinutes() {
-  if (!state.trainingData || !state.dailySummary) return null;
-
-  let recommendedMinutes = null;
+function theoreticalRecommendedTimeMinutes() {
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
   if (displayTarget.mode === 'mixed') {
     const remainingTotal = state.dailySummary?.remaining?.total ?? 0;
@@ -1351,29 +1358,77 @@ function getRecommendedTimeMinutes() {
     const workoutDurationMin = wotdDurationMinutes(state.rawWotd);
 
     if (Number.isFinite(workoutTotalXss) && workoutTotalXss > 0 && Number.isFinite(workoutDurationMin) && workoutDurationMin > 0) {
-      recommendedMinutes = snapMinutes((remainingTotal / workoutTotalXss) * workoutDurationMin);
-    } else {
-      const blendedRate = ((XSS_RATE.low ?? 0) + (XSS_RATE.high ?? 0) + (XSS_RATE.peak ?? 0)) / 3;
-      recommendedMinutes = snapMinutes((remainingTotal / Math.max(blendedRate, 1)) * 60);
+      return snapMinutes((remainingTotal / workoutTotalXss) * workoutDurationMin);
     }
-  } else if (displayTarget.bucket === 'recovery') {
-    recommendedMinutes = snapMinutes(45);
-  } else {
-    const remainingXss = state.dailySummary?.remaining?.[displayTarget.bucket] ?? 0;
-    const xssRate = XSS_RATE[displayTarget.bucket] ?? 65;
-    recommendedMinutes = snapMinutes((remainingXss / Math.max(xssRate, 1)) * 60);
+
+    const blendedRate = ((XSS_RATE.low ?? 0) + (XSS_RATE.high ?? 0) + (XSS_RATE.peak ?? 0)) / 3;
+    return snapMinutes((remainingTotal / Math.max(blendedRate, 1)) * 60);
   }
 
-  const viableRouteMinutes = visibleRankedRoutes()
-    .filter(routeRecommendationViable)
-    .map(route => route.estimatedMinutes ?? null)
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b)[0] ?? null;
-
-  if (Number.isFinite(viableRouteMinutes)) {
-    recommendedMinutes = Math.max(recommendedMinutes ?? TIME_SLIDER_MIN, snapMinutes(viableRouteMinutes));
+  if (displayTarget.bucket === 'recovery') {
+    return snapMinutes(45);
   }
 
+  const remainingXss = state.dailySummary?.remaining?.[displayTarget.bucket] ?? 0;
+  const xssRate = XSS_RATE[displayTarget.bucket] ?? 65;
+  return snapMinutes((remainingXss / Math.max(xssRate, 1)) * 60);
+}
+
+function recommendedTimeScenarioKey() {
+  const riderWkg = getRiderWkg(state.trainingData);
+  const timingSettings = getTimeSettings();
+  const context = activeWorldContext();
+  return JSON.stringify({
+    bucket: state.bucket,
+    wotdStructure: state.wotdStructure,
+    todayOnly: state.todayOnly,
+    worlds: context.worlds,
+    source: context.source,
+    timingMode: state.timingMode,
+    manualSpeed: state.timingMode === 'manual' ? timingSettings.speed : null,
+    riderWkg: Number.isFinite(riderWkg) ? riderWkg.toFixed(3) : null,
+    remaining: state.dailySummary?.remaining ?? null,
+    rawWotdXss: state.rawWotd?.xss ?? state.rawWotd?.totalXSS ?? state.rawWotd?.plannedXSS ?? null,
+    rawWotdDuration: wotdDurationMinutes(state.rawWotd),
+  });
+}
+
+function hasViableRouteAtMinutes(minutes) {
+  const candidateSettings = recommendationSettingsForMinutes(minutes);
+  const eligibleRoutes = state.todayOnly ? filterRoutesToWorlds(routes, activeWorldContext().worlds) : routes;
+  const evaluated = optimizeRoutes(eligibleRoutes, {
+    bucket: state.bucket,
+    deficits: state.dailySummary.remaining,
+    availableMinutes: minutes,
+    estimateMinutes: route => estimateRouteMinutes(route, candidateSettings, state.trainingData),
+    getRouteSegments: route => getSegmentsForRoute(route),
+    getRouteSupport: route => getRouteSupportForScenario(route, minutes),
+    wotdStructure: state.wotdStructure,
+    recoveryMode: state.bucket === 'recovery',
+    limit: eligibleRoutes.length,
+  });
+
+  return evaluated.some(route => routeRecommendationViable(route) && (route.estimatedMinutes ?? Infinity) <= minutes);
+}
+
+function getRecommendedTimeMinutes() {
+  if (!state.trainingData || !state.dailySummary) return null;
+  const cacheKey = recommendedTimeScenarioKey();
+  if (recommendedTimeCache.key === cacheKey) {
+    return recommendedTimeCache.value;
+  }
+
+  const theoreticalMinutes = theoreticalRecommendedTimeMinutes();
+  let recommendedMinutes = theoreticalMinutes;
+
+  for (let minutes = theoreticalMinutes; minutes <= TIME_SLIDER_MAX; minutes += TIME_SLIDER_STEP) {
+    if (hasViableRouteAtMinutes(minutes)) {
+      recommendedMinutes = minutes;
+      break;
+    }
+  }
+
+  recommendedTimeCache = { key: cacheKey, value: recommendedMinutes };
   return recommendedMinutes;
 }
 
