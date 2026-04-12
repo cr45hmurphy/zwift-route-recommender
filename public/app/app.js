@@ -28,6 +28,7 @@ const TIME_SLIDER_MIN = 15;
 const TIME_SLIDER_MAX = 480;
 const TIME_SLIDER_STEP = 15;
 let recommendedTimeCache = { key: null, value: null };
+let evaluatedRoutesCache = { key: null, routes: [] };
 
 // Unit conversion factors (metric is the internal standard; these are display-only)
 const KM_TO_MI = 0.621371;
@@ -886,21 +887,8 @@ function recomputeRankedRoutes() {
     return;
   }
 
-  const eligibleRoutes = state.todayOnly ? filterRoutesToWorlds(routes, activeWorldContext().worlds) : routes;
   const settings = getTimeSettings();
-  const optimized = optimizeRoutes(eligibleRoutes, {
-    bucket: state.bucket,
-    deficits: state.dailySummary.remaining,
-    availableMinutes: settings.minutes,
-    estimateMinutes: route => estimateRouteMinutes(route, settings, state.trainingData),
-    getRouteSegments: route => getSegmentsForRoute(route),
-    getRouteSupport: route => getRouteSupportForScenario(route, settings.minutes),
-    wotdStructure: state.wotdStructure,
-    recoveryMode: state.bucket === 'recovery',
-    favorites: loadFavorites(),
-  });
-
-  state.ranked = enrichRoutes(optimized, state.bucket, state.wotdStructure, settings.minutes);
+  state.ranked = getEvaluatedRoutes(settings);
 }
 
 function routeRecommendationViable(route) {
@@ -908,10 +896,7 @@ function routeRecommendationViable(route) {
 }
 
 function visibleRankedRoutes() {
-  const eligibleKeys = currentEligibleRouteKeys();
-  return state.todayOnly
-    ? state.ranked.filter(route => eligibleKeys.has(route.slug || route.name))
-    : state.ranked;
+  return state.ranked;
 }
 
 function recommendationSettingsForMinutes(minutes) {
@@ -923,17 +908,62 @@ function recommendationSettingsForMinutes(minutes) {
   };
 }
 
+function evaluatedRoutesCacheKey(settings = getTimeSettings()) {
+  const riderWkg = getRiderWkg(state.trainingData);
+  const context = activeWorldContext();
+  return JSON.stringify({
+    bucket: state.bucket,
+    wotdStructure: state.wotdStructure,
+    dataSourceId: state.dataSourceId,
+    todayOnly: state.todayOnly,
+    worlds: context.worlds,
+    source: context.source,
+    timingMode: settings.mode,
+    manualSpeed: settings.mode === 'manual' ? settings.speed : null,
+    riderWkg: Number.isFinite(riderWkg) ? riderWkg.toFixed(3) : null,
+    remaining: state.dailySummary?.remaining ?? null,
+    minutes: settings.minutes,
+  });
+}
+
+function getEvaluatedRoutes(settings = getTimeSettings()) {
+  if (!state.trainingData || !state.dailySummary || !state.bucket) return [];
+
+  const cacheKey = evaluatedRoutesCacheKey(settings);
+  if (evaluatedRoutesCache.key === cacheKey) {
+    return evaluatedRoutesCache.routes;
+  }
+
+  const eligibleRoutes = state.todayOnly ? filterRoutesToWorlds(routes, activeWorldContext().worlds) : routes;
+  const optimized = optimizeRoutes(eligibleRoutes, {
+    bucket: state.bucket,
+    deficits: state.dailySummary.remaining,
+    availableMinutes: settings.minutes,
+    estimateMinutes: route => estimateRouteMinutes(route, settings, state.trainingData),
+    getRouteSegments: route => getSegmentsForRoute(route),
+    getRouteSupport: route => getRouteSupportForScenario(route, settings.minutes),
+    wotdStructure: state.wotdStructure,
+    recoveryMode: state.bucket === 'recovery',
+    favorites: loadFavorites(),
+    limit: eligibleRoutes.length,
+  });
+  const enriched = enrichRoutes(optimized, state.bucket, state.wotdStructure, settings.minutes);
+
+  evaluatedRoutesCache = { key: cacheKey, routes: enriched };
+  return enriched;
+}
+
 function recommendationAvailability(settings = getTimeSettings()) {
   const { minutes: timeMin } = settings;
-  const visible = visibleRankedRoutes();
-  const withinBudget = visible.filter(route => estimateRouteMinutes(route, settings, state.trainingData) <= timeMin);
-  const overBudget = visible.filter(route => estimateRouteMinutes(route, settings, state.trainingData) > timeMin);
+  const visible = getEvaluatedRoutes(settings);
+  const withinBudget = visible.filter(route => (route.estimatedMinutes ?? estimateRouteMinutes(route, settings, state.trainingData)) <= timeMin);
+  const overBudget = visible.filter(route => (route.estimatedMinutes ?? estimateRouteMinutes(route, settings, state.trainingData)) > timeMin);
   const viableWithinBudget = withinBudget.filter(routeRecommendationViable);
   const viableOverBudget = overBudget
     .filter(routeRecommendationViable)
     .sort((a, b) => {
-      const aOver = estimateRouteMinutes(a, settings, state.trainingData) - timeMin;
-      const bOver = estimateRouteMinutes(b, settings, state.trainingData) - timeMin;
+      const aOver = (a.estimatedMinutes ?? estimateRouteMinutes(a, settings, state.trainingData)) - timeMin;
+      const bOver = (b.estimatedMinutes ?? estimateRouteMinutes(b, settings, state.trainingData)) - timeMin;
       if (aOver !== bOver) return aOver - bOver;
       if ((b.utility ?? 0) !== (a.utility ?? 0)) return (b.utility ?? 0) - (a.utility ?? 0);
       if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
@@ -1003,8 +1033,7 @@ function noRouteMessage(approximateCount, overBudgetCount) {
 }
 
 function currentEligibleRouteKeys() {
-  const eligible = state.todayOnly ? filterRoutesToWorlds(routes, activeWorldContext().worlds) : routes;
-  return new Set(eligible.map(route => route.slug || route.name));
+  return new Set(getEvaluatedRoutes(getTimeSettings()).map(route => route.slug || route.name));
 }
 
 function todaysAvailableRouteKeys() {
@@ -1416,19 +1445,7 @@ function recommendedTimeScenarioKey() {
 
 function hasViableRouteAtMinutes(minutes) {
   const candidateSettings = recommendationSettingsForMinutes(minutes);
-  const eligibleRoutes = state.todayOnly ? filterRoutesToWorlds(routes, activeWorldContext().worlds) : routes;
-  const evaluated = optimizeRoutes(eligibleRoutes, {
-    bucket: state.bucket,
-    deficits: state.dailySummary.remaining,
-    availableMinutes: minutes,
-    estimateMinutes: route => estimateRouteMinutes(route, candidateSettings, state.trainingData),
-    getRouteSegments: route => getSegmentsForRoute(route),
-    getRouteSupport: route => getRouteSupportForScenario(route, minutes),
-    wotdStructure: state.wotdStructure,
-    recoveryMode: state.bucket === 'recovery',
-    limit: eligibleRoutes.length,
-  });
-
+  const evaluated = getEvaluatedRoutes(candidateSettings);
   return evaluated.some(route => routeRecommendationViable(route) && (route.estimatedMinutes ?? Infinity) <= minutes);
 }
 
