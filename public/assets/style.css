@@ -840,6 +840,29 @@ section { margin-bottom: 32px; }
   gap: 8px;
 }
 
+.segment-details {
+  margin-top: 2px;
+}
+
+.segment-details summary {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.segment-details summary:hover {
+  color: var(--accent);
+}
+
+.segment-details[open] summary {
+  margin-bottom: 8px;
+}
+
+.segment-chips-full {
+  padding-top: 2px;
+}
+
 .segment-chip {
   display: inline-flex;
   align-items: center;
@@ -899,6 +922,52 @@ a.segment-chip:hover {
 #other-options,
 #more-time-options {
   margin-top: 20px;
+}
+
+#route-inspector {
+  margin-top: 24px;
+  padding: 16px 18px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+.route-inspector-header {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.route-inspector-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.route-inspector-controls label {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#route-picker {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.route-inspector-note {
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+#route-picked-card {
+  margin-top: 14px;
 }
 
 #other-toggle,

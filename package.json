@@ -8,6 +8,8 @@
     "serve": "npx serve public"
   },
   "dependencies": {
+    "@electron/asar": "^4.2.0",
+    "adm-zip": "^0.5.17",
     "zwift-data": "latest"
   }
 }

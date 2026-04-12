@@ -1,8 +1,13 @@
-// build-zwift-data.mjs — generates browser route data from Zwift's public CDN XML.
+// build-zwift-data.mjs — generates browser route data from Zwift's public CDN XML
+// and route-position timelines from Sauce for Zwift's public release bundle.
 // Temporary compatibility note: zwift-data is still used only to preserve slugs,
 // external links, and Strava segment URLs during the cutover.
 
-import { writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import AdmZip from 'adm-zip';
+import { extractAll } from '@electron/asar';
 import { routes as legacyRoutes, segments as legacySegments } from 'zwift-data';
 
 const GAME_DICTIONARY_URL = 'https://cdn.zwift.com/gameassets/GameDictionary.xml';
@@ -10,8 +15,13 @@ const MAP_SCHEDULE_URL = 'https://cdn.zwift.com/gameassets/MapSchedule_v2.xml';
 const PORTAL_SCHEDULE_URL = 'https://cdn.zwift.com/gameassets/PortalRoadSchedule_v1.xml';
 const ZWIFT_VERSION_URL = 'https://cdn.zwift.com/gameassets/Zwift_Updates_Root/Zwift_ver_cur.xml';
 
+const SAUCE_RELEASE_VERSION = '2.2.1';
+const SAUCE_RELEASE_URL =
+  `https://github.com/SauceLLC/sauce4zwift-releases/releases/download/v${SAUCE_RELEASE_VERSION}/sauce4zwift-${SAUCE_RELEASE_VERSION}.zip`;
+
 const ROUTES_OUTPUT = 'public/app/data/routes-data.js';
 const SEGMENTS_OUTPUT = 'public/app/data/segments-data.js';
+const TIMELINES_OUTPUT = 'public/app/data/route-timelines-data.js';
 const METADATA_OUTPUT = 'public/app/data/zwift-metadata.js';
 
 const ROUTE_WORLD_TO_SLUG = {
@@ -44,6 +54,19 @@ const SEGMENT_WORLD_TO_SLUG = {
   11: 'paris',
   12: 'gravel-mountain',
   13: 'scotland',
+};
+
+const WORLD_PREFIX_BY_SLUG = {
+  watopia: 'watopia',
+  richmond: 'richmond',
+  london: 'london',
+  'new-york': 'new york',
+  'makuri-islands': 'makuri',
+  'gravel-mountain': 'gravel mountain',
+};
+
+const SAUCE_ROUTE_ALIASES = {
+  'richmond|richmond uci worlds': '2015 worlds course',
 };
 
 function decodeXmlEntities(value = '') {
@@ -85,6 +108,23 @@ function normalizeNameLoose(value = '') {
     .trim();
 }
 
+function routeNameVariants(value = '', worldSlug = '') {
+  const variants = new Set();
+  const normalized = normalizeName(value);
+  if (normalized) variants.add(normalized);
+  if (normalized.startsWith('the ')) variants.add(normalized.slice(4));
+
+  const worldPrefix = WORLD_PREFIX_BY_SLUG[worldSlug];
+  if (worldPrefix && normalized.startsWith(`${worldPrefix} `)) {
+    variants.add(normalized.slice(worldPrefix.length + 1));
+  }
+  if (worldPrefix && normalized.startsWith(`the ${worldPrefix} `)) {
+    variants.add(normalized.slice(worldPrefix.length + 5));
+  }
+
+  return [...variants].filter(Boolean);
+}
+
 function slugify(value = '') {
   return decodeXmlEntities(value)
     .toLowerCase()
@@ -96,11 +136,6 @@ function slugify(value = '') {
 function asNumber(value, divisor = 1) {
   const num = Number(value);
   return Number.isFinite(num) ? num / divisor : 0;
-}
-
-function asNullableNumber(value, divisor = 1) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num / divisor : null;
 }
 
 function asBoolean(value) {
@@ -242,6 +277,19 @@ function classifySegment(segmentAttrs, legacyMatch) {
   }
 
   return null;
+}
+
+function classifySauceSegment(segment, fallbackType = null) {
+  if (fallbackType) return fallbackType;
+
+  const name = normalizeName(segment?.name);
+  const color = String(segment?.color ?? '').toLowerCase();
+
+  if (/\bsprint\b/.test(name) || color.includes('00b700')) return 'sprint';
+  if (/\b(kom|qom|climb|grade|mountain|summit)\b/.test(name) || color.includes('ff0000')) {
+    return 'climb';
+  }
+  return 'segment';
 }
 
 function resolveLegacySegment(segmentAttrs, legacyMaps) {
@@ -446,6 +494,235 @@ async function fetchText(url) {
   return response.text();
 }
 
+async function downloadFile(url, filePath) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  writeFileSync(filePath, Buffer.from(arrayBuffer));
+}
+
+async function ensureSauceDataDir() {
+  const cacheRoot = join(tmpdir(), 'zwift-route-recommender-cache', `sauce4zwift-${SAUCE_RELEASE_VERSION}`);
+  const zipPath = join(cacheRoot, `sauce4zwift-${SAUCE_RELEASE_VERSION}.zip`);
+  const extractedZipDir = join(cacheRoot, 'release');
+  const extractedAppDir = join(cacheRoot, 'app');
+  const dataDir = join(extractedAppDir, 'shared', 'deps', 'data');
+
+  mkdirSync(cacheRoot, { recursive: true });
+
+  if (!existsSync(zipPath)) {
+    console.log(`Downloading Sauce for Zwift release ${SAUCE_RELEASE_VERSION}...`);
+    await downloadFile(SAUCE_RELEASE_URL, zipPath);
+  }
+
+  if (!existsSync(dataDir)) {
+    if (!existsSync(extractedZipDir)) {
+      console.log('Extracting Sauce release zip...');
+      const zip = new AdmZip(zipPath);
+      zip.extractAllTo(extractedZipDir, true);
+    }
+
+    const appAsarPath = listFilesSync(extractedZipDir)
+      .find(filePath => filePath.endsWith('app.asar'));
+
+    if (!appAsarPath) {
+      throw new Error('Could not locate Sauce app.asar in release bundle.');
+    }
+
+    console.log('Extracting Sauce app.asar...');
+    extractAll(appAsarPath, extractedAppDir);
+  }
+
+  return dataDir;
+}
+
+function listFilesSync(rootDir) {
+  const queue = [rootDir];
+  const files = [];
+  while (queue.length) {
+    const current = queue.pop();
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const fullPath = join(current, entry.name);
+      if (entry.isDirectory()) {
+        queue.push(fullPath);
+      } else {
+        files.push(fullPath);
+      }
+    }
+  }
+  return files;
+}
+
+function readJson(filePath) {
+  return JSON.parse(readFileSync(filePath, 'utf8'));
+}
+
+function buildAppSegmentIndexes(appSegments) {
+  const exact = new Map();
+  const byWorld = new Map();
+
+  for (const segment of appSegments) {
+    const exactKey = `${segment.world}|${normalizeName(segment.name)}`;
+    if (!exact.has(exactKey)) exact.set(exactKey, []);
+    exact.get(exactKey).push(segment);
+
+    if (!byWorld.has(segment.world)) byWorld.set(segment.world, []);
+    byWorld.get(segment.world).push(segment);
+  }
+
+  return { exact, byWorld };
+}
+
+function matchAppSegment(occurrenceName, worldSlug, routeSegmentSlugs, appSegmentsBySlug, indexes) {
+  const routeSegments = routeSegmentSlugs
+    .map(slug => appSegmentsBySlug.get(slug))
+    .filter(Boolean);
+  const exactKey = `${worldSlug}|${normalizeName(occurrenceName)}`;
+  const exactMatches = indexes.exact.get(exactKey) ?? [];
+
+  const routeScopedExact = exactMatches.filter(segment => routeSegmentSlugs.includes(segment.slug));
+  if (routeScopedExact.length === 1) return routeScopedExact[0];
+  if (exactMatches.length === 1) return exactMatches[0];
+
+  const looseName = normalizeNameLoose(occurrenceName);
+  const routeScopedLoose = routeSegments.filter(segment => normalizeNameLoose(segment.name) === looseName);
+  if (routeScopedLoose.length === 1) return routeScopedLoose[0];
+
+  const worldLoose = (indexes.byWorld.get(worldSlug) ?? [])
+    .filter(segment => normalizeNameLoose(segment.name) === looseName);
+  if (worldLoose.length === 1) return worldLoose[0];
+
+  return null;
+}
+
+function buildSauceRouteIndex(sauceRoutes) {
+  const index = new Map();
+
+  for (const route of sauceRoutes) {
+    const worldSlug = SEGMENT_WORLD_TO_SLUG[route.worldId];
+    for (const variant of routeNameVariants(route.name, worldSlug)) {
+      const key = `${worldSlug}|${variant}`;
+      if (!index.has(key)) index.set(key, []);
+      index.get(key).push(route);
+    }
+  }
+
+  return index;
+}
+
+function matchSauceRoute(appRoute, sauceRouteIndex) {
+  let candidates = [];
+  for (const variant of routeNameVariants(appRoute.name, appRoute.world)) {
+    candidates.push(...(sauceRouteIndex.get(`${appRoute.world}|${variant}`) ?? []));
+  }
+
+  if (!candidates.length) {
+    const alias = SAUCE_ROUTE_ALIASES[`${appRoute.world}|${normalizeName(appRoute.name)}`];
+    if (alias) {
+      candidates.push(...(sauceRouteIndex.get(`${appRoute.world}|${alias}`) ?? []));
+    }
+  }
+
+  const uniqueCandidates = [...new Map(candidates.map(candidate => [candidate.id, candidate])).values()];
+  if (uniqueCandidates.length !== 1) return null;
+  return uniqueCandidates[0];
+}
+
+function buildRouteTimelines(appRoutes, appSegments, sauceDataDir) {
+  const sauceRoutes = readJson(join(sauceDataDir, 'routes.json'));
+  const worldSegmentMaps = new Map();
+  const sauceRouteIndex = buildSauceRouteIndex(sauceRoutes);
+  const appSegmentsBySlug = new Map(appSegments.map(segment => [segment.slug, segment]));
+  const appSegmentIndexes = buildAppSegmentIndexes(appSegments);
+  const routeTimelinesBySignature = {};
+  const unmatchedRoutes = [];
+
+  for (const appRoute of appRoutes) {
+    const sauceRoute = matchSauceRoute(appRoute, sauceRouteIndex);
+    if (!sauceRoute) {
+      unmatchedRoutes.push({
+        name: appRoute.name,
+        world: appRoute.world,
+        signature: appRoute.signature,
+      });
+      continue;
+    }
+
+    if (!worldSegmentMaps.has(sauceRoute.worldId)) {
+      const worldSegments = readJson(join(sauceDataDir, 'worlds', String(sauceRoute.worldId), 'segments.json'));
+      worldSegmentMaps.set(
+        sauceRoute.worldId,
+        new Map(worldSegments.map(segment => [String(segment.id), segment]))
+      );
+    }
+
+    const worldSegmentsById = worldSegmentMaps.get(sauceRoute.worldId);
+    const routeSegmentSlugs = [
+      ...new Set([
+        ...(appRoute.segmentsOnRoute ?? []).map(item => item.segment).filter(Boolean),
+        ...(appRoute.segments ?? []).filter(Boolean),
+      ]),
+    ];
+    const leadInKm = Number(((sauceRoute.leadinDistanceInMeters ?? appRoute.leadInDistance * 1000 ?? 0) / 1000).toFixed(3));
+    const totalKm = Number(((sauceRoute.distanceInMeters ?? appRoute.distance * 1000 ?? 0) / 1000).toFixed(3));
+    const lapKm = Number(Math.max(totalKm - leadInKm, 0).toFixed(3));
+
+    const occurrences = (sauceRoute.segments ?? [])
+      .map((occurrence, index) => {
+        const sauceSegment = worldSegmentsById.get(String(occurrence.id)) ?? null;
+        const appSegment = matchAppSegment(
+          sauceSegment?.name ?? '',
+          appRoute.world,
+          routeSegmentSlugs,
+          appSegmentsBySlug,
+          appSegmentIndexes
+        );
+        const type = classifySauceSegment(sauceSegment, appSegment?.type ?? null);
+        const offsetMeters = Number(occurrence.offset ?? 0);
+        const distanceKm = Number(((occurrence.distance ?? sauceSegment?.distance ?? 0) / 1000).toFixed(3));
+        const startKm = Number(((offsetMeters + (sauceRoute.leadinDistanceInMeters ?? 0)) / 1000).toFixed(3));
+        const endKm = Number((startKm + distanceKm).toFixed(3));
+
+        return {
+          occurrenceId: `${appRoute.signature}:${index + 1}`,
+          segmentId: String(occurrence.id),
+          segmentSlug: appSegment?.slug ?? null,
+          name: appSegment?.name ?? sauceSegment?.name ?? `Segment ${occurrence.id}`,
+          type,
+          order: index + 1,
+          startKm,
+          endKm,
+          distanceKm,
+          routeOffsetKm: Number((offsetMeters / 1000).toFixed(3)),
+          roadId: sauceSegment?.roadId ?? null,
+          reverse: Boolean(sauceSegment?.reverse),
+          sourceSection: occurrence.leadinOnly ? 'leadin' : (appRoute.supportedLaps ? 'lap' : 'route'),
+          leadinOnly: Boolean(occurrence.leadinOnly),
+        };
+      })
+      .sort((a, b) => a.startKm - b.startKm || a.order - b.order);
+
+    routeTimelinesBySignature[appRoute.signature] = {
+      signature: appRoute.signature,
+      routeSlug: appRoute.slug,
+      routeName: appRoute.name,
+      world: appRoute.world,
+      sauceRouteId: String(sauceRoute.id),
+      sauceRouteName: sauceRoute.name,
+      leadInKm,
+      lapKm,
+      totalKm,
+      supportsLaps: Boolean(appRoute.supportedLaps),
+      matchedSegmentCount: occurrences.filter(item => item.segmentSlug).length,
+      segments: occurrences,
+    };
+  }
+
+  return { routeTimelinesBySignature, unmatchedRoutes };
+}
+
 function writeModule(filePath, exportName, value) {
   writeFileSync(
     filePath,
@@ -454,6 +731,7 @@ function writeModule(filePath, exportName, value) {
 }
 
 async function main() {
+  const sauceDataDir = await ensureSauceDataDir();
   const [gameDictionaryXml, mapScheduleXml, portalScheduleXml, zwiftVersionXml] = await Promise.all([
     fetchText(GAME_DICTIONARY_URL),
     fetchText(MAP_SCHEDULE_URL),
@@ -463,12 +741,14 @@ async function main() {
 
   const { segments, routeSegmentMap } = buildSegments(gameDictionaryXml);
   const routes = buildRoutes(gameDictionaryXml, routeSegmentMap);
+  const { routeTimelinesBySignature, unmatchedRoutes } = buildRouteTimelines(routes, segments, sauceDataDir);
   const worldSchedule = buildWorldSchedule(mapScheduleXml);
   const portalData = buildPortalData(portalScheduleXml);
   const versionAttrs = parseAttributes((zwiftVersionXml.match(/<Zwift\s+([^>]+?)\/?>/) ?? [])[1] ?? '');
 
   writeModule(ROUTES_OUTPUT, 'routes', routes);
   writeModule(SEGMENTS_OUTPUT, 'segments', segments);
+  writeModule(TIMELINES_OUTPUT, 'routeTimelinesBySignature', routeTimelinesBySignature);
   writeFileSync(
     METADATA_OUTPUT,
     `// Auto-generated by build-zwift-data.mjs — do not edit manually.\n` +
@@ -478,6 +758,9 @@ async function main() {
       gameVersion: versionAttrs.version ?? null,
       routeCount: routes.length,
       segmentCount: segments.length,
+      timelineRouteCount: Object.keys(routeTimelinesBySignature).length,
+      sauceReleaseVersion: SAUCE_RELEASE_VERSION,
+      unmatchedTimelineRoutes: unmatchedRoutes,
     }, null, 2)};\n` +
     `export const guestWorldAppointments = ${JSON.stringify(worldSchedule, null, 2)};\n` +
     `export const portalRoadMetadata = ${JSON.stringify(portalData.roads, null, 2)};\n` +
@@ -487,6 +770,11 @@ async function main() {
   console.log(`Zwift version: ${versionAttrs.sversion ?? versionAttrs.version ?? 'unknown'}`);
   console.log(`Wrote ${routes.length} routes to ${ROUTES_OUTPUT}`);
   console.log(`Wrote ${segments.length} segments to ${SEGMENTS_OUTPUT}`);
+  console.log(`Wrote ${Object.keys(routeTimelinesBySignature).length} route timelines to ${TIMELINES_OUTPUT}`);
+  console.log(`Unmatched timeline routes: ${unmatchedRoutes.length}`);
+  if (unmatchedRoutes.length) {
+    console.log(unmatchedRoutes.map(route => `- ${route.world}: ${route.name}`).join('\n'));
+  }
   console.log(`Wrote metadata to ${METADATA_OUTPUT}`);
 }
 

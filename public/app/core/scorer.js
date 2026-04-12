@@ -74,6 +74,52 @@ function formatSegmentList(segments) {
   return `${segments.slice(0, -1).map(segment => segment.name).join(', ')}, and ${segments.at(-1).name}`;
 }
 
+function isGenericEffortName(name = '') {
+  const normalized = String(name).trim().toLowerCase();
+  return (
+    normalized === 'sprint' ||
+    normalized === 'sprint reverse' ||
+    normalized === 'kom' ||
+    normalized === 'kom reverse' ||
+    normalized === 'qom' ||
+    normalized === 'qom reverse'
+  );
+}
+
+function summarizeOccurrenceList(occurrences, maxNames = 4) {
+  const filtered = occurrences.filter(segment => !isGenericEffortName(segment?.name));
+  const source = filtered.length ? filtered : occurrences;
+  if (!source.length) return '';
+  const visible = source.slice(0, maxNames).map(segment => ({ name: segment.name }));
+  const base = formatSegmentList(visible);
+  const remaining = source.length - visible.length;
+  return remaining > 0 ? `${base}, plus ${remaining} later efforts` : base;
+}
+
+function spacingNote(occurrences, shortGapKm = 2) {
+  const shortRecoveries = occurrences
+    .filter(item => Number.isFinite(item?.recoveryGapKm) && item.recoveryGapKm < shortGapKm)
+    .length;
+
+  if (!shortRecoveries) return 'Recovery gaps are workable between efforts.';
+  if (shortRecoveries === 1) return 'One recovery gap is short, so expect one effort to be slightly compromised.';
+  return `${shortRecoveries} recovery gaps are short, so later efforts will be somewhat degraded.`;
+}
+
+function orderedTimelineOccurrences(routeTimeline, type = null) {
+  if (!routeTimeline?.occurrences?.length) return [];
+  return routeTimeline.occurrences.filter(item =>
+    (!type || item.type === type) &&
+    item.name &&
+    !isGenericEffortName(item.name)
+  );
+}
+
+function orderedTimelineEfforts(routeTimeline) {
+  return orderedTimelineOccurrences(routeTimeline)
+    .filter(item => item.type === 'sprint' || item.type === 'climb');
+}
+
 function firstNumber(obj, keys) {
   return valueOr(...keys.map(key => obj?.[key]));
 }
@@ -531,10 +577,12 @@ export function optimizeRoutes(routes, options = {}) {
     .slice(0, limit);
 }
 
-export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
+export function generateRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline = null) {
   const namedSegmentsAvailable = routeSegments?.source !== 'world';
   const climbs = namedSegmentsAvailable ? (routeSegments?.climbs ?? []) : [];
   const sprints = namedSegmentsAvailable ? (routeSegments?.sprints ?? []) : [];
+  const timelineClimbs = orderedTimelineOccurrences(routeTimeline, 'climb');
+  const timelineSprints = orderedTimelineOccurrences(routeTimeline, 'sprint');
   const distance = route?.distance ?? 0;
   const elevation = route?.elevation ?? 0;
   const gradientRatio = distance > 0 ? elevation / distance : 0;
@@ -552,6 +600,9 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
   }
 
   if (wotdStructure === 'repeated_punchy') {
+    if (timelineClimbs.length) {
+      return `Hit every punchy climb in order: ${summarizeOccurrenceList(timelineClimbs)}. ${spacingNote(timelineClimbs)} Today calls for repeated surges, not one steady grind.`;
+    }
     const namedClimbs = highestRatedClimbs(routeSegments, 2);
     if (namedClimbs.length === 2) {
       return `Hit ${formatSegmentList(namedClimbs)} hard, then fully recover between them. Today calls for repeated threshold surges, not a steady grind.`;
@@ -563,6 +614,13 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
   }
 
   if (wotdStructure === 'sprint_power') {
+    const timelineEfforts = orderedTimelineEfforts(routeTimeline);
+    if (timelineSprints.length) {
+      if (timelineClimbs.length && timelineEfforts.length) {
+        return `Sprint day: work through the route in order: ${summarizeOccurrenceList(timelineEfforts, 6)}. ${spacingNote(timelineSprints)} Go full gas on the sprint banners; use the KOMs as controlled bridges between them.`;
+      }
+      return `Sprint every viable banner in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Go full gas, then recover completely.`;
+    }
     const namedSprints = sprints.slice(0, 3);
     if (namedSprints.length >= 2) {
       return `Sprint ${formatSegmentList(namedSprints)} at absolute max effort. Full gas, then fully recover because these are your PEAK XSS generators today.`;
@@ -574,6 +632,16 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
   }
 
   if (wotdStructure === 'mixed_mode') {
+    const timelineEfforts = orderedTimelineEfforts(routeTimeline);
+    if (timelineSprints.length) {
+      if (timelineClimbs.length && timelineEfforts.length) {
+        return `Ride the flats in Z2, then work through the route in order: ${summarizeOccurrenceList(timelineEfforts, 5)}. ${spacingNote(timelineEfforts)}`;
+      }
+      return `Ride the flats in Z2, then hit every viable sprint in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)}`;
+    }
+    if (timelineClimbs.length) {
+      return `This route is mostly a climb route, so use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2. It supports low + high work better than true sprint efforts.`;
+    }
     const namedSprints = sprints.slice(0, 2);
     if (namedSprints.length >= 1) {
       return `Ride the flats in Z2 to build aerobic base, sprint ${formatSegmentList(namedSprints)} at absolute max when you hit them. Full recovery between efforts, then back to Z2.`;

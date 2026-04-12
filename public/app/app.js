@@ -3,6 +3,7 @@ import { routes } from './core/routes.js';
 import { filterToAvailableWorlds, getWorldScheduleContext, worldName } from './core/routes.js';
 import { getTodaysPortalRoad } from './core/portal.js';
 import { getSegmentsForRoute } from './core/segments.js';
+import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, uniqueTimelineSegments, withRecoveryGaps } from './core/timelines.js';
 import { analyzeTrainingDay, generateRideCue, optimizeRoutes, wotdTerrainScore } from './core/scorer.js';
 import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
 
@@ -19,6 +20,7 @@ const HISTORY_KEY = 'xert_history';
 const HISTORY_LIMIT = 10;
 const PLAN_HISTORY_KEY = 'xert_plan_history';
 const PLAN_HISTORY_LIMIT = 30;
+const ROUTE_PICKER_KEY = 'route-picker';
 const MANUAL_SPEED_MIN_KMH = 15;
 const MANUAL_SPEED_MAX_KMH = 50;
 const DAILY_SUMMARY_BUFFER_HOURS = 12;
@@ -55,6 +57,10 @@ function getTimingMode() {
 function getDataSourceId() {
   const stored = localStorage.getItem(DATA_SOURCE_KEY) || 'live';
   return stored === 'live' || MOCK_SCENARIOS[stored] ? stored : 'live';
+}
+
+function getRoutePickerValue() {
+  return localStorage.getItem(ROUTE_PICKER_KEY) || '';
 }
 
 function isLiveDataSource(dataSourceId = state.dataSourceId) {
@@ -246,6 +252,70 @@ function bucketBadgeHTML(baseClass, bucket, innerHtml) {
   return `<span class="${baseClass} ${bucketColorClass(bucket)}">${innerHtml}</span>`;
 }
 
+function isGenericSegmentName(name = '') {
+  const normalized = String(name).trim().toLowerCase();
+  return (
+    normalized === 'sprint' ||
+    normalized === 'sprint reverse' ||
+    normalized === 'kom' ||
+    normalized === 'kom reverse' ||
+    normalized === 'qom' ||
+    normalized === 'qom reverse'
+  );
+}
+
+function preferNamedSegments(segments = []) {
+  const named = segments.filter(segment => !isGenericSegmentName(segment?.name));
+  return named.length ? named : segments;
+}
+
+function orderedRelevantSegments(route) {
+  if (Array.isArray(route.orderedSegments) && route.orderedSegments.length) {
+    const ordered = preferNamedSegments(route.orderedSegments)
+      .filter(segment => segment.type === 'sprint' || segment.type === 'climb');
+    if (ordered.length) return ordered;
+  }
+
+  return [
+    ...preferNamedSegments(route.relevantClimbs ?? []),
+    ...preferNamedSegments(route.relevantSprints ?? []),
+  ];
+}
+
+function segmentRowHTML(route) {
+  const orderedSegments = orderedRelevantSegments(route);
+  if (!orderedSegments.length) return '';
+
+  const previewLimit = 6;
+  const previewSegments = orderedSegments.slice(0, previewLimit);
+  const remainingCount = orderedSegments.length - previewSegments.length;
+  const previewItems = previewSegments
+    .map(segment => segmentChipHTML(segment, segment.type === 'climb' ? 'climb' : 'sprint'))
+    .join('');
+
+  if (remainingCount <= 0) {
+    return `
+      <div class="segment-row">
+        <span class="segment-label">Segments on this route:</span>
+        <div class="segment-chips">${previewItems}</div>
+      </div>`;
+  }
+
+  const fullItems = orderedSegments
+    .map(segment => segmentChipHTML(segment, segment.type === 'climb' ? 'climb' : 'sprint'))
+    .join('');
+
+  return `
+    <div class="segment-row">
+      <span class="segment-label">Segments on this route:</span>
+      <div class="segment-chips">${previewItems}</div>
+      <details class="segment-details">
+        <summary>Show full route sequence (${orderedSegments.length} efforts)</summary>
+        <div class="segment-chips segment-chips-full">${fullItems}</div>
+      </details>
+    </div>`;
+}
+
 function getDisplayTarget(wotdStructure, fallbackBucket) {
   if (wotdStructure === 'mixed_mode') {
     return { mode: 'mixed' };
@@ -288,6 +358,7 @@ let state = {
   wotdStructure:  'recovery',
   history:        [],
   ranked:         [],
+  selectedRouteKey: '',
   lastUpdated:    null,
   timingMode:     'auto',
   todayOnly:      true,
@@ -309,8 +380,10 @@ async function init() {
   state.history = loadHistory();
   state.timingMode = getTimingMode();
   state.dataSourceId = getDataSourceId();
+  state.selectedRouteKey = getRoutePickerValue();
 
   populateDataSourceOptions();
+  populateRoutePickerOptions();
   syncDataSourceControls();
 
   // Restore saved unit preference (updates button state + speed label without re-rendering)
@@ -405,6 +478,7 @@ async function handleLogout() {
     wotdStructure:  'recovery',
     history:        loadHistory(),
     ranked:         [],
+    selectedRouteKey: getRoutePickerValue(),
     lastUpdated:    null,
     timingMode:     getTimingMode(),
     todayOnly:      getTodayOnly(),
@@ -520,6 +594,7 @@ function renderAll() {
   renderTimingControls();
   renderTimeSummary();
   renderRoutes();
+  renderRouteInspector();
   renderLastUpdated();
 }
 
@@ -670,22 +745,29 @@ function renderRecommendation() {
     recTitleEl.innerHTML = emphasizedTitle('Today calls for aerobic base work', 'aerobic base work', 'low');
     recSubtitleEl.textContent = `Xert's workout targets ${remaining.low.toFixed(1)} low XSS — steady Z2, let the distance do the work.`;
   } else {
-    const titles = {
-      low: emphasizedTitle('Your low bucket needs work', 'low', 'low'),
-      high: emphasizedTitle('Your high bucket needs work', 'high', 'high'),
-      peak: emphasizedTitle('Your peak bucket needs work', 'peak', 'peak'),
-      recovery: 'You\'re on top of all your targets',
-    };
+    const activeNeeds = ['low', 'high', 'peak'].filter(name => (remaining[name] ?? 0) > 0.5);
+    if (activeNeeds.length >= 2) {
+      recTitleEl.textContent = 'Multiple buckets still need work';
+      recSubtitleEl.textContent =
+        `You still have ${remaining.low.toFixed(1)} low, ${remaining.high.toFixed(1)} high, and ${remaining.peak.toFixed(1)} peak XSS left today — the top route is being chosen by best overall fit, not just one bucket.`;
+    } else {
+      const titles = {
+        low: emphasizedTitle('Your low bucket needs work', 'low', 'low'),
+        high: emphasizedTitle('Your high bucket needs work', 'high', 'high'),
+        peak: emphasizedTitle('Your peak bucket needs work', 'peak', 'peak'),
+        recovery: 'You\'re on top of all your targets',
+      };
 
-    const subtitles = {
-      low: `You still have ${remaining.low.toFixed(1)} low XSS left today — a long flat ride will help.`,
-      high: `You still have ${remaining.high.toFixed(1)} high XSS left today — a climbing route will help.`,
-      peak: `You still have ${remaining.peak.toFixed(1)} peak XSS left today — a short punchy route will help.`,
-      recovery: 'All buckets at or above target. Take it easy — flat and short today.',
-    };
+      const subtitles = {
+        low: `You still have ${remaining.low.toFixed(1)} low XSS left today — a long flat ride will help.`,
+        high: `You still have ${remaining.high.toFixed(1)} high XSS left today — a climbing route will help.`,
+        peak: `You still have ${remaining.peak.toFixed(1)} peak XSS left today — a short punchy route will help.`,
+        recovery: 'All buckets at or above target. Take it easy — flat and short today.',
+      };
 
-    recTitleEl.innerHTML = titles[b] ?? '';
-    recSubtitleEl.textContent = subtitles[b] ?? '';
+      recTitleEl.innerHTML = titles[b] ?? '';
+      recSubtitleEl.textContent = subtitles[b] ?? '';
+    }
   }
 
   const wotdEl = document.getElementById('wotd');
@@ -720,18 +802,36 @@ function renderRecommendation() {
   }
 }
 
-function enrichRoutes(rankedRoutes, bucket, wotdStructure) {
-  return rankedRoutes.map(route => {
-    const routeSegments = getSegmentsForRoute(route);
-    return {
-      ...route,
-      rideCue: generateRideCue(route, bucket, wotdStructure, routeSegments),
-      wotdTerrainScore: route.wotdTerrainScore ?? wotdTerrainScore(route, wotdStructure, routeSegments),
-      relevantClimbs: routeSegments.climbs.slice(0, 3),
-      relevantSprints: routeSegments.sprints,
-      segmentSource: routeSegments.source,
-    };
-  });
+function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
+  const routeSegments = getSegmentsForRoute(route);
+  const timeline = getRouteTimeline(route);
+  const lapCount = recommendedLapCount(route, availableMinutes);
+  const expandedTimeline = timeline ? withRecoveryGaps(expandTimelineForLaps(route, timeline, lapCount)) : [];
+  const timelineClimbs = uniqueTimelineSegments(expandedTimeline, 'climb');
+  const timelineSprints = uniqueTimelineSegments(expandedTimeline, 'sprint');
+  const routeTimeline = timeline ? { ...timeline, occurrences: expandedTimeline } : null;
+  const orderedSegments = timeline
+    ? preferNamedSegments((timeline.segments ?? []).filter(segment => segment.type === 'sprint' || segment.type === 'climb'))
+    : [];
+  const relevantClimbs = timelineClimbs.length ? timelineClimbs.slice(0, 4) : preferNamedSegments(routeSegments.climbs).slice(0, 4);
+  const relevantSprints = timelineSprints.length ? timelineSprints : preferNamedSegments(routeSegments.sprints);
+
+  return {
+    ...route,
+    rideCue: generateRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline),
+    wotdTerrainScore: route.wotdTerrainScore ?? wotdTerrainScore(route, wotdStructure, routeSegments),
+    relevantClimbs,
+    relevantSprints,
+    segmentSource: routeSegments.source,
+    routeTimeline,
+    timelineOccurrences: expandedTimeline,
+    orderedSegments,
+    recommendedLapCount: lapCount,
+  };
+}
+
+function enrichRoutes(rankedRoutes, bucket, wotdStructure, availableMinutes) {
+  return rankedRoutes.map(route => enrichRoute(route, bucket, wotdStructure, availableMinutes));
 }
 
 function recomputeRankedRoutes() {
@@ -753,16 +853,20 @@ function recomputeRankedRoutes() {
     favorites: loadFavorites(),
   });
 
-  state.ranked = enrichRoutes(optimized, state.bucket, state.wotdStructure);
+  state.ranked = enrichRoutes(optimized, state.bucket, state.wotdStructure, settings.minutes);
 }
 
 function renderRoutes() {
   const settings = getTimeSettings();
   const { minutes: timeMin } = settings;
   const favorites = loadFavorites();
+  const eligibleKeys = currentEligibleRouteKeys();
+  const visibleRanked = state.todayOnly
+    ? state.ranked.filter(route => eligibleKeys.has(route.slug || route.name))
+    : state.ranked;
 
-  const withinBudget = state.ranked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) <= timeMin);
-  const overBudget   = state.ranked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) > timeMin);
+  const withinBudget = visibleRanked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) <= timeMin);
+  const overBudget   = visibleRanked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) > timeMin);
 
   // Primary grid: top 5 within budget
   document.getElementById('route-grid').innerHTML =
@@ -784,6 +888,115 @@ function renderRoutes() {
   moreSection.style.display = overBudget.length ? 'block' : 'none';
   document.getElementById('more-time-toggle').textContent =
     `▼ If you had more time (${overBudget.length} routes)`;
+}
+
+function currentEligibleRouteKeys() {
+  const eligible = state.todayOnly ? filterToAvailableWorlds(routes, state.guestWorlds) : routes;
+  return new Set(eligible.map(route => route.slug || route.name));
+}
+
+function todaysAvailableRouteKeys() {
+  return new Set(filterToAvailableWorlds(routes, state.guestWorlds).map(route => route.slug || route.name));
+}
+
+function routeCardStatus(route) {
+  const routeKey = route.slug || route.name;
+  const outsideTodayWorlds = !todaysAvailableRouteKeys().has(routeKey);
+  return {
+    outsideTodayWorlds,
+    eventOnly: Boolean(route.eventOnly),
+    inspectorOnly: Boolean(route.inspectorOnly),
+  };
+}
+
+function inspectableRoutes() {
+  return routes
+    .filter(route => Array.isArray(route.sports) && route.sports.includes('cycling'))
+    .slice()
+    .sort((a, b) =>
+      worldName(a.world).localeCompare(worldName(b.world)) ||
+      a.name.localeCompare(b.name)
+    );
+}
+
+function populateRoutePickerOptions() {
+  const picker = document.getElementById('route-picker');
+  if (!picker) return;
+
+  const currentValue = state.selectedRouteKey || '';
+  const options = inspectableRoutes().map(route => {
+    const key = route.slug || route.name;
+    const selected = key === currentValue ? ' selected' : '';
+    const eventTag = route.eventOnly ? ' · event only' : '';
+    return `<option value="${key}"${selected}>${worldName(route.world)} · ${route.name}${eventTag}</option>`;
+  }).join('');
+
+  picker.innerHTML = `<option value="">Choose a route…</option>${options}`;
+  picker.value = currentValue;
+}
+
+function selectedInspectableRoute() {
+  if (!state.selectedRouteKey) return null;
+  return routes.find(route => (route.slug || route.name) === state.selectedRouteKey) ?? null;
+}
+
+function renderRouteInspector() {
+  const picker = document.getElementById('route-picker');
+  const note = document.getElementById('route-picker-note');
+  const card = document.getElementById('route-picked-card');
+  if (!picker || !note || !card) return;
+
+  if (!picker.options.length || picker.options.length === 1) {
+    populateRoutePickerOptions();
+  }
+  picker.value = state.selectedRouteKey || '';
+
+  const route = selectedInspectableRoute();
+  if (!route || !state.trainingData || !state.dailySummary || !state.bucket) {
+    note.textContent = route ? 'Route inspector is ready after training data loads.' : 'Pick any route to see exactly what the app would say for the current scenario.';
+    card.innerHTML = '';
+    return;
+  }
+
+  const settings = getTimeSettings();
+  const eligibleRouteKeys = currentEligibleRouteKeys();
+  const todaysRouteKeys = todaysAvailableRouteKeys();
+  const rankedMatch = state.ranked.find(item => (item.slug || item.name) === (route.slug || route.name));
+  const baseRoute = rankedMatch ?? optimizeRoutes([route], {
+    bucket: state.bucket,
+    deficits: state.dailySummary.remaining,
+    availableMinutes: settings.minutes,
+    estimateMinutes: item => estimateRouteMinutes(item, settings, state.trainingData),
+    getRouteSegments: item => getSegmentsForRoute(item),
+    wotdStructure: state.wotdStructure,
+    recoveryMode: state.bucket === 'recovery',
+    favorites: loadFavorites(),
+  })[0] ?? {
+    ...route,
+    score: 0,
+    estimatedMinutes: estimateRouteMinutes(route, settings, state.trainingData),
+    optimizerBreakdown: { low: 0, high: 0, peak: 0 },
+    optimizerReason: 'Direct route inspection.',
+  };
+
+  const inspectedRoute = {
+    ...enrichRoute(baseRoute, state.bucket, state.wotdStructure, settings.minutes),
+    outsideTodayWorlds: !todaysRouteKeys.has(route.slug || route.name),
+    inspectorOnly: !rankedMatch,
+  };
+  card.innerHTML = routeCardHTML(inspectedRoute, false, loadFavorites());
+
+  const noteParts = [];
+  if (inspectedRoute.outsideTodayWorlds) {
+    noteParts.push(state.todayOnly ? 'Outside today\'s current world filter.' : 'Not in today\'s worlds, but shown because world filtering is off.');
+  }
+  if (route.eventOnly) {
+    noteParts.push('This route is event only.');
+  }
+  if (inspectedRoute.inspectorOnly) {
+    noteParts.push('Shown via direct inspection instead of current ranked results.');
+  }
+  note.textContent = noteParts.join(' ') || 'Showing this route with the current scenario, time budget, and cue logic.';
 }
 
 function buildShareText(route, estMin, fillPct, bucket) {
@@ -823,7 +1036,7 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     }
   }
 
-  const lapCount = estMin > 0 ? Math.floor(timeMin / estMin) : 1;
+  const lapCount = route.recommendedLapCount ?? (estMin > 0 ? Math.floor(timeMin / estMin) : 1);
   const lapTag = lapCount >= 2 && estMin <= timeMin * 0.6
     ? `<span class="lap-suggestion">Consider ${lapCount} laps (~${formatMinutes(estMin * lapCount)})</span>`
     : '';
@@ -877,16 +1090,17 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
     route.whatsOnZwiftUrl ? `<a href="${route.whatsOnZwiftUrl}" target="_blank" rel="noopener">What's on Zwift</a>` : '',
   ].filter(Boolean).join('');
+  const status = routeCardStatus(route);
   const routeFlags = [
     route.leadInDistance > 0.1 ? `<span class="route-flag">+${displayDist(route.leadInDistance)} lead-in</span>` : '',
     route.supportedLaps ? '<span class="route-flag">Lap route</span>' : '',
+    status.outsideTodayWorlds ? '<span class="route-flag warning">Not in today\'s worlds</span>' : '',
+    status.eventOnly ? '<span class="route-flag warning">Event only</span>' : '',
+    status.inspectorOnly ? '<span class="route-flag">Direct inspection</span>' : '',
     route.levelLocked ? '<span class="route-flag warning">Level locked</span>' : '',
   ].filter(Boolean).join('');
   const showSegmentRow = route.segmentSource !== 'world';
-  const segmentItems = [
-    ...(route.relevantClimbs ?? []).map(segment => segmentChipHTML(segment, 'climb')),
-    ...(route.relevantSprints ?? []).map(segment => segmentChipHTML(segment, 'sprint')),
-  ].join('');
+  const segmentRow = showSegmentRow ? segmentRowHTML(route) : '';
 
   return `
     <div class="${cls}${favCls}" data-route-key="${routeKey}">
@@ -912,11 +1126,7 @@ function routeCardHTML(route, compact, favorites = new Set()) {
       </div>
       ${route.rideCue ? `<div class="ride-cue"><span class="ride-cue-icon">🎯</span><span>${route.rideCue}</span></div>` : ''}
       ${routeFlags ? `<div class="route-flags">${routeFlags}</div>` : ''}
-      ${showSegmentRow && segmentItems ? `
-        <div class="segment-row">
-          <span class="segment-label">Segments on this route:</span>
-          <div class="segment-chips">${segmentItems}</div>
-        </div>` : ''}
+      ${segmentRow}
       ${reason ? `<div class="route-reason">${reason}</div>` : ''}
       ${links ? `<div class="route-links">${links}</div>` : ''}
     </div>`;
@@ -1058,6 +1268,7 @@ function applyTimeAvailable(minutes) {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 }
 
@@ -1282,6 +1493,7 @@ function applyUnits(unit) {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 }
 
@@ -1311,6 +1523,7 @@ function setTimingMode(mode) {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 }
 
@@ -1635,6 +1848,7 @@ document.getElementById('time-available').addEventListener('input', () => {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 });
 
@@ -1643,6 +1857,7 @@ document.getElementById('avg-speed').addEventListener('change', () => {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 });
 
@@ -1651,6 +1866,7 @@ document.getElementById('avg-speed').addEventListener('input', () => {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 });
 
@@ -1668,6 +1884,7 @@ document.getElementById('today-only-toggle').addEventListener('change', (e) => {
   if (state.trainingData) {
     recomputeRankedRoutes();
     renderRoutes();
+    renderRouteInspector();
   }
 });
 
@@ -1680,7 +1897,14 @@ document.getElementById('guest-worlds-picker').addEventListener('change', () => 
   if (state.trainingData) {
     recomputeRankedRoutes();
     renderRoutes();
+    renderRouteInspector();
   }
+});
+
+document.getElementById('route-picker').addEventListener('change', (e) => {
+  state.selectedRouteKey = e.target.value;
+  localStorage.setItem(ROUTE_PICKER_KEY, state.selectedRouteKey);
+  renderRouteInspector();
 });
 
 document.getElementById('other-toggle').addEventListener('click', () => {
