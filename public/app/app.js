@@ -929,7 +929,16 @@ function recommendationAvailability(settings = getTimeSettings()) {
   const withinBudget = visible.filter(route => estimateRouteMinutes(route, settings, state.trainingData) <= timeMin);
   const overBudget = visible.filter(route => estimateRouteMinutes(route, settings, state.trainingData) > timeMin);
   const viableWithinBudget = withinBudget.filter(routeRecommendationViable);
-  const viableOverBudget = overBudget.filter(routeRecommendationViable);
+  const viableOverBudget = overBudget
+    .filter(routeRecommendationViable)
+    .sort((a, b) => {
+      const aOver = estimateRouteMinutes(a, settings, state.trainingData) - timeMin;
+      const bOver = estimateRouteMinutes(b, settings, state.trainingData) - timeMin;
+      if (aOver !== bOver) return aOver - bOver;
+      if ((b.utility ?? 0) !== (a.utility ?? 0)) return (b.utility ?? 0) - (a.utility ?? 0);
+      if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
+      return String(a.slug || a.name).localeCompare(String(b.slug || b.name));
+    });
   const approximateWithinBudget = withinBudget.filter(route => !routeRecommendationViable(route));
   return {
     visible,
@@ -979,12 +988,16 @@ function noRouteMessage(approximateCount, overBudgetCount) {
   const targetLabel = displayTarget.mode === 'mixed'
     ? 'today\'s mixed workout'
     : `today's ${String(displayTarget.bucket ?? state.bucket ?? 'workout').toUpperCase()} work`;
+  const guidance = getRecommendedTimeGuidance();
+  const viableText = Number.isFinite(guidance?.firstViableMinutes)
+    ? ` The first honest route fit starts around ${formatClockMinutes(guidance.firstViableMinutes)}.`
+    : '';
 
   if (approximateCount > 0) {
-    return `No routes honestly support ${targetLabel} inside this time budget. The approximation section below shows the least-wrong venues if you still want to ride now.`;
+    return `No routes honestly support ${targetLabel} inside this time budget.${viableText} The approximation section below shows the least-wrong venues if you still want to ride now.`;
   }
   if (overBudgetCount > 0) {
-    return `No routes honestly support ${targetLabel} inside this time budget — check the "If you had more time" section below.`;
+    return `No routes honestly support ${targetLabel} inside this time budget.${viableText} Check the "If you had more time" section below.`;
   }
   return `No routes currently support ${targetLabel} with today's world and time constraints.`;
 }
@@ -1374,6 +1387,13 @@ function theoreticalRecommendedTimeMinutes() {
   return snapMinutes((remainingXss / Math.max(xssRate, 1)) * 60);
 }
 
+function firstViableRouteMinutes(theoreticalMinutes) {
+  for (let minutes = theoreticalMinutes; minutes <= TIME_SLIDER_MAX; minutes += TIME_SLIDER_STEP) {
+    if (hasViableRouteAtMinutes(minutes)) return minutes;
+  }
+  return null;
+}
+
 function recommendedTimeScenarioKey() {
   const riderWkg = getRiderWkg(state.trainingData);
   const timingSettings = getTimeSettings();
@@ -1381,6 +1401,7 @@ function recommendedTimeScenarioKey() {
   return JSON.stringify({
     bucket: state.bucket,
     wotdStructure: state.wotdStructure,
+    dataSourceId: state.dataSourceId,
     todayOnly: state.todayOnly,
     worlds: context.worlds,
     source: context.source,
@@ -1411,7 +1432,7 @@ function hasViableRouteAtMinutes(minutes) {
   return evaluated.some(route => routeRecommendationViable(route) && (route.estimatedMinutes ?? Infinity) <= minutes);
 }
 
-function getRecommendedTimeMinutes() {
+function getRecommendedTimeGuidance() {
   if (!state.trainingData || !state.dailySummary) return null;
   const cacheKey = recommendedTimeScenarioKey();
   if (recommendedTimeCache.key === cacheKey) {
@@ -1419,17 +1440,22 @@ function getRecommendedTimeMinutes() {
   }
 
   const theoreticalMinutes = theoreticalRecommendedTimeMinutes();
-  let recommendedMinutes = theoreticalMinutes;
+  const firstViableMinutes = firstViableRouteMinutes(theoreticalMinutes);
+  const recommendedMinutes = Number.isFinite(firstViableMinutes)
+    ? Math.max(theoreticalMinutes, firstViableMinutes)
+    : null;
+  const guidance = {
+    theoreticalMinutes,
+    firstViableMinutes,
+    recommendedMinutes,
+  };
 
-  for (let minutes = theoreticalMinutes; minutes <= TIME_SLIDER_MAX; minutes += TIME_SLIDER_STEP) {
-    if (hasViableRouteAtMinutes(minutes)) {
-      recommendedMinutes = minutes;
-      break;
-    }
-  }
+  recommendedTimeCache = { key: cacheKey, value: guidance };
+  return guidance;
+}
 
-  recommendedTimeCache = { key: cacheKey, value: recommendedMinutes };
-  return recommendedMinutes;
+function getRecommendedTimeMinutes() {
+  return getRecommendedTimeGuidance()?.recommendedMinutes ?? null;
 }
 
 function updateTimeLabel() {
@@ -1468,6 +1494,15 @@ function renderTimeSummary() {
   if (!el) return;
   const availability = recommendationAvailability(getTimeSettings());
   const noViableWithinBudget = availability.viableWithinBudget.length === 0;
+  const guidance = getRecommendedTimeGuidance();
+  const firstViableMinutes = guidance?.firstViableMinutes ?? null;
+  const theoreticalMinutes = guidance?.theoreticalMinutes ?? null;
+  const theoreticalMismatch = (
+    Number.isFinite(theoreticalMinutes) &&
+    Number.isFinite(firstViableMinutes) &&
+    firstViableMinutes > theoreticalMinutes
+  );
+  const noViableAnywhere = !Number.isFinite(firstViableMinutes);
 
   if (displayTarget.mode === 'mixed') {
     const remainingTotal = state.dailySummary?.remaining?.total ?? 0;
@@ -1485,7 +1520,13 @@ function renderTimeSummary() {
         `<span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> load.`;
     }
     if (noViableWithinBudget) {
-      el.innerHTML += ' No route currently fits that workload honestly inside this time budget, so the best options below are longer or compromise venues.';
+      if (theoreticalMismatch) {
+        el.innerHTML += ` Bucket math says about ${formatClockMinutes(theoreticalMinutes)}, but the first honest route fit starts around ${formatClockMinutes(firstViableMinutes)}, so the best options below are longer or compromise venues.`;
+      } else if (noViableAnywhere) {
+        el.innerHTML += ' No route currently fits that workload honestly anywhere in the current slider range, so the best options below are compromise venues only.';
+      } else {
+        el.innerHTML += ` No route currently fits that workload honestly inside this time budget, so the best options below are longer or compromise venues.`;
+      }
     }
     return;
   }
@@ -1504,7 +1545,13 @@ function renderTimeSummary() {
       ` — about ${fillPct}% of today's remaining ${b.toUpperCase()} gap (${remainingXss.toFixed(0)} XSS).`;
   }
   if (noViableWithinBudget && b !== 'recovery' && remainingXss > 0) {
-    el.textContent += ' No current route actually fits that budget honestly, so you will need more time or an approximation.';
+    if (theoreticalMismatch) {
+      el.textContent += ` Bucket math says about ${formatClockMinutes(theoreticalMinutes)}, but the first honest route fit starts around ${formatClockMinutes(firstViableMinutes)}.`;
+    } else if (noViableAnywhere) {
+      el.textContent += ' No current route actually fits that budget honestly anywhere in the current slider range, so only approximation venues remain.';
+    } else {
+      el.textContent += ' No current route actually fits that budget honestly, so you will need more time or an approximation.';
+    }
   }
 }
 
