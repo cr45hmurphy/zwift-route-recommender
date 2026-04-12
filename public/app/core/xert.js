@@ -1,7 +1,11 @@
 // xert.js — Xert API wrapper
-// All requests route through the local proxy at localhost:3000.
+// Use the Netlify function path by default so `npx netlify dev` works locally too.
+// A bare localhost:3000 proxy is only used by the older standalone proxy workflow.
 
-const PROXY_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+const PROXY_BASE = (
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+  window.location.port === '3000'
+)
   ? 'http://localhost:3000'
   : '/.netlify/functions/xert-proxy';
 const TOKEN_KEY    = 'xert_token';
