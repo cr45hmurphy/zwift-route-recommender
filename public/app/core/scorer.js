@@ -30,7 +30,7 @@ const HIGH_SUPPORT_TARGET       = 1.6;  // summed segment support needed for "fu
 const PEAK_SUPPORT_TARGET       = 1.2;  // summed segment support needed for "full" PEAK support
 const PEAK_ROUTE_MIN_SUPPORT    = 0.28; // below this, a route should not contend on PEAK days
 const PEAK_ROUTE_STRONG_SUPPORT = 0.5;  // clear PEAK-day contender threshold
-const MIXED_COPY_PEAK_THRESHOLD = 0.3;  // only mention real peak support in mixed-mode copy above this
+const MIXED_COPY_PEAK_THRESHOLD = PEAK_SUPPORT_THRESHOLD; // mixed copy must match the route-truth threshold
 
 /**
  * DEFAULTS — exported snapshot of every tunable constant.
@@ -93,10 +93,13 @@ function isGenericEffortName(name = '') {
   return (
     normalized === 'sprint' ||
     normalized === 'sprint reverse' ||
+    normalized === 'sprint forward end' ||
+    normalized === 'sprint reverse end' ||
     normalized === 'kom' ||
     normalized === 'kom reverse' ||
     normalized === 'qom' ||
-    normalized === 'qom reverse'
+    normalized === 'qom reverse' ||
+    normalized === 'unknown segment'
   );
 }
 
@@ -819,6 +822,8 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
   const sprints = namedSegmentsAvailable ? (routeSegments?.sprints ?? []) : [];
   const timelineClimbs = orderedTimelineOccurrences(routeTimeline, 'climb');
   const timelineSprints = orderedTimelineOccurrences(routeTimeline, 'sprint');
+  const namedClimbs = climbs.filter(segment => !isGenericEffortName(segment?.name));
+  const namedSprints = sprints.filter(segment => !isGenericEffortName(segment?.name));
   const distance = route?.distance ?? 0;
   const elevation = route?.elevation ?? 0;
   const gradientRatio = distance > 0 ? elevation / distance : 0;
@@ -857,7 +862,22 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
       if (timelineClimbs.length) {
         return `This route can only fake a sprint day. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)} for hard surges, but expect more HIGH than true PEAK work.`;
       }
+      if (namedClimbs.length) {
+        return `This route can only fake a sprint day. Hit ${formatSegmentList(namedClimbs.slice(0, 2))} hard, but expect more HIGH than true PEAK work.`;
+      }
       return 'This route is better for hard surges than true PEAK work. If you ride it anyway, treat the sharpest rises as your best approximation and keep expectations modest.';
+    }
+    if (peakSupport < PEAK_SUPPORT_THRESHOLD) {
+      if (timelineClimbs.length) {
+        return `This route gives you a few punchy approximations. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)} for your hardest surges, but expect more HIGH work than true PEAK repeatability.`;
+      }
+      if (namedClimbs.length) {
+        return `This route gives you a few punchy approximations. Hit ${formatSegmentList(namedClimbs.slice(0, 2))} as your hardest efforts, but expect more HIGH work than true PEAK repeatability.`;
+      }
+      if (namedSprints.length) {
+        return `This route gives you a few punchy approximations. Sprint ${formatSegmentList(namedSprints.slice(0, 2))} hard, but expect more HIGH work than true PEAK repeatability.`;
+      }
+      return 'This route offers only a rough PEAK approximation. Treat the sharpest rises as your hardest efforts, but expect more HIGH work than true PEAK repeatability.';
     }
     const timelineEfforts = orderedTimelineEfforts(routeTimeline);
     if (timelineSprints.length) {
@@ -866,7 +886,12 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
       }
       return `Sprint every viable banner in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Go full gas, then recover completely.`;
     }
-    const namedSprints = sprints.slice(0, 3);
+    if (namedClimbs.length) {
+      if (namedClimbs.length === 1) {
+        return `Punch ${namedClimbs[0].name} at absolute max, then recover fully before the next hard effort. This route earns its PEAK support from short sharp climbs, not flat sprint runways.`;
+      }
+      return `Punch the climbs in order: ${formatSegmentList(namedClimbs.slice(0, 3))}. Full gas on each rise, then recover completely because these are your best PEAK opportunities on this route today.`;
+    }
     if (namedSprints.length >= 2) {
       return `Sprint ${formatSegmentList(namedSprints)} at absolute max effort. Full gas, then fully recover because these are your best PEAK opportunities on this route today.`;
     }

@@ -257,10 +257,13 @@ function isGenericSegmentName(name = '') {
   return (
     normalized === 'sprint' ||
     normalized === 'sprint reverse' ||
+    normalized === 'sprint forward end' ||
+    normalized === 'sprint reverse end' ||
     normalized === 'kom' ||
     normalized === 'kom reverse' ||
     normalized === 'qom' ||
-    normalized === 'qom reverse'
+    normalized === 'qom reverse' ||
+    normalized === 'unknown segment'
   );
 }
 
@@ -899,38 +902,81 @@ function recomputeRankedRoutes() {
   state.ranked = enrichRoutes(optimized, state.bucket, state.wotdStructure, settings.minutes);
 }
 
-function renderRoutes() {
-  const settings = getTimeSettings();
-  const { minutes: timeMin } = settings;
-  const favorites = loadFavorites();
+function routeRecommendationViable(route) {
+  return (route?.score ?? 0) > 0;
+}
+
+function visibleRankedRoutes() {
   const eligibleKeys = currentEligibleRouteKeys();
-  const visibleRanked = state.todayOnly
+  return state.todayOnly
     ? state.ranked.filter(route => eligibleKeys.has(route.slug || route.name))
     : state.ranked;
+}
 
-  const withinBudget = visibleRanked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) <= timeMin);
-  const overBudget   = visibleRanked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) > timeMin);
+function recommendationAvailability(settings = getTimeSettings()) {
+  const { minutes: timeMin } = settings;
+  const visible = visibleRankedRoutes();
+  const withinBudget = visible.filter(route => estimateRouteMinutes(route, settings, state.trainingData) <= timeMin);
+  const overBudget = visible.filter(route => estimateRouteMinutes(route, settings, state.trainingData) > timeMin);
+  const viableWithinBudget = withinBudget.filter(routeRecommendationViable);
+  const viableOverBudget = overBudget.filter(routeRecommendationViable);
+  const approximateWithinBudget = withinBudget.filter(route => !routeRecommendationViable(route));
+  return {
+    visible,
+    withinBudget,
+    overBudget,
+    viableWithinBudget,
+    viableOverBudget,
+    approximateWithinBudget,
+  };
+}
+
+function renderRoutes() {
+  const settings = getTimeSettings();
+  const favorites = loadFavorites();
+  const {
+    viableWithinBudget,
+    viableOverBudget,
+    approximateWithinBudget,
+  } = recommendationAvailability(settings);
 
   // Primary grid: top 5 within budget
-  document.getElementById('route-grid').innerHTML =
-    withinBudget.slice(0, 5).map(r => routeCardHTML(r, false, favorites)).join('') ||
-    '<p class="no-routes">No routes fit your time budget — check the "If you had more time" section below.</p>';
+  document.getElementById('route-grid').innerHTML = viableWithinBudget.length
+    ? viableWithinBudget.slice(0, 5).map(route => routeCardHTML(route, false, favorites)).join('')
+    : `<p class="no-routes">${noRouteMessage(approximateWithinBudget.length, viableOverBudget.length)}</p>`;
 
-  // Other options: within-budget overflow
+  // Other options: viable within-budget overflow, or approximation-only fallback if nothing viable fits.
   const otherList = document.getElementById('other-list');
-  otherList.innerHTML = withinBudget.slice(5).map(r => routeCardHTML(r, true, favorites)).join('');
-  document.getElementById('other-toggle').textContent =
-    `▼ Other options (${withinBudget.slice(5).length} more)`;
-  document.getElementById('other-options').style.display =
-    withinBudget.length > 5 ? 'block' : 'none';
+  const overflowRoutes = viableWithinBudget.length ? viableWithinBudget.slice(5) : approximateWithinBudget;
+  const otherLabel = viableWithinBudget.length
+    ? `▼ Other options (${overflowRoutes.length} more)`
+    : `▼ Best approximate options (${overflowRoutes.length} routes)`;
+  otherList.innerHTML = overflowRoutes.map(route => routeCardHTML(route, true, favorites)).join('');
+  document.getElementById('other-toggle').textContent = otherLabel;
+  document.getElementById('other-options').style.display = overflowRoutes.length ? 'block' : 'none';
 
   // "If you had more time": over-budget routes
   const moreSection = document.getElementById('more-time-options');
   const moreList    = document.getElementById('more-time-list');
-  moreList.innerHTML = overBudget.map(r => routeCardHTML(r, true, favorites)).join('');
-  moreSection.style.display = overBudget.length ? 'block' : 'none';
+  moreList.innerHTML = viableOverBudget.map(route => routeCardHTML(route, true, favorites)).join('');
+  moreSection.style.display = viableOverBudget.length ? 'block' : 'none';
   document.getElementById('more-time-toggle').textContent =
-    `▼ If you had more time (${overBudget.length} routes)`;
+    `▼ If you had more time (${viableOverBudget.length} routes)`;
+}
+
+function noRouteMessage(approximateCount, overBudgetCount) {
+  const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
+  const targetLabel = displayTarget.mode === 'mixed'
+    ? 'today\'s mixed workout'
+    : `today's ${String(displayTarget.bucket ?? state.bucket ?? 'workout').toUpperCase()} work`;
+
+  if (approximateCount > 0) {
+    return `No routes honestly support ${targetLabel} inside this time budget. The approximation section below shows the least-wrong venues if you still want to ride now.`;
+  }
+  if (overBudgetCount > 0) {
+    return `No routes honestly support ${targetLabel} inside this time budget — check the "If you had more time" section below.`;
+  }
+  return `No routes currently support ${targetLabel} with today's world and time constraints.`;
 }
 
 function currentEligibleRouteKeys() {
@@ -1093,12 +1139,12 @@ function routeCardHTML(route, compact, favorites = new Set()) {
 
   // Per-bucket XSS estimates use the same weighted support model as ranking + honesty labels.
   const bucketSupport = route.bucketSupport ?? { low: 1, high: 0, peak: 0, source: route.segmentSource ?? 'world' };
-  const hasRouteSegs = bucketSupport.source !== 'world';
   const perBucketXss = {
     low: Math.round(estimateBucketImpactXss(estMin, 'low') * Math.max(bucketSupport.low ?? 0, 0.15)),
-    high: !hasRouteSegs ? null : Math.round(estimateBucketImpactXss(estMin, 'high') * Math.max(bucketSupport.high ?? 0, 0)),
-    peak: !hasRouteSegs ? null : Math.round(estimateBucketImpactXss(estMin, 'peak') * Math.max(bucketSupport.peak ?? 0, 0)),
+    high: Math.round(estimateBucketImpactXss(estMin, 'high') * Math.max(bucketSupport.high ?? 0, 0)),
+    peak: Math.round(estimateBucketImpactXss(estMin, 'peak') * Math.max(bucketSupport.peak ?? 0, 0)),
   };
+  const viableRecommendation = routeRecommendationViable(route);
 
   if (displayTarget.mode === 'mixed') {
     const parts = ['low', 'high', 'peak'].map(b => {
@@ -1109,7 +1155,9 @@ function routeCardHTML(route, compact, favorites = new Set()) {
       return `<span class="xss-fill ${b}"><span class="bucket-word ${b}">${b.toUpperCase()}</span> ~${xss}${target}</span>`;
     }).filter(Boolean);
     bucketXssTag = parts.join('');
-    matchTag = '<span class="route-match mixed">Top fit for today\'s mixed workout</span>';
+    matchTag = viableRecommendation
+      ? '<span class="route-match mixed">Top fit for today\'s mixed workout</span>'
+      : '<span class="route-match approximate">Approximation only</span>';
   } else {
     const b = displayTarget.bucket;
     shareBucket = b;
@@ -1129,7 +1177,9 @@ function routeCardHTML(route, compact, favorites = new Set()) {
       shareFillPct = state.dailySummary?.remaining?.[b]
         ? Math.min(Math.round(bXss / Math.max(state.dailySummary.remaining[b], 1) * 100), 100)
         : null;
-      matchTag = bucketBadgeHTML('route-match', b, `Top fit for today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> need`);
+      matchTag = viableRecommendation
+        ? bucketBadgeHTML('route-match', b, `Top fit for today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> need`)
+        : '<span class="route-match approximate">Approximation only</span>';
     }
   }
 
@@ -1201,6 +1251,9 @@ function segmentChipHTML(segment, kind) {
 
 function routeReason(route, bucket) {
   const baseReason = route.optimizerReason || defaultRouteReason(route, bucket);
+  if (!routeRecommendationViable(route) && bucket !== 'recovery') {
+    return `Compromise venue only. ${baseReason}`;
+  }
   const label = wotdDisplayLabel(state.wotdStructure);
   if (!label || state.bucket === 'recovery') return baseReason;
 
@@ -1257,10 +1310,12 @@ function estimateRouteMinutesAuto(route, trainingData) {
   if (!riderWkg) return estimateRouteMinutesManual(route, DEFAULT_SPEED_KMH);
 
   const flatSpeed = estimateFlatSpeedKmh(riderWkg);
+  const baseMinutes = (route.distance / Math.max(flatSpeed, 1)) * 60;
+  const climbingRateMph = clamp(120 + (riderWkg * riderWkg * 125), 350, 2400);
+  const climbMinutes = ((route.elevation ?? 0) / Math.max(climbingRateMph, 1)) * 60;
   const gradientRatio = route.distance > 0 ? route.elevation / route.distance : 0;
-  const slowdown = clamp(1 - gradientRatio / (58 + riderWkg * 10), 0.42, 1);
-  const effectiveSpeed = flatSpeed * slowdown;
-  return Math.round((route.distance / effectiveSpeed) * 60);
+  const steepnessPenalty = clamp(gradientRatio / 65, 0, 1.1);
+  return Math.round(baseMinutes + climbMinutes + (climbMinutes * steepnessPenalty * 0.35));
 }
 
 function estimateRouteMinutes(route, settings, trainingData) {
@@ -1280,6 +1335,7 @@ function formatMinutes(min) {
 function getRecommendedTimeMinutes() {
   if (!state.trainingData || !state.dailySummary) return null;
 
+  let recommendedMinutes = null;
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
   if (displayTarget.mode === 'mixed') {
     const remainingTotal = state.dailySummary?.remaining?.total ?? 0;
@@ -1295,20 +1351,30 @@ function getRecommendedTimeMinutes() {
     const workoutDurationMin = wotdDurationMinutes(state.rawWotd);
 
     if (Number.isFinite(workoutTotalXss) && workoutTotalXss > 0 && Number.isFinite(workoutDurationMin) && workoutDurationMin > 0) {
-      return snapMinutes((remainingTotal / workoutTotalXss) * workoutDurationMin);
+      recommendedMinutes = snapMinutes((remainingTotal / workoutTotalXss) * workoutDurationMin);
+    } else {
+      const blendedRate = ((XSS_RATE.low ?? 0) + (XSS_RATE.high ?? 0) + (XSS_RATE.peak ?? 0)) / 3;
+      recommendedMinutes = snapMinutes((remainingTotal / Math.max(blendedRate, 1)) * 60);
     }
-
-    const blendedRate = ((XSS_RATE.low ?? 0) + (XSS_RATE.high ?? 0) + (XSS_RATE.peak ?? 0)) / 3;
-    return snapMinutes((remainingTotal / Math.max(blendedRate, 1)) * 60);
+  } else if (displayTarget.bucket === 'recovery') {
+    recommendedMinutes = snapMinutes(45);
+  } else {
+    const remainingXss = state.dailySummary?.remaining?.[displayTarget.bucket] ?? 0;
+    const xssRate = XSS_RATE[displayTarget.bucket] ?? 65;
+    recommendedMinutes = snapMinutes((remainingXss / Math.max(xssRate, 1)) * 60);
   }
 
-  if (displayTarget.bucket === 'recovery') {
-    return snapMinutes(45);
+  const viableRouteMinutes = visibleRankedRoutes()
+    .filter(routeRecommendationViable)
+    .map(route => route.estimatedMinutes ?? null)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b)[0] ?? null;
+
+  if (Number.isFinite(viableRouteMinutes)) {
+    recommendedMinutes = Math.max(recommendedMinutes ?? TIME_SLIDER_MIN, snapMinutes(viableRouteMinutes));
   }
 
-  const remainingXss = state.dailySummary?.remaining?.[displayTarget.bucket] ?? 0;
-  const xssRate = XSS_RATE[displayTarget.bucket] ?? 65;
-  return snapMinutes((remainingXss / Math.max(xssRate, 1)) * 60);
+  return recommendedMinutes;
 }
 
 function updateTimeLabel() {
@@ -1345,6 +1411,8 @@ function renderTimeSummary() {
 
   const el = document.getElementById('time-summary');
   if (!el) return;
+  const availability = recommendationAvailability(getTimeSettings());
+  const noViableWithinBudget = availability.viableWithinBudget.length === 0;
 
   if (displayTarget.mode === 'mixed') {
     const remainingTotal = state.dailySummary?.remaining?.total ?? 0;
@@ -1361,6 +1429,9 @@ function renderTimeSummary() {
         `${timingLead}${formatDurationText(timeMin)} should support today's mixed workout across your remaining ` +
         `<span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> load.`;
     }
+    if (noViableWithinBudget) {
+      el.innerHTML += ' No route currently fits that workload honestly inside this time budget, so the best options below are longer or compromise venues.';
+    }
     return;
   }
 
@@ -1376,6 +1447,9 @@ function renderTimeSummary() {
     el.textContent =
       `${timingLead}${formatDurationText(timeMin)} should generate roughly ${estimatedXss} XSS` +
       ` — about ${fillPct}% of today's remaining ${b.toUpperCase()} gap (${remainingXss.toFixed(0)} XSS).`;
+  }
+  if (noViableWithinBudget && b !== 'recovery' && remainingXss > 0) {
+    el.textContent += ' No current route actually fits that budget honestly, so you will need more time or an approximation.';
   }
 }
 

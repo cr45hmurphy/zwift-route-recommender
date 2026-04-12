@@ -124,7 +124,7 @@
 
   <script type="module">
     import {
-      scoreRoute, rankRoutes, detectBucket, optimizeRoutes,
+      scoreRoute, rankRoutes, detectBucket, optimizeRoutes, generateRideCue,
       classifyWOTD, deriveRouteBucketSupport, routeHonestyLabel, wotdTerrainScore, DEFAULTS,
     } from '../app/core/scorer.js';
     import { getSegmentsForRoute } from '../app/core/segments.js';
@@ -312,6 +312,17 @@
       };
     }
 
+    function cueForRouteName(name, bucket, wotdStructure, availableMinutes = 60) {
+      const route = routeByNameData[name];
+      const routeSegments = getSegmentsForRoute(route);
+      const timeline = getRouteTimeline(route);
+      const lapCount = recommendedLapCount({ ...route, estimatedMinutes: estimateMinutes(route) }, availableMinutes);
+      const occurrences = timeline ? withRecoveryGaps(expandTimelineForLaps({ ...route, estimatedMinutes: estimateMinutes(route) }, timeline, lapCount)) : [];
+      const routeTimeline = timeline ? { ...timeline, occurrences } : null;
+      const bucketSupport = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
+      return generateRideCue({ ...route, bucketSupport }, bucket, wotdStructure, routeSegments, routeTimeline);
+    }
+
     const BUCKET_LABELS = {
       low: 'LOW (aerobic)',
       high: 'HIGH (threshold)',
@@ -444,6 +455,13 @@
         <table><tr><th>Expectation</th><th>Actual</th><th>Result</th></tr>
         <tr><td>Punchy climb route outranks flat sprint route on PEAK day</td><td>${peakOrder}</td>
           <td style="color:${peakStrictPass ? 'var(--green)' : 'var(--red)'}">${peakStrictPass ? 'PASS' : 'FAIL'}</td></tr></table>`;
+
+      const worldsShortLapCue = cueForRouteName('2018 Worlds Short Lap', 'peak', 'sprint_power', 60);
+      const cueNamePass = worldsShortLapCue.includes('Leg Snapper KOM') && !worldsShortLapCue.includes('Unknown Segment');
+      html += `<h2>Cue naming <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Expectation</th><th>Actual</th><th>Result</th></tr>
+        <tr><td>PEAK cue uses rider-facing climb name on 2018 Worlds Short Lap</td><td>${worldsShortLapCue}</td>
+          <td style="color:${cueNamePass ? 'var(--green)' : 'var(--red)'}">${cueNamePass ? 'PASS' : 'FAIL'}</td></tr></table>`;
 
       // Stability
       const stabilityRoutes = [
