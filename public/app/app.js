@@ -1150,6 +1150,54 @@ function buildShareText(route, estMin, fillPct, bucket) {
   return lines.join('\n');
 }
 
+function routeProfileSVG(route, { height = 56 } = {}) {
+  const profile = Array.isArray(route?.profile) ? route.profile : [];
+  if (profile.length < 2) return '';
+
+  const width = 240;
+  const minDistance = Number(profile[0][0]) || 0;
+  const maxDistance = Number(profile.at(-1)?.[0]) || minDistance;
+  const routeDistanceKm = Math.max(Number(route?.distance) || maxDistance || 0, maxDistance || 0);
+  const routeElevationGainM = Math.max(Number(route?.elevation) || 0, 0);
+  const elevations = profile.map(point => Number(point[1]) || 0);
+  const minElevation = Math.min(...elevations);
+  const maxElevation = Math.max(...elevations);
+  const actualElevationRange = Math.max(maxElevation - minElevation, 1);
+  const distanceFloorM = Math.min(Math.max(routeDistanceKm * 6, 90), 240);
+  const climbFloorM = Math.min(routeElevationGainM * 0.85, 420);
+  const visualFloorM = Math.max(distanceFloorM, climbFloorM);
+  const elevationRange = Math.max(actualElevationRange, visualFloorM);
+  const topPaddingM = (elevationRange - actualElevationRange) / 2;
+  const visualTopElevation = maxElevation + topPaddingM;
+  const inset = 4;
+  const usableHeight = Math.max(height - (inset * 2), 8);
+
+  const scaled = profile.map(([distance, elevation]) => {
+    const x = maxDistance > minDistance
+      ? ((Number(distance) - minDistance) / (maxDistance - minDistance)) * width
+      : 0;
+    const y = inset + ((visualTopElevation - Number(elevation)) / elevationRange) * usableHeight;
+    return [Number(x.toFixed(2)), Number(y.toFixed(2))];
+  });
+
+  const linePath = scaled
+    .map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x} ${y}`)
+    .join(' ');
+  const areaPath = `${linePath} L ${width} ${height} L 0 ${height} Z`;
+
+  return `
+    <div class="route-profile" aria-label="Route elevation profile">
+      <div class="route-profile-header">
+        <span class="route-profile-label">Profile</span>
+        <span class="route-profile-caption">${displayDist(route.distance)} / ${displayElev(route.elevation)}</span>
+      </div>
+      <svg class="route-profile-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-hidden="true">
+        <path class="route-profile-area" d="${areaPath}"></path>
+        <path class="route-profile-line" d="${linePath}"></path>
+      </svg>
+    </div>`;
+}
+
 function routeCardHTML(route, compact, favorites = new Set()) {
   const gr    = route.distance > 0 ? (route.elevation / route.distance).toFixed(1) : '—';
   const world = worldName(route.world);
@@ -1186,7 +1234,6 @@ function routeCardHTML(route, compact, favorites = new Set()) {
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
   const executionFirstLowDay = state.wotdStructure === 'aerobic_endurance' && displayTarget.mode === 'bucket' && displayTarget.bucket === 'low';
   let bucketXssTag = '';
-  let matchTag = '';
   let shareFillPct = null;
   let shareBucket = state.bucket;
 
@@ -1204,7 +1251,6 @@ function routeCardHTML(route, compact, favorites = new Set()) {
       peak: 0,
     }
     : perBucketOpportunityXss;
-  const viableRecommendation = routeRecommendationViable(route);
 
   if (displayTarget.mode === 'mixed') {
     const parts = ['low', 'high', 'peak'].map(b => {
@@ -1215,15 +1261,11 @@ function routeCardHTML(route, compact, favorites = new Set()) {
       return `<span class="xss-fill ${b}"><span class="bucket-word ${b}">${b.toUpperCase()}</span> ~${xss}${target}</span>`;
     }).filter(Boolean);
     bucketXssTag = parts.join('');
-    matchTag = viableRecommendation
-      ? '<span class="route-match mixed">Top fit for today\'s mixed workout</span>'
-      : '<span class="route-match approximate">Approximation only</span>';
   } else {
     const b = displayTarget.bucket;
     shareBucket = b;
     if (b === 'recovery') {
       bucketXssTag = `<span class="xss-fill">${perBucketXss.low} LOW XSS est.</span>`;
-      matchTag = '<span class="route-match">Recovery day</span>';
     } else {
       const parts = ['low', 'high', 'peak'].map(bkt => {
         const xss = perBucketXss[bkt];
@@ -1237,9 +1279,6 @@ function routeCardHTML(route, compact, favorites = new Set()) {
       shareFillPct = state.dailySummary?.remaining?.[b]
         ? Math.min(Math.round(bXss / Math.max(state.dailySummary.remaining[b], 1) * 100), 100)
         : null;
-      matchTag = viableRecommendation
-        ? bucketBadgeHTML('route-match', b, `Top fit for today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> need`)
-        : '<span class="route-match approximate">Approximation only</span>';
     }
   }
 
@@ -1250,7 +1289,6 @@ function routeCardHTML(route, compact, favorites = new Set()) {
   const shareBtn = !compact
     ? `<button class="share-btn" data-share-text="${shareText.replace(/"/g, '&quot;')}" aria-label="Copy to clipboard">Copy</button>`
     : '';
-
   const cls = compact ? 'route-card compact' : 'route-card';
   const favCls = isFavorited ? ` favorited` : '';
 
@@ -1271,6 +1309,19 @@ function routeCardHTML(route, compact, favorites = new Set()) {
   ].filter(Boolean).join('');
   const showSegmentRow = route.segmentSource !== 'world';
   const segmentRow = showSegmentRow ? segmentRowHTML(route) : '';
+  const routeFacts = [
+    `<span class="route-stat">${displayDist(route.distance)}</span>`,
+    `<span class="route-stat">${displayElev(route.elevation)}</span>`,
+    `<span class="gradient-badge">${displayGrad(parseFloat(gr))}</span>`,
+    timeTag,
+  ].join('');
+  const routeFit = [
+    bucketXssTag,
+    difficultyBadge,
+    lapTag,
+  ].filter(Boolean).join('');
+  const profileMarkup = !compact ? routeProfileSVG(route) : '';
+
 
   return `
     <div class="${cls}${favCls}" data-route-key="${routeKey}">
@@ -1283,18 +1334,17 @@ function routeCardHTML(route, compact, favorites = new Set()) {
         </div>
       </div>
       <div class="route-name">${route.name}</div>
-      <div class="route-stats">
-        <span class="route-stat">${displayDist(route.distance)}</span>
-        <span class="route-stat">${displayElev(route.elevation)}</span>
-        <span class="gradient-badge">${displayGrad(parseFloat(gr))}</span>
-        ${difficultyBadge}
-        ${timeTag}
-        ${lapTag}
-        ${bucketXssTag}
-        ${matchTag}
+      <div class="route-card-meta">
+        <div class="route-stats route-stats-primary">
+          ${routeFacts}
+        </div>
+        <div class="route-stats route-stats-secondary">
+          ${routeFit}
+        </div>
       </div>
       ${route.rideCue ? `<div class="ride-cue"><span class="ride-cue-icon">🎯</span><span>${route.rideCue}</span></div>` : ''}
       ${routeFlags ? `<div class="route-flags">${routeFlags}</div>` : ''}
+      ${profileMarkup}
       ${segmentRow}
       ${reason ? `<div class="route-reason">${reason}</div>` : ''}
       ${links ? `<div class="route-links">${links}</div>` : ''}
@@ -2288,3 +2338,4 @@ document.addEventListener('click', (e) => {
 });
 
 init();
+

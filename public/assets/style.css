@@ -706,10 +706,24 @@ section { margin-bottom: 32px; }
   line-height: 1.3;
 }
 
+.route-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .route-stats {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.route-stats-primary {
+  align-items: center;
+}
+
+.route-stats-secondary {
+  gap: 8px;
 }
 
 .route-stat {
@@ -909,6 +923,50 @@ a.segment-chip:hover {
   border-top: 1px solid var(--border);
 }
 
+.route-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.route-profile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.route-profile-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.route-profile-caption {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.route-profile-svg {
+  width: 100%;
+  height: 56px;
+  display: block;
+}
+
+.route-profile-area {
+  fill: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.route-profile-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
 .time-tag {
   display: inline-block;
   font-size: 0.72rem;
@@ -1182,6 +1240,8 @@ a.segment-chip:hover {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .share-btn {
@@ -1327,3 +1387,4 @@ a.segment-chip:hover {
 .plan-saved-toast.visible {
   opacity: 1;
 }
+

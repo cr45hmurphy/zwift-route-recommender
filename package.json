@@ -11,5 +11,8 @@
     "@electron/asar": "^4.2.0",
     "adm-zip": "^0.5.17",
     "zwift-data": "latest"
+  },
+  "devDependencies": {
+    "netlify": "^24.11.1"
   }
 }

@@ -69,6 +69,13 @@ const SAUCE_ROUTE_ALIASES = {
   'richmond|richmond uci worlds': '2015 worlds course',
 };
 
+const ROUTE_METADATA_OVERRIDES = {
+  'flat-out-fast': {
+    zwiftInsiderUrl: 'https://zwiftinsider.com/route/flat-out-fast/',
+    whatsOnZwiftUrl: 'https://whatsonzwift.com/world/watopia/route/flat-out-fast',
+  },
+};
+
 function decodeXmlEntities(value = '') {
   return String(value)
     .replace(/&apos;/g, '\'')
@@ -406,6 +413,8 @@ function buildRoutes(gameDictionaryXml, routeSegmentMap) {
     const name = decodeXmlEntities(routeAttrs.name);
     const legacyRoute = legacyRouteMap.get(normalizeName(name));
     const signature = String(routeAttrs.signature ?? '');
+    const routeSlug = legacyRoute?.slug ?? slugify(name);
+    const metadataOverride = ROUTE_METADATA_OVERRIDES[routeSlug] ?? null;
     const xmlSegmentSlugs = [...(routeSegmentMap.get(signature) ?? new Set())];
 
     const fallbackSegments = Array.isArray(legacyRoute?.segments)
@@ -420,7 +429,7 @@ function buildRoutes(gameDictionaryXml, routeSegmentMap) {
 
     return {
       name,
-      slug: legacyRoute?.slug ?? slugify(name),
+      slug: routeSlug,
       world: legacyRoute?.world ?? worldSlugFromRoute(routeAttrs),
       distance: asNumber(routeAttrs.distanceInMeters, 1000),
       elevation: Math.round(asNumber(routeAttrs.ascentInMeters)),
@@ -428,8 +437,8 @@ function buildRoutes(gameDictionaryXml, routeSegmentMap) {
       sports: inferSports(routeAttrs.sports, legacyRoute),
       segments: segmentSlugs,
       segmentsOnRoute,
-      zwiftInsiderUrl: legacyRoute?.zwiftInsiderUrl ?? null,
-      whatsOnZwiftUrl: legacyRoute?.whatsOnZwiftUrl ?? null,
+      zwiftInsiderUrl: metadataOverride?.zwiftInsiderUrl ?? legacyRoute?.zwiftInsiderUrl ?? null,
+      whatsOnZwiftUrl: metadataOverride?.whatsOnZwiftUrl ?? legacyRoute?.whatsOnZwiftUrl ?? null,
       signature,
       leadInDistance: asNumber(routeAttrs.leadinDistanceInMeters, 1000),
       leadInElevation: Math.round(asNumber(routeAttrs.leadinAscentInMeters)),
@@ -705,6 +714,80 @@ function sampleRoadSectionStats(roadGeometry, startTime, endTime, steps = 24) {
   };
 }
 
+function sampleRoadSectionPoints(roadGeometry, startTime, endTime, steps = 24) {
+  if (!roadGeometry || (roadGeometry.totalLengthM ?? 0) <= 0) return [];
+
+  const normalizedSteps = Math.max(2, steps);
+  const samples = [];
+
+  for (let index = 0; index < normalizedSteps; index += 1) {
+    const ratio = normalizedSteps === 1 ? 0 : index / (normalizedSteps - 1);
+    let t = startTime + ((endTime - startTime) * ratio);
+    if (roadGeometry.looped && endTime < startTime) {
+      t = startTime + (((endTime + 1) - startTime) * ratio);
+      if (t > 1) t -= 1;
+    }
+    samples.push(positionForRoadTime(roadGeometry, t));
+  }
+
+  return samples;
+}
+
+function downsampleProfile(profile, maxPoints = 120) {
+  if (!Array.isArray(profile) || profile.length <= maxPoints) return profile ?? [];
+  if (maxPoints < 3) return [profile[0], profile.at(-1)];
+
+  const lastIndex = profile.length - 1;
+  const result = [profile[0]];
+
+  for (let index = 1; index < maxPoints - 1; index += 1) {
+    const sampleIndex = Math.round((index / (maxPoints - 1)) * lastIndex);
+    result.push(profile[sampleIndex]);
+  }
+
+  result.push(profile.at(-1));
+  return result;
+}
+
+function buildRouteProfile(sauceRoute, worldRoadGeometry, maxPoints = 120) {
+  const manifest = Array.isArray(sauceRoute?.manifest) ? sauceRoute.manifest : [];
+  if (!manifest.length || !worldRoadGeometry?.size) return null;
+
+  const rawProfile = [];
+  let cumulativeM = 0;
+  let lastPoint = null;
+
+  for (const manifestEntry of manifest) {
+    const roadGeometry = worldRoadGeometry.get(Number(manifestEntry?.roadId));
+    if (!roadGeometry) continue;
+
+    const startTime = Number.isFinite(Number(manifestEntry?.start)) ? Number(manifestEntry.start) : 0;
+    const endTime = Number.isFinite(Number(manifestEntry?.end)) ? Number(manifestEntry.end) : 1;
+    const sectionDistanceM = distanceAlongRoad(roadGeometry, startTime, endTime);
+    const sectionSteps = Math.min(48, Math.max(2, Math.ceil(sectionDistanceM / 150) + 1));
+    const sectionPoints = sampleRoadSectionPoints(roadGeometry, startTime, endTime, sectionSteps);
+
+    for (let index = 0; index < sectionPoints.length; index += 1) {
+      const point = sectionPoints[index];
+      if (!point) continue;
+      if (rawProfile.length && index === 0) continue;
+
+      if (lastPoint) {
+        cumulativeM += distance3d(lastPoint, point);
+      }
+
+      rawProfile.push([
+        Number((cumulativeM / 1000).toFixed(3)),
+        Number(point.z.toFixed(1)),
+      ]);
+      lastPoint = point;
+    }
+  }
+
+  if (rawProfile.length < 2) return null;
+  return downsampleProfile(rawProfile, maxPoints);
+}
+
 function buildRoadGeometryIndex(sauceDataDir) {
   const byWorldId = new Map();
   const worldsDir = join(sauceDataDir, 'worlds');
@@ -856,6 +939,7 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir, roadGeometryB
   const appSegmentsBySlug = new Map(appSegments.map(segment => [segment.slug, segment]));
   const appSegmentIndexes = buildAppSegmentIndexes(appSegments);
   const routeTimelinesBySignature = {};
+  const routeProfilesBySignature = {};
   const unmatchedRoutes = [];
 
   for (const appRoute of appRoutes) {
@@ -879,6 +963,7 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir, roadGeometryB
 
     const worldSegmentsById = worldSegmentMaps.get(sauceRoute.worldId);
     const worldRoadGeometry = roadGeometryByWorldId.get(Number(sauceRoute.worldId)) ?? new Map();
+    routeProfilesBySignature[appRoute.signature] = buildRouteProfile(sauceRoute, worldRoadGeometry);
     const routeSegmentSlugs = [
       ...new Set([
         ...(appRoute.segmentsOnRoute ?? []).map(item => item.segment).filter(Boolean),
@@ -954,7 +1039,7 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir, roadGeometryB
     };
   }
 
-  return { routeTimelinesBySignature, unmatchedRoutes };
+  return { routeTimelinesBySignature, routeProfilesBySignature, unmatchedRoutes };
 }
 
 function writeModule(filePath, exportName, value) {
@@ -977,12 +1062,16 @@ async function main() {
   const { segments, routeSegmentMap } = buildSegments(gameDictionaryXml);
   enrichSegmentsWithSauceGeometry(segments, sauceDataDir, roadGeometryByWorldId);
   const routes = buildRoutes(gameDictionaryXml, routeSegmentMap);
-  const { routeTimelinesBySignature, unmatchedRoutes } = buildRouteTimelines(routes, segments, sauceDataDir, roadGeometryByWorldId);
+  const { routeTimelinesBySignature, routeProfilesBySignature, unmatchedRoutes } = buildRouteTimelines(routes, segments, sauceDataDir, roadGeometryByWorldId);
+  const routesWithProfiles = routes.map(route => ({
+    ...route,
+    profile: routeProfilesBySignature[route.signature] ?? null,
+  }));
   const worldSchedule = buildWorldSchedule(mapScheduleXml);
   const portalData = buildPortalData(portalScheduleXml);
   const versionAttrs = parseAttributes((zwiftVersionXml.match(/<Zwift\s+([^>]+?)\/?>/) ?? [])[1] ?? '');
 
-  writeModule(ROUTES_OUTPUT, 'routes', routes);
+  writeModule(ROUTES_OUTPUT, 'routes', routesWithProfiles);
   writeModule(SEGMENTS_OUTPUT, 'segments', segments);
   writeModule(TIMELINES_OUTPUT, 'routeTimelinesBySignature', routeTimelinesBySignature);
   writeFileSync(
@@ -992,7 +1081,7 @@ async function main() {
       generatedAt: new Date().toISOString(),
       version: versionAttrs.sversion ?? versionAttrs.version ?? null,
       gameVersion: versionAttrs.version ?? null,
-      routeCount: routes.length,
+      routeCount: routesWithProfiles.length,
       segmentCount: segments.length,
       timelineRouteCount: Object.keys(routeTimelinesBySignature).length,
       sauceReleaseVersion: SAUCE_RELEASE_VERSION,
@@ -1004,7 +1093,7 @@ async function main() {
   );
 
   console.log(`Zwift version: ${versionAttrs.sversion ?? versionAttrs.version ?? 'unknown'}`);
-  console.log(`Wrote ${routes.length} routes to ${ROUTES_OUTPUT}`);
+  console.log(`Wrote ${routesWithProfiles.length} routes to ${ROUTES_OUTPUT}`);
   console.log(`Wrote ${segments.length} segments to ${SEGMENTS_OUTPUT}`);
   console.log(`Wrote ${Object.keys(routeTimelinesBySignature).length} route timelines to ${TIMELINES_OUTPUT}`);
   console.log(`Unmatched timeline routes: ${unmatchedRoutes.length}`);
