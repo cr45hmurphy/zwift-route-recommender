@@ -138,8 +138,12 @@ Use Strava activities after the ride to verify whether the rider actually rode t
 ### Sauce4Zwift route export: pre-built JSON library
 Add a `Download for S4Z` button to supported route cards so the rider can import a pre-built JSON route file into Sauce4Zwift and focus entirely on executing the cue during the ride.
 
-### Route profiles (elevation graphs)
-Not available via any API. `zwift-data` has only totals (distance, elevation), not segment-level profiles. Zwift Insider has profile images per route — we already link to their pages. Needed for proportional per-segment bucket attribution.
+### Route profiles — fidelity / polish follow-up
+Native route profiles are now generated from Sauce4Zwift road geometry and rendered directly on full route cards plus the Route Inspector. Remaining work is quality-focused rather than plumbing-focused:
+- continue tuning smoothing / exaggeration so profiles read closer to Zwift Insider without hiding real contour
+- validate more routes for geometry interpretation edge cases beyond the `manifest.reverse` fix
+- decide whether compact cards should eventually get a simplified profile treatment
+- consider a stronger profile simplification pass before proportional per-segment XSS work
 
 ### Sauce4Zwift live integration
 WebSocket connection to Sauce4Zwift for live Magic Buckets tracking during a ride. Would show real-time bucket fill as you ride rather than pre-ride estimates. Requires Sauce4Zwift to be running and exposes a local WebSocket.
@@ -154,7 +158,7 @@ Xert exposes enough context that the app may eventually infer whether the rider 
 Instead of only recommending pre-existing Zwift routes, generate custom S4Z route JSON tailored to the workout structure, e.g. repeated KOM hits with controlled recovery between.
 
 ### Proportional XSS per segment
-Rather than labeling a route as "LOW" or "HIGH", estimate how much XSS each bucket generates from it (flat sections → low, climbs → high, sprint points → peak). Much closer to how Xert actually thinks about rides. Depends on route profile data being available first.
+Rather than labeling a route as "LOW" or "HIGH", estimate how much XSS each bucket generates from it (flat sections → low, climbs → high, sprint points → peak). Much closer to how Xert actually thinks about rides. Depends on route profile fidelity being solid enough to trust per-segment attribution.
 
 ---
 
@@ -170,3 +174,4 @@ Rather than labeling a route as "LOW" or "HIGH", estimate how much XSS each buck
 - Generated route data should be refreshed when Zwift publishes new world or route data: `npm run build-routes` then commit the updated snapshot files.
 - Local dev still requires two terminals (`node proxy.js` + `npx serve .`). A `start.sh`/`start.bat` launcher would simplify this.
 - QA docs now live in `test-plan.md` and `rapid-qa-checklist.md`; keep them updated whenever major recommendation logic or testing affordances change.
+

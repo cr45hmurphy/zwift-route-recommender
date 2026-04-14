@@ -957,6 +957,50 @@ a.segment-chip:hover {
   display: block;
 }
 
+.route-profile-marker-band {
+  opacity: 0.16;
+}
+
+.route-profile-marker-band.climb {
+  fill: var(--accent);
+}
+
+.route-profile-marker-band.sprint {
+  fill: var(--green);
+}
+
+.route-profile-marker-tick {
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.55;
+}
+
+.route-profile-marker-tick.climb {
+  stroke: var(--accent);
+}
+
+.route-profile-marker-tick.sprint {
+  stroke: var(--green);
+}
+
+.route-profile-marker-text {
+  font-size: 8px;
+  text-anchor: middle;
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: rgba(15, 15, 15, 0.9);
+  stroke-width: 2px;
+  stroke-linejoin: round;
+}
+
+.route-profile-marker-text.climb {
+  fill: #f6c08a;
+}
+
+.route-profile-marker-text.sprint {
+  fill: #b7e6b9;
+}
+
 .route-profile-area {
   fill: color-mix(in srgb, var(--accent) 18%, transparent);
 }
@@ -966,6 +1010,46 @@ a.segment-chip:hover {
   stroke: var(--accent);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
+}
+
+.route-profile-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.route-profile-summary-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.route-profile-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.route-profile-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  border: 1px solid transparent;
+}
+
+.route-profile-pill.climb {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #f6c08a;
+}
+
+.route-profile-pill.sprint {
+  background: var(--green-dim);
+  border-color: var(--green);
+  color: #b7e6b9;
 }
 .time-tag {
   display: inline-block;

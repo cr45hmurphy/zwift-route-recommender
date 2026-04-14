@@ -90,6 +90,12 @@
 2. **Plan history persistence** — `savePlan()` fires after every live `refresh()`, storing top-5 route slugs + ride cues + bucket + date in `xert_plan_history` localStorage key (max 30 records); lays groundwork for last-ridden tracking and post-ride feedback; mock mode is excluded from saves
 3. **Mock scenario expansion** — three new QA scenarios: `missing-signature` (null FTP/weight), `empty-history` (zero completed rides), `tired-deficit` (Very Tired + nonzero deficits); all added to `MOCK_SCENARIOS` and `DATA_SOURCE_OPTIONS`
 4. **`?mock=<id>` URL query-param** — loading `?mock=tired-deficit` (or any valid scenario id) sets and persists the scenario without touching the switcher; unknown values silently ignored
+5. **Native route profiles** — `build-zwift-data.mjs` now generates profile geometry from Sauce4Zwift road data and writes it into `routes-data.js`; full route cards and the Route Inspector render native SVG profiles instead of external profile pages
+6. **Card hierarchy cleanup** — route cards now separate route facts from fit/execution tags, order the bucket pills as `LOW / HIGH / PEAK`, and remove the overused "Top fit" badge
+7. **Actionable profile markers** — full cards and the Route Inspector now show key climb/sprint markers from timeline data; compact cards intentionally remain profile-free for now
+8. **Metadata bridge for missing links** — `Flat Out Fast` now has manual ZwiftInsider / What's on Zwift URL overrides where the legacy compatibility source was blank
+9. **Profile interpretation fix** — profile generation now honors `manifest.reverse` in Sauce route geometry, which fixed the phantom-hill issue on routes like `Downtown Eruption` and corrected some flat routes that were rendering too hilly
+10. **Profile polish pass** — on-chart marker text has been removed, profile scaling is less exaggerated, and smoothing is now a light cleanup step rather than heavy shape editing
 
 ---
 

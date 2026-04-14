@@ -1126,7 +1126,14 @@ function renderRouteInspector() {
     outsideTodayWorlds: !todaysRouteKeys.has(route.slug || route.name),
     inspectorOnly: !rankedMatch,
   };
-  card.innerHTML = routeCardHTML(inspectedRoute, false, loadFavorites());
+  card.innerHTML = routeCardHTML(inspectedRoute, false, loadFavorites(), {
+    profile: {
+      height: 78,
+      maxMarkers: 5,
+      showSummary: true,
+      showLabels: false,
+    },
+  });
 
   const noteParts = [];
   if (inspectedRoute.outsideTodayWorlds) {
@@ -1150,10 +1157,68 @@ function buildShareText(route, estMin, fillPct, bucket) {
   return lines.join('\n');
 }
 
-function routeProfileSVG(route, { height = 56 } = {}) {
-  const profile = Array.isArray(route?.profile) ? route.profile : [];
-  if (profile.length < 2) return '';
+function normalizeProfilePayload(route) {
+  const profile = route?.profile;
+  if (Array.isArray(profile) && profile.length >= 2) {
+    const points = profile.map(([profileKm, elevationM, routeKm = profileKm]) => ([
+      Number(profileKm) || 0,
+      Number(elevationM) || 0,
+      Number(routeKm) || Number(profileKm) || 0,
+    ]));
+    return {
+      points,
+      totalProfileKm: Number(points.at(-1)?.[0] ?? 0),
+      totalRouteKm: Number(points.at(-1)?.[2] ?? points.at(-1)?.[0] ?? 0),
+    };
+  }
 
+  if (profile && Array.isArray(profile.points) && profile.points.length >= 2) {
+    const points = profile.points.map(([profileKm, elevationM, routeKm = profileKm]) => ([
+      Number(profileKm) || 0,
+      Number(elevationM) || 0,
+      Number(routeKm) || Number(profileKm) || 0,
+    ]));
+    return {
+      points,
+      totalProfileKm: Number(profile.totalProfileKm ?? points.at(-1)?.[0] ?? 0),
+      totalRouteKm: Number(profile.totalRouteKm ?? points.at(-1)?.[2] ?? points.at(-1)?.[0] ?? 0),
+    };
+  }
+
+  return null;
+}
+
+function abbreviateProfileMarkerName(name = '', maxLength = 18) {
+  const trimmed = String(name).trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, Math.max(maxLength - 1, 1)).trimEnd()}…`;
+}
+
+function visibleProfileMarkers(route, maxMarkers = 3) {
+  const markers = Array.isArray(route?.profileMarkers) ? route.profileMarkers.slice() : [];
+  return markers
+    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.routeStartKm ?? 0) - (b.routeStartKm ?? 0))
+    .slice(0, maxMarkers)
+    .sort((a, b) => (a.routeStartKm ?? 0) - (b.routeStartKm ?? 0) || (b.priority ?? 0) - (a.priority ?? 0));
+}
+
+function routeProfileSummaryHTML(markers = []) {
+  if (!markers.length) return '';
+  const pills = markers
+    .map(marker => `<span class="route-profile-pill ${marker.type}">${abbreviateProfileMarkerName(marker.name, 24)}</span>`)
+    .join('');
+  return `
+    <div class="route-profile-summary">
+      <span class="route-profile-summary-label">Key efforts</span>
+      <div class="route-profile-pill-row">${pills}</div>
+    </div>`;
+}
+
+function routeProfileSVG(route, { height = 56, maxMarkers = 3, showSummary = false, showLabels = false } = {}) {
+  const profilePayload = normalizeProfilePayload(route);
+  if (!profilePayload) return '';
+
+  const profile = profilePayload.points;
   const width = 240;
   const minDistance = Number(profile[0][0]) || 0;
   const maxDistance = Number(profile.at(-1)?.[0]) || minDistance;
@@ -1164,13 +1229,14 @@ function routeProfileSVG(route, { height = 56 } = {}) {
   const maxElevation = Math.max(...elevations);
   const actualElevationRange = Math.max(maxElevation - minElevation, 1);
   const distanceFloorM = Math.min(Math.max(routeDistanceKm * 6, 90), 240);
-  const climbFloorM = Math.min(routeElevationGainM * 0.85, 420);
+  const climbFloorM = Math.min(Math.max(routeElevationGainM * 1.35, 120), 640);
   const visualFloorM = Math.max(distanceFloorM, climbFloorM);
   const elevationRange = Math.max(actualElevationRange, visualFloorM);
   const topPaddingM = (elevationRange - actualElevationRange) / 2;
   const visualTopElevation = maxElevation + topPaddingM;
   const inset = 4;
   const usableHeight = Math.max(height - (inset * 2), 8);
+  const selectedMarkers = visibleProfileMarkers(route, maxMarkers);
 
   const scaled = profile.map(([distance, elevation]) => {
     const x = maxDistance > minDistance
@@ -1184,21 +1250,45 @@ function routeProfileSVG(route, { height = 56 } = {}) {
     .map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x} ${y}`)
     .join(' ');
   const areaPath = `${linePath} L ${width} ${height} L 0 ${height} Z`;
+  const markerElements = selectedMarkers.map((marker, index) => {
+    const startX = maxDistance > minDistance
+      ? ((Number(marker.profileStartKm ?? 0) - minDistance) / (maxDistance - minDistance)) * width
+      : 0;
+    const endX = maxDistance > minDistance
+      ? ((Number(marker.profileEndKm ?? marker.profileStartKm ?? 0) - minDistance) / (maxDistance - minDistance)) * width
+      : startX;
+    const clampedStartX = Math.max(2, Math.min(width - 2, startX));
+    const clampedEndX = Math.max(clampedStartX + 2, Math.min(width - 2, endX));
+    const midX = Number((((clampedStartX + clampedEndX) / 2)).toFixed(2));
+    const labelY = index % 2 === 0 ? 12 : 24;
+    const label = showLabels ? `<text class="route-profile-marker-text ${marker.type}" x="${midX}" y="${labelY}">${abbreviateProfileMarkerName(marker.name, 14)}</text>` : '';
+
+    return `
+      <g class="route-profile-marker ${marker.type}">
+        <rect class="route-profile-marker-band ${marker.type}" x="${Number(clampedStartX.toFixed(2))}" y="${inset}" width="${Number((clampedEndX - clampedStartX).toFixed(2))}" height="${Number((height - (inset * 2)).toFixed(2))}"></rect>
+        <line class="route-profile-marker-tick ${marker.type}" x1="${midX}" y1="${inset}" x2="${midX}" y2="${height - inset}"></line>
+        ${label}
+      </g>`;
+  }).join('');
+  const detailedClass = showSummary || showLabels ? ' detailed' : '';
+  const summaryMarkup = showSummary ? routeProfileSummaryHTML(selectedMarkers) : '';
 
   return `
-    <div class="route-profile" aria-label="Route elevation profile">
+    <div class="route-profile${detailedClass}" aria-label="Route elevation profile">
       <div class="route-profile-header">
         <span class="route-profile-label">Profile</span>
         <span class="route-profile-caption">${displayDist(route.distance)} / ${displayElev(route.elevation)}</span>
       </div>
-      <svg class="route-profile-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-hidden="true">
+      <svg class="route-profile-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-hidden="true" style="height:${height}px">
         <path class="route-profile-area" d="${areaPath}"></path>
+        ${markerElements}
         <path class="route-profile-line" d="${linePath}"></path>
       </svg>
+      ${summaryMarkup}
     </div>`;
 }
 
-function routeCardHTML(route, compact, favorites = new Set()) {
+function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const gr    = route.distance > 0 ? (route.elevation / route.distance).toFixed(1) : '—';
   const world = worldName(route.world);
   const reason = routeReason(route, state.bucket);
@@ -1320,7 +1410,7 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     difficultyBadge,
     lapTag,
   ].filter(Boolean).join('');
-  const profileMarkup = !compact ? routeProfileSVG(route) : '';
+  const profileMarkup = !compact ? routeProfileSVG(route, options.profile ?? {}) : '';
 
 
   return `

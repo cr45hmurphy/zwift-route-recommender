@@ -749,43 +749,202 @@ function downsampleProfile(profile, maxPoints = 120) {
   return result;
 }
 
-function buildRouteProfile(sauceRoute, worldRoadGeometry, maxPoints = 120) {
+function smoothProfilePass(rawProfile, windowKm) {
+  return rawProfile.map((point, index) => {
+    if (index === 0 || index === rawProfile.length - 1) return point;
+
+    const centerKm = Number(point.profileKm ?? 0);
+    let weightedElevation = 0;
+    let totalWeight = 0;
+
+    for (const sample of rawProfile) {
+      const distanceKm = Math.abs((Number(sample.profileKm ?? 0)) - centerKm);
+      if (distanceKm > windowKm) continue;
+      const weight = 1 - (distanceKm / windowKm);
+      weightedElevation += (Number(sample.elevationM ?? 0) * weight);
+      totalWeight += weight;
+    }
+
+    if (totalWeight <= 0) return point;
+    return {
+      ...point,
+      elevationM: Number((weightedElevation / totalWeight).toFixed(1)),
+    };
+  });
+}
+
+function smoothProfile(rawProfile, totalRouteKm) {
+  if (!Array.isArray(rawProfile) || rawProfile.length < 5) return rawProfile ?? [];
+
+  const windowKm = Math.min(Math.max((Number(totalRouteKm) || 0) * 0.018, 0.22), 0.55);
+  const firstPass = smoothProfilePass(rawProfile, windowKm);
+  return smoothProfilePass(firstPass, Math.max(windowKm * 0.7, 0.18));
+}
+
+function buildRouteProfile(sauceRoute, worldRoadGeometry, totalRouteKm, maxPoints = 120) {
   const manifest = Array.isArray(sauceRoute?.manifest) ? sauceRoute.manifest : [];
   if (!manifest.length || !worldRoadGeometry?.size) return null;
 
   const rawProfile = [];
   let cumulativeM = 0;
-  let lastPoint = null;
 
   for (const manifestEntry of manifest) {
     const roadGeometry = worldRoadGeometry.get(Number(manifestEntry?.roadId));
     if (!roadGeometry) continue;
 
-    const startTime = Number.isFinite(Number(manifestEntry?.start)) ? Number(manifestEntry.start) : 0;
-    const endTime = Number.isFinite(Number(manifestEntry?.end)) ? Number(manifestEntry.end) : 1;
+    let startTime = Number.isFinite(Number(manifestEntry?.start)) ? Number(manifestEntry.start) : 0;
+    let endTime = Number.isFinite(Number(manifestEntry?.end)) ? Number(manifestEntry.end) : 1;
+    if (manifestEntry?.reverse) {
+      [startTime, endTime] = [endTime, startTime];
+    }
     const sectionDistanceM = distanceAlongRoad(roadGeometry, startTime, endTime);
     const sectionSteps = Math.min(48, Math.max(2, Math.ceil(sectionDistanceM / 150) + 1));
     const sectionPoints = sampleRoadSectionPoints(roadGeometry, startTime, endTime, sectionSteps);
+    if (!sectionPoints.length) continue;
 
-    for (let index = 0; index < sectionPoints.length; index += 1) {
+    if (!rawProfile.length) {
+      const firstPoint = sectionPoints[0];
+      rawProfile.push({
+        profileKm: 0,
+        elevationM: Number(firstPoint.z.toFixed(1)),
+      });
+    }
+
+    let previousPoint = sectionPoints[0];
+    for (let index = 1; index < sectionPoints.length; index += 1) {
       const point = sectionPoints[index];
       if (!point) continue;
-      if (rawProfile.length && index === 0) continue;
-
-      if (lastPoint) {
-        cumulativeM += distance3d(lastPoint, point);
-      }
-
-      rawProfile.push([
-        Number((cumulativeM / 1000).toFixed(3)),
-        Number(point.z.toFixed(1)),
-      ]);
-      lastPoint = point;
+      cumulativeM += distance3d(previousPoint, point);
+      rawProfile.push({
+        profileKm: Number((cumulativeM / 1000).toFixed(3)),
+        elevationM: Number(point.z.toFixed(1)),
+      });
+      previousPoint = point;
     }
   }
 
   if (rawProfile.length < 2) return null;
-  return downsampleProfile(rawProfile, maxPoints);
+  const smoothedProfile = smoothProfile(rawProfile, totalRouteKm);
+  const totalProfileKm = smoothedProfile.at(-1)?.profileKm ?? 0;
+  if (totalProfileKm <= 0) return null;
+
+  const routeKmScale = Number.isFinite(totalRouteKm) && totalRouteKm > 0
+    ? totalRouteKm / totalProfileKm
+    : 1;
+  const points = smoothedProfile.map(point => ([
+    point.profileKm,
+    point.elevationM,
+    Number((point.profileKm * routeKmScale).toFixed(3)),
+  ]));
+
+  return {
+    totalProfileKm: Number(totalProfileKm.toFixed(3)),
+    totalRouteKm: Number(((Number.isFinite(totalRouteKm) && totalRouteKm > 0) ? totalRouteKm : totalProfileKm).toFixed(3)),
+    points: downsampleProfile(points, maxPoints),
+  };
+}
+
+function isGenericMarkerName(name = '') {
+  const normalized = normalizeName(name);
+  return (
+    normalized === 'sprint' ||
+    normalized === 'sprint reverse' ||
+    normalized === 'sprint forward end' ||
+    normalized === 'sprint reverse end' ||
+    normalized === 'kom' ||
+    normalized === 'kom reverse' ||
+    normalized === 'qom' ||
+    normalized === 'qom reverse' ||
+    normalized === 'unknown segment'
+  );
+}
+
+function profileMarkerPriority(occurrence) {
+  const distanceKm = Number(occurrence?.distanceKm ?? 0);
+  const elevationGainM = Math.max(Number(occurrence?.elevationGainM ?? 0), 0);
+  const avgGradePct = Math.max(Number(occurrence?.avgGradePct ?? 0), 0);
+  const namedBonus = isGenericMarkerName(occurrence?.name) ? 0 : 18;
+  const routeBonus = occurrence?.sourceSection === 'route' ? 6 : occurrence?.sourceSection === 'lap' ? 3 : 0;
+
+  if (occurrence?.type === 'climb') {
+    return Number((namedBonus + routeBonus + elevationGainM + (distanceKm * 18) + (avgGradePct * 6)).toFixed(2));
+  }
+
+  if (occurrence?.type === 'sprint') {
+    const flatness = Math.max(0, 5 - Math.abs(Number(occurrence?.avgGradePct ?? 0)));
+    return Number((namedBonus + routeBonus + (distanceKm * 42) + (flatness * 3)).toFixed(2));
+  }
+
+  return 0;
+}
+
+function pickProfileMarkers(occurrences, profile, limit = 6) {
+  if (!Array.isArray(occurrences) || !occurrences.length || !profile) return [];
+
+  const totalProfileKm = Number(profile.totalProfileKm ?? 0);
+  const totalRouteKm = Number(profile.totalRouteKm ?? 0);
+  if (totalProfileKm <= 0 || totalRouteKm <= 0) return [];
+
+  const seen = new Set();
+  const deduped = [];
+
+  for (const occurrence of occurrences) {
+    if (occurrence?.type !== 'climb' && occurrence?.type !== 'sprint') continue;
+    if (!occurrence?.name || isGenericMarkerName(occurrence.name)) continue;
+
+    const key = occurrence.segmentSlug || `${occurrence.type}:${normalizeNameLoose(occurrence.name)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const routeStartKm = Number(occurrence.startKm ?? 0);
+    const routeEndKm = Number(occurrence.endKm ?? routeStartKm);
+    const profileStartKm = Number(((routeStartKm / totalRouteKm) * totalProfileKm).toFixed(3));
+    const profileEndKm = Number(((routeEndKm / totalRouteKm) * totalProfileKm).toFixed(3));
+
+    deduped.push({
+      type: occurrence.type,
+      name: occurrence.name,
+      segmentSlug: occurrence.segmentSlug ?? null,
+      routeStartKm,
+      routeEndKm,
+      profileStartKm,
+      profileEndKm,
+      priority: profileMarkerPriority(occurrence),
+      sourceSection: occurrence.sourceSection ?? 'route',
+    });
+  }
+
+  const climbs = deduped
+    .filter(marker => marker.type === 'climb')
+    .sort((a, b) => b.priority - a.priority || a.routeStartKm - b.routeStartKm)
+    .slice(0, 3);
+  const sprints = deduped
+    .filter(marker => marker.type === 'sprint')
+    .sort((a, b) => b.priority - a.priority || a.routeStartKm - b.routeStartKm)
+    .slice(0, 3);
+
+  const selected = [];
+  const selectedKeys = new Set();
+  for (const marker of [...climbs, ...sprints].sort((a, b) => b.priority - a.priority || a.routeStartKm - b.routeStartKm)) {
+    const key = marker.segmentSlug || `${marker.type}:${normalizeNameLoose(marker.name)}`;
+    if (selectedKeys.has(key)) continue;
+    selected.push(marker);
+    selectedKeys.add(key);
+  }
+
+  if (selected.length < limit) {
+    for (const marker of deduped.sort((a, b) => b.priority - a.priority || a.routeStartKm - b.routeStartKm)) {
+      const key = marker.segmentSlug || `${marker.type}:${normalizeNameLoose(marker.name)}`;
+      if (selectedKeys.has(key)) continue;
+      selected.push(marker);
+      selectedKeys.add(key);
+      if (selected.length >= limit) break;
+    }
+  }
+
+  return selected
+    .slice(0, limit)
+    .sort((a, b) => a.routeStartKm - b.routeStartKm || b.priority - a.priority);
 }
 
 function buildRoadGeometryIndex(sauceDataDir) {
@@ -940,6 +1099,7 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir, roadGeometryB
   const appSegmentIndexes = buildAppSegmentIndexes(appSegments);
   const routeTimelinesBySignature = {};
   const routeProfilesBySignature = {};
+  const routeProfileMarkersBySignature = {};
   const unmatchedRoutes = [];
 
   for (const appRoute of appRoutes) {
@@ -963,16 +1123,16 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir, roadGeometryB
 
     const worldSegmentsById = worldSegmentMaps.get(sauceRoute.worldId);
     const worldRoadGeometry = roadGeometryByWorldId.get(Number(sauceRoute.worldId)) ?? new Map();
-    routeProfilesBySignature[appRoute.signature] = buildRouteProfile(sauceRoute, worldRoadGeometry);
+    const leadInKm = Number(((sauceRoute.leadinDistanceInMeters ?? appRoute.leadInDistance * 1000 ?? 0) / 1000).toFixed(3));
+    const totalKm = Number(((sauceRoute.distanceInMeters ?? appRoute.distance * 1000 ?? 0) / 1000).toFixed(3));
+    const lapKm = Number(Math.max(totalKm - leadInKm, 0).toFixed(3));
+    routeProfilesBySignature[appRoute.signature] = buildRouteProfile(sauceRoute, worldRoadGeometry, totalKm);
     const routeSegmentSlugs = [
       ...new Set([
         ...(appRoute.segmentsOnRoute ?? []).map(item => item.segment).filter(Boolean),
         ...(appRoute.segments ?? []).filter(Boolean),
       ]),
     ];
-    const leadInKm = Number(((sauceRoute.leadinDistanceInMeters ?? appRoute.leadInDistance * 1000 ?? 0) / 1000).toFixed(3));
-    const totalKm = Number(((sauceRoute.distanceInMeters ?? appRoute.distance * 1000 ?? 0) / 1000).toFixed(3));
-    const lapKm = Number(Math.max(totalKm - leadInKm, 0).toFixed(3));
 
     const occurrences = (sauceRoute.segments ?? [])
       .map((occurrence, index) => {
@@ -1037,9 +1197,13 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir, roadGeometryB
       matchedSegmentCount: occurrences.filter(item => item.segmentSlug).length,
       segments: occurrences,
     };
+    routeProfileMarkersBySignature[appRoute.signature] = pickProfileMarkers(
+      occurrences,
+      routeProfilesBySignature[appRoute.signature],
+    );
   }
 
-  return { routeTimelinesBySignature, routeProfilesBySignature, unmatchedRoutes };
+  return { routeTimelinesBySignature, routeProfilesBySignature, routeProfileMarkersBySignature, unmatchedRoutes };
 }
 
 function writeModule(filePath, exportName, value) {
@@ -1062,10 +1226,11 @@ async function main() {
   const { segments, routeSegmentMap } = buildSegments(gameDictionaryXml);
   enrichSegmentsWithSauceGeometry(segments, sauceDataDir, roadGeometryByWorldId);
   const routes = buildRoutes(gameDictionaryXml, routeSegmentMap);
-  const { routeTimelinesBySignature, routeProfilesBySignature, unmatchedRoutes } = buildRouteTimelines(routes, segments, sauceDataDir, roadGeometryByWorldId);
+  const { routeTimelinesBySignature, routeProfilesBySignature, routeProfileMarkersBySignature, unmatchedRoutes } = buildRouteTimelines(routes, segments, sauceDataDir, roadGeometryByWorldId);
   const routesWithProfiles = routes.map(route => ({
     ...route,
     profile: routeProfilesBySignature[route.signature] ?? null,
+    profileMarkers: routeProfileMarkersBySignature[route.signature] ?? [],
   }));
   const worldSchedule = buildWorldSchedule(mapScheduleXml);
   const portalData = buildPortalData(portalScheduleXml);
