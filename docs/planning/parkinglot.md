@@ -6,6 +6,8 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
+### Fix card copy. Copies to text fine, but the card image copy stopped at somepoint and it needs to be brought back.
+
 ### Route card → inspector navigation everywhere
 The new route-card inspect link works on full recommendation cards, but the next step is to make that affordance available anywhere a route profile/card appears, not just the top 5 recommendations.
 
