@@ -141,7 +141,7 @@ Add a `Download for S4Z` button to supported route cards so the rider can import
 ### Route profiles — fidelity / polish follow-up
 Native route profiles are now generated from Sauce4Zwift road geometry and rendered directly on full route cards plus the Route Inspector. Remaining work is quality-focused rather than plumbing-focused:
 - continue tuning smoothing / exaggeration so profiles read closer to Zwift Insider without hiding real contour
-- validate more routes for geometry interpretation edge cases beyond the `manifest.reverse` fix
+- validate more routes for geometry interpretation edge cases beyond the `manifest.reverse` + looped-road reverse fixes
 - decide whether compact cards should eventually get a simplified profile treatment
 - consider a stronger profile simplification pass before proportional per-segment XSS work
 

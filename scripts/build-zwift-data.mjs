@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import AdmZip from 'adm-zip';
 import { extractAll } from '@electron/asar';
 import { routes as legacyRoutes, segments as legacySegments } from 'zwift-data';
+import { summarizeProfile } from '../public/app/core/profile.js';
 
 const GAME_DICTIONARY_URL = 'https://cdn.zwift.com/gameassets/GameDictionary.xml';
 const MAP_SCHEDULE_URL = 'https://cdn.zwift.com/gameassets/MapSchedule_v2.xml';
@@ -653,7 +654,7 @@ function positionForRoadTime(roadGeometry, roadTime) {
   };
 }
 
-function distanceAlongRoad(roadGeometry, startTime, endTime) {
+function distanceAlongRoad(roadGeometry, startTime, endTime, { reverse = false } = {}) {
   const start = positionForRoadTime(roadGeometry, startTime);
   const end = positionForRoadTime(roadGeometry, endTime);
   const totalLengthM = roadGeometry?.totalLengthM ?? 0;
@@ -661,14 +662,31 @@ function distanceAlongRoad(roadGeometry, startTime, endTime) {
 
   if (totalLengthM <= 0) return 0;
 
-  if (looped && end.distanceM < start.distanceM) {
+  // Reversed manifest sections should travel directly from end -> start,
+  // not wrap around the entire looped road.
+  if (!reverse && looped && end.distanceM < start.distanceM) {
     return (totalLengthM - start.distanceM) + end.distanceM;
   }
 
   return Math.abs(end.distanceM - start.distanceM);
 }
 
-function sampleRoadSectionStats(roadGeometry, startTime, endTime, steps = 24) {
+function roadSectionTimeAtRatio(roadGeometry, startTime, endTime, ratio, { reverse = false } = {}) {
+  if (reverse) {
+    const fromTime = endTime;
+    const toTime = startTime;
+    return fromTime + ((toTime - fromTime) * ratio);
+  }
+
+  let t = startTime + ((endTime - startTime) * ratio);
+  if (roadGeometry.looped && endTime < startTime) {
+    t = startTime + (((endTime + 1) - startTime) * ratio);
+    if (t > 1) t -= 1;
+  }
+  return t;
+}
+
+function sampleRoadSectionStats(roadGeometry, startTime, endTime, steps = 24, options = {}) {
   if (!roadGeometry || (roadGeometry.totalLengthM ?? 0) <= 0) {
     return {
       distanceM: 0,
@@ -684,11 +702,7 @@ function sampleRoadSectionStats(roadGeometry, startTime, endTime, steps = 24) {
 
   for (let index = 0; index < normalizedSteps; index += 1) {
     const ratio = normalizedSteps === 1 ? 0 : index / (normalizedSteps - 1);
-    let t = startTime + ((endTime - startTime) * ratio);
-    if (roadGeometry.looped && endTime < startTime) {
-      t = startTime + (((endTime + 1) - startTime) * ratio);
-      if (t > 1) t -= 1;
-    }
+    const t = roadSectionTimeAtRatio(roadGeometry, startTime, endTime, ratio, options);
     samples.push(positionForRoadTime(roadGeometry, t));
   }
 
@@ -714,7 +728,7 @@ function sampleRoadSectionStats(roadGeometry, startTime, endTime, steps = 24) {
   };
 }
 
-function sampleRoadSectionPoints(roadGeometry, startTime, endTime, steps = 24) {
+function sampleRoadSectionPoints(roadGeometry, startTime, endTime, steps = 24, options = {}) {
   if (!roadGeometry || (roadGeometry.totalLengthM ?? 0) <= 0) return [];
 
   const normalizedSteps = Math.max(2, steps);
@@ -722,11 +736,7 @@ function sampleRoadSectionPoints(roadGeometry, startTime, endTime, steps = 24) {
 
   for (let index = 0; index < normalizedSteps; index += 1) {
     const ratio = normalizedSteps === 1 ? 0 : index / (normalizedSteps - 1);
-    let t = startTime + ((endTime - startTime) * ratio);
-    if (roadGeometry.looped && endTime < startTime) {
-      t = startTime + (((endTime + 1) - startTime) * ratio);
-      if (t > 1) t -= 1;
-    }
+    const t = roadSectionTimeAtRatio(roadGeometry, startTime, endTime, ratio, options);
     samples.push(positionForRoadTime(roadGeometry, t));
   }
 
@@ -776,9 +786,9 @@ function smoothProfilePass(rawProfile, windowKm) {
 function smoothProfile(rawProfile, totalRouteKm) {
   if (!Array.isArray(rawProfile) || rawProfile.length < 5) return rawProfile ?? [];
 
-  const windowKm = Math.min(Math.max((Number(totalRouteKm) || 0) * 0.018, 0.22), 0.55);
+  const windowKm = Math.min(Math.max((Number(totalRouteKm) || 0) * 0.024, 0.28), 0.68);
   const firstPass = smoothProfilePass(rawProfile, windowKm);
-  return smoothProfilePass(firstPass, Math.max(windowKm * 0.7, 0.18));
+  return smoothProfilePass(firstPass, Math.max(windowKm * 0.82, 0.24));
 }
 
 function buildRouteProfile(sauceRoute, worldRoadGeometry, totalRouteKm, maxPoints = 120) {
@@ -792,14 +802,12 @@ function buildRouteProfile(sauceRoute, worldRoadGeometry, totalRouteKm, maxPoint
     const roadGeometry = worldRoadGeometry.get(Number(manifestEntry?.roadId));
     if (!roadGeometry) continue;
 
-    let startTime = Number.isFinite(Number(manifestEntry?.start)) ? Number(manifestEntry.start) : 0;
-    let endTime = Number.isFinite(Number(manifestEntry?.end)) ? Number(manifestEntry.end) : 1;
-    if (manifestEntry?.reverse) {
-      [startTime, endTime] = [endTime, startTime];
-    }
-    const sectionDistanceM = distanceAlongRoad(roadGeometry, startTime, endTime);
+    const startTime = Number.isFinite(Number(manifestEntry?.start)) ? Number(manifestEntry.start) : 0;
+    const endTime = Number.isFinite(Number(manifestEntry?.end)) ? Number(manifestEntry.end) : 1;
+    const reverse = Boolean(manifestEntry?.reverse);
+    const sectionDistanceM = distanceAlongRoad(roadGeometry, startTime, endTime, { reverse });
     const sectionSteps = Math.min(48, Math.max(2, Math.ceil(sectionDistanceM / 150) + 1));
-    const sectionPoints = sampleRoadSectionPoints(roadGeometry, startTime, endTime, sectionSteps);
+    const sectionPoints = sampleRoadSectionPoints(roadGeometry, startTime, endTime, sectionSteps, { reverse });
     if (!sectionPoints.length) continue;
 
     if (!rawProfile.length) {
@@ -1037,7 +1045,9 @@ function enrichSegmentsWithSauceGeometry(appSegments, sauceDataDir, roadGeometry
       const stats = sampleRoadSectionStats(
         roadGeometry,
         sauceSegment.roadStart,
-        sauceSegment.roadFinish
+        sauceSegment.roadFinish,
+        24,
+        { reverse: Boolean(sauceSegment.reverse) }
       );
       const computedDistanceKm = Number((stats.distanceM / 1000).toFixed(3));
       if ((appSegment.distance ?? 0) > 0 && computedDistanceKm > 0) {
@@ -1148,7 +1158,13 @@ function buildRouteTimelines(appRoutes, appSegments, sauceDataDir, roadGeometryB
         const offsetMeters = Number(occurrence.offset ?? 0);
         const roadGeometry = sauceSegment ? worldRoadGeometry.get(Number(sauceSegment.roadId)) : null;
         const geometryStats = sauceSegment && roadGeometry
-          ? sampleRoadSectionStats(roadGeometry, sauceSegment.roadStart, sauceSegment.roadFinish)
+          ? sampleRoadSectionStats(
+            roadGeometry,
+            sauceSegment.roadStart,
+            sauceSegment.roadFinish,
+            24,
+            { reverse: Boolean(sauceSegment.reverse) }
+          )
           : null;
         const rawDistanceMeters =
           Number(occurrence.distance ?? 0) ||
@@ -1213,6 +1229,36 @@ function writeModule(filePath, exportName, value) {
   );
 }
 
+function logProfileAudit(routesWithProfiles) {
+  const flagged = routesWithProfiles
+    .map(route => {
+      const summary = summarizeProfile(route);
+      if (!summary?.flatAuditFlag) return null;
+      return {
+        name: route.name,
+        world: route.world,
+        elevation: route.elevation,
+        profileRange: summary.actualElevationRange,
+        robustRange: summary.robustElevationRange,
+        gradientMPerKm: summary.gradientMPerKm,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.profileRange - a.profileRange || a.elevation - b.elevation);
+
+  console.log(`Profile audit flags: ${flagged.length}`);
+  if (!flagged.length) return;
+
+  console.log(flagged
+    .slice(0, 10)
+    .map(route => (
+      `- ${route.world}: ${route.name} | route elev ${route.elevation} m | ` +
+      `profile span ${route.profileRange.toFixed(1)} m | robust span ${route.robustRange.toFixed(1)} m | ` +
+      `${route.gradientMPerKm.toFixed(1)} m/km`
+    ))
+    .join('\n'));
+}
+
 async function main() {
   const sauceDataDir = await ensureSauceDataDir();
   const roadGeometryByWorldId = buildRoadGeometryIndex(sauceDataDir);
@@ -1261,6 +1307,7 @@ async function main() {
   console.log(`Wrote ${routesWithProfiles.length} routes to ${ROUTES_OUTPUT}`);
   console.log(`Wrote ${segments.length} segments to ${SEGMENTS_OUTPUT}`);
   console.log(`Wrote ${Object.keys(routeTimelinesBySignature).length} route timelines to ${TIMELINES_OUTPUT}`);
+  logProfileAudit(routesWithProfiles);
   console.log(`Unmatched timeline routes: ${unmatchedRoutes.length}`);
   if (unmatchedRoutes.length) {
     console.log(unmatchedRoutes.map(route => `- ${route.world}: ${route.name}`).join('\n'));

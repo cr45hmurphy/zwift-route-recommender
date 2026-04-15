@@ -6,7 +6,8 @@
     "build-routes": "node scripts/build-zwift-data.mjs",
     "build-segments": "node scripts/build-zwift-data.mjs",
     "serve": "npx serve public",
-    "test:scorer": "node scripts/test-scorer.mjs"
+    "test:scorer": "node scripts/test-scorer.mjs",
+    "test:profiles": "node scripts/test-profile-scaling.mjs"
   },
   "dependencies": {
     "@electron/asar": "^4.2.0",

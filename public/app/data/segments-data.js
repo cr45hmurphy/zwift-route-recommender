@@ -72,7 +72,7 @@ export const segments = [
     "type": "climb",
     "world": "france",
     "distance": 0.403,
-    "elevation": null,
+    "elevation": 0,
     "avgIncline": 5,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/24701010"
@@ -127,8 +127,8 @@ export const segments = [
     "type": "sprint",
     "world": "france",
     "distance": 0.325,
-    "elevation": null,
-    "avgIncline": -0.69,
+    "elevation": 1,
+    "avgIncline": 0.69,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/24700963"
   },
@@ -171,8 +171,8 @@ export const segments = [
     "type": "sprint",
     "world": "france",
     "distance": 0.193,
-    "elevation": null,
-    "avgIncline": -3.48,
+    "elevation": 7,
+    "avgIncline": 3.48,
     "climbType": null,
     "stravaSegmentUrl": null
   },
@@ -325,7 +325,7 @@ export const segments = [
     "type": "climb",
     "world": "london",
     "distance": 3,
-    "elevation": null,
+    "elevation": 30,
     "avgIncline": 4.3,
     "climbType": "4",
     "stravaSegmentUrl": "https://www.strava.com/segments/12744502"
@@ -480,7 +480,7 @@ export const segments = [
     "world": "makuri-islands",
     "distance": 0.48,
     "elevation": 2,
-    "avgIncline": -0.04,
+    "avgIncline": 0.04,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/30412903"
   },
@@ -513,7 +513,7 @@ export const segments = [
     "world": "makuri-islands",
     "distance": 0.32,
     "elevation": 0,
-    "avgIncline": 0.08,
+    "avgIncline": -0.08,
     "climbType": null,
     "stravaSegmentUrl": null
   },
@@ -535,7 +535,7 @@ export const segments = [
     "world": "makuri-islands",
     "distance": 0.13,
     "elevation": null,
-    "avgIncline": null,
+    "avgIncline": 0,
     "climbType": null,
     "stravaSegmentUrl": null
   },
@@ -567,8 +567,8 @@ export const segments = [
     "type": "sprint",
     "world": "makuri-islands",
     "distance": 0.29,
-    "elevation": null,
-    "avgIncline": null,
+    "elevation": 2,
+    "avgIncline": 0.51,
     "climbType": null,
     "stravaSegmentUrl": null
   },
@@ -600,8 +600,8 @@ export const segments = [
     "type": "sprint",
     "world": "makuri-islands",
     "distance": 0.31,
-    "elevation": 1,
-    "avgIncline": -0.85,
+    "elevation": 4,
+    "avgIncline": 0.85,
     "climbType": null,
     "stravaSegmentUrl": null
   },
@@ -623,7 +623,7 @@ export const segments = [
     "world": "makuri-islands",
     "distance": 0.14,
     "elevation": null,
-    "avgIncline": null,
+    "avgIncline": 0.01,
     "climbType": null,
     "stravaSegmentUrl": null
   },
@@ -655,7 +655,7 @@ export const segments = [
     "type": "climb",
     "world": "new-york",
     "distance": 1.1,
-    "elevation": 70,
+    "elevation": 1,
     "avgIncline": 5.7,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/19141092"
@@ -733,7 +733,7 @@ export const segments = [
     "world": "new-york",
     "distance": 9.7,
     "elevation": null,
-    "avgIncline": 1.5,
+    "avgIncline": -1.5,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/19170661"
   },
@@ -754,7 +754,7 @@ export const segments = [
     "type": "sprint",
     "world": "new-york",
     "distance": 0.2,
-    "elevation": 5,
+    "elevation": null,
     "avgIncline": 2.4,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/40342778"
@@ -776,7 +776,7 @@ export const segments = [
     "type": "sprint",
     "world": "new-york",
     "distance": 0.25,
-    "elevation": null,
+    "elevation": 6,
     "avgIncline": 1.3,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/40342857"
@@ -820,7 +820,7 @@ export const segments = [
     "type": "sprint",
     "world": "new-york",
     "distance": 0.4,
-    "elevation": null,
+    "elevation": 0,
     "avgIncline": 0.1,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/40338223"
@@ -1007,7 +1007,7 @@ export const segments = [
     "type": "climb",
     "world": "scotland",
     "distance": 1.6,
-    "elevation": 118,
+    "elevation": 3,
     "avgIncline": 3.7,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/33636401"
@@ -1084,7 +1084,7 @@ export const segments = [
     "type": "climb",
     "world": "watopia",
     "distance": 6.27,
-    "elevation": 771,
+    "elevation": 100,
     "avgIncline": 6.3,
     "climbType": "2",
     "stravaSegmentUrl": "https://www.strava.com/segments/16784850"
@@ -1128,7 +1128,7 @@ export const segments = [
     "type": "climb",
     "world": "watopia",
     "distance": 1.3,
-    "elevation": null,
+    "elevation": 1,
     "avgIncline": 3.1,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/38132913"
@@ -1194,7 +1194,7 @@ export const segments = [
     "type": "climb",
     "world": "watopia",
     "distance": 0.89,
-    "elevation": null,
+    "elevation": 15,
     "avgIncline": 6.6,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/21343961"
@@ -1216,7 +1216,7 @@ export const segments = [
     "type": "climb",
     "world": "watopia",
     "distance": 2.4,
-    "elevation": 144,
+    "elevation": 15,
     "avgIncline": 2,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/12128029"
@@ -1227,8 +1227,8 @@ export const segments = [
     "type": "segment",
     "world": "watopia",
     "distance": 7.1,
-    "elevation": 169,
-    "avgIncline": 0.01,
+    "elevation": 11,
+    "avgIncline": -0.02,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/20350066"
   },
@@ -1249,7 +1249,7 @@ export const segments = [
     "type": "segment",
     "world": "watopia",
     "distance": 9.01,
-    "elevation": 145,
+    "elevation": null,
     "avgIncline": 0,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/12128037"
@@ -1293,7 +1293,7 @@ export const segments = [
     "type": "sprint",
     "world": "watopia",
     "distance": 0.45,
-    "elevation": 4,
+    "elevation": 1,
     "avgIncline": -1.1,
     "climbType": null,
     "stravaSegmentUrl": null
@@ -1359,7 +1359,7 @@ export const segments = [
     "type": "sprint",
     "world": "watopia",
     "distance": 0.35,
-    "elevation": 1,
+    "elevation": null,
     "avgIncline": -0.9,
     "climbType": null,
     "stravaSegmentUrl": null
@@ -1403,7 +1403,7 @@ export const segments = [
     "type": "sprint",
     "world": "watopia",
     "distance": 0.4,
-    "elevation": 5,
+    "elevation": 2,
     "avgIncline": 0.4,
     "climbType": null,
     "stravaSegmentUrl": null
@@ -1436,7 +1436,7 @@ export const segments = [
     "type": "sprint",
     "world": "watopia",
     "distance": 0.5,
-    "elevation": 10,
+    "elevation": 5,
     "avgIncline": -1.6,
     "climbType": null,
     "stravaSegmentUrl": null
@@ -1491,7 +1491,7 @@ export const segments = [
     "type": "sprint",
     "world": "yorkshire",
     "distance": 0.4,
-    "elevation": null,
+    "elevation": 15,
     "avgIncline": -4,
     "climbType": null,
     "stravaSegmentUrl": "https://www.strava.com/segments/21748007"

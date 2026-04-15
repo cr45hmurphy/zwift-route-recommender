@@ -2,6 +2,8 @@
 
 ## Status: Clean. All changes committed and pushed to master. WOTD fetch is fully wired; live classification will work when Xert serves a workoutId in training_info.
 
+11. **Looped-road reverse profile fix** â€” route-profile generation now samples reversed sections on looped roads explicitly instead of accidentally wrapping around the full loop; this removed the phantom-mountain artifact on routes like `Flat Out Fast` and `Tempus Fugit` and should apply generically to any route with the same manifest pattern
+
 ---
 
 ## What exists

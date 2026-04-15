@@ -2,6 +2,7 @@ import { authenticate, fetchTrainingInfo, fetchWorkout, fetchActivitiesInRange, 
 import { routes } from './core/routes.js';
 import { getPreferredWorldContext, getWorldScheduleContext, filterRoutesToWorlds, worldName } from './core/routes.js';
 import { getTodaysPortalRoad } from './core/portal.js';
+import { scaleProfilePoints } from './core/profile.js';
 import { getSegmentsForRoute } from './core/segments.js';
 import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, uniqueTimelineSegments, withRecoveryGaps } from './core/timelines.js';
 import { analyzeTrainingDay, deriveRouteBucketSupport, generateRideCue, optimizeRoutes, routeHonestyLabel, wotdTerrainScore } from './core/scorer.js';
@@ -1157,37 +1158,6 @@ function buildShareText(route, estMin, fillPct, bucket) {
   return lines.join('\n');
 }
 
-function normalizeProfilePayload(route) {
-  const profile = route?.profile;
-  if (Array.isArray(profile) && profile.length >= 2) {
-    const points = profile.map(([profileKm, elevationM, routeKm = profileKm]) => ([
-      Number(profileKm) || 0,
-      Number(elevationM) || 0,
-      Number(routeKm) || Number(profileKm) || 0,
-    ]));
-    return {
-      points,
-      totalProfileKm: Number(points.at(-1)?.[0] ?? 0),
-      totalRouteKm: Number(points.at(-1)?.[2] ?? points.at(-1)?.[0] ?? 0),
-    };
-  }
-
-  if (profile && Array.isArray(profile.points) && profile.points.length >= 2) {
-    const points = profile.points.map(([profileKm, elevationM, routeKm = profileKm]) => ([
-      Number(profileKm) || 0,
-      Number(elevationM) || 0,
-      Number(routeKm) || Number(profileKm) || 0,
-    ]));
-    return {
-      points,
-      totalProfileKm: Number(profile.totalProfileKm ?? points.at(-1)?.[0] ?? 0),
-      totalRouteKm: Number(profile.totalRouteKm ?? points.at(-1)?.[2] ?? points.at(-1)?.[0] ?? 0),
-    };
-  }
-
-  return null;
-}
-
 function abbreviateProfileMarkerName(name = '', maxLength = 18) {
   const trimmed = String(name).trim();
   if (trimmed.length <= maxLength) return trimmed;
@@ -1214,37 +1184,29 @@ function routeProfileSummaryHTML(markers = []) {
     </div>`;
 }
 
+function routeProfileContextHTML(route, scale) {
+  if (!scale || scale.scalingMode !== 'flat-conservative') return '';
+
+  let label = 'Minor rollers';
+  if ((route?.elevation ?? 0) <= 30) {
+    label = 'Mostly flat';
+  } else if ((route?.elevation ?? 0) >= 70) {
+    label = 'Gentle rollers';
+  }
+
+  return `<span class="route-profile-context">${label}</span>`;
+}
+
 function routeProfileSVG(route, { height = 56, maxMarkers = 3, showSummary = false, showLabels = false } = {}) {
-  const profilePayload = normalizeProfilePayload(route);
-  if (!profilePayload) return '';
+  const geometry = scaleProfilePoints(route, { width: 240, height, inset: 4 });
+  if (!geometry) return '';
 
-  const profile = profilePayload.points;
-  const width = 240;
-  const minDistance = Number(profile[0][0]) || 0;
-  const maxDistance = Number(profile.at(-1)?.[0]) || minDistance;
-  const routeDistanceKm = Math.max(Number(route?.distance) || maxDistance || 0, maxDistance || 0);
-  const routeElevationGainM = Math.max(Number(route?.elevation) || 0, 0);
-  const elevations = profile.map(point => Number(point[1]) || 0);
-  const minElevation = Math.min(...elevations);
-  const maxElevation = Math.max(...elevations);
-  const actualElevationRange = Math.max(maxElevation - minElevation, 1);
-  const distanceFloorM = Math.min(Math.max(routeDistanceKm * 6, 90), 240);
-  const climbFloorM = Math.min(Math.max(routeElevationGainM * 1.35, 120), 640);
-  const visualFloorM = Math.max(distanceFloorM, climbFloorM);
-  const elevationRange = Math.max(actualElevationRange, visualFloorM);
-  const topPaddingM = (elevationRange - actualElevationRange) / 2;
-  const visualTopElevation = maxElevation + topPaddingM;
-  const inset = 4;
-  const usableHeight = Math.max(height - (inset * 2), 8);
+  const { scaled, width, inset } = geometry;
+  const {
+    minDistance,
+    maxDistance,
+  } = geometry.scale;
   const selectedMarkers = visibleProfileMarkers(route, maxMarkers);
-
-  const scaled = profile.map(([distance, elevation]) => {
-    const x = maxDistance > minDistance
-      ? ((Number(distance) - minDistance) / (maxDistance - minDistance)) * width
-      : 0;
-    const y = inset + ((visualTopElevation - Number(elevation)) / elevationRange) * usableHeight;
-    return [Number(x.toFixed(2)), Number(y.toFixed(2))];
-  });
 
   const linePath = scaled
     .map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x} ${y}`)
@@ -1271,12 +1233,13 @@ function routeProfileSVG(route, { height = 56, maxMarkers = 3, showSummary = fal
       </g>`;
   }).join('');
   const detailedClass = showSummary || showLabels ? ' detailed' : '';
+  const contextMarkup = routeProfileContextHTML(route, geometry.scale);
   const summaryMarkup = showSummary ? routeProfileSummaryHTML(selectedMarkers) : '';
 
   return `
     <div class="route-profile${detailedClass}" aria-label="Route elevation profile">
       <div class="route-profile-header">
-        <span class="route-profile-label">Profile</span>
+        <span class="route-profile-label">Profile ${contextMarkup}</span>
         <span class="route-profile-caption">${displayDist(route.distance)} / ${displayElev(route.elevation)}</span>
       </div>
       <svg class="route-profile-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-hidden="true" style="height:${height}px">

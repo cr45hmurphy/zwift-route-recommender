@@ -957,6 +957,15 @@ a.segment-chip:hover {
   display: block;
 }
 
+.route-profile-context {
+  margin-left: 8px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  color: color-mix(in srgb, var(--green) 75%, var(--text-muted) 25%);
+}
+
 .route-profile-marker-band {
   opacity: 0.16;
 }
