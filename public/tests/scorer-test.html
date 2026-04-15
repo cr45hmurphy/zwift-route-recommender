@@ -295,8 +295,20 @@
       { name: 'Running Route',         world: 'watopia',        distance: 5.0,    elevation: 50,   eventOnly: false, sports: ['running'] },
     ];
 
+    const RECOVERY_ESTIMATE_MINUTES = new Map([
+      ['Flat Out Fast', 56],
+      ['Tempus Fugit', 44],
+      ['Tick Tock', 46],
+      ['Going Coastal', 46],
+      ['Red Zone Repeats', 56],
+    ]);
+
     const estimateMinutes = r => Math.round((r.distance / 28) * 60 + (r.elevation / 700) * 60);
     const routeByNameData = Object.fromEntries(ALL_ROUTES.map(route => [route.name, route]));
+
+    function estimateRecoveryFixtureMinutes(route) {
+      return RECOVERY_ESTIMATE_MINUTES.get(route.name) ?? estimateMinutes(route);
+    }
 
     function supportForRouteName(name, availableMinutes = 60) {
       const route = routeByNameData[name];
@@ -462,6 +474,35 @@
         <table><tr><th>Expectation</th><th>Actual</th><th>Result</th></tr>
         <tr><td>PEAK cue uses rider-facing climb name on 2018 Worlds Short Lap</td><td>${worldsShortLapCue}</td>
           <td style="color:${cueNamePass ? 'var(--green)' : 'var(--red)'}">${cueNamePass ? 'PASS' : 'FAIL'}</td></tr></table>`;
+
+      const recoveryFixtureRoutes = [
+        routeByNameData['Flat Out Fast'],
+        routeByNameData['Tempus Fugit'],
+        routeByNameData['Tick Tock'],
+        routeByNameData['Going Coastal'],
+        routeByNameData['Red Zone Repeats'],
+      ].filter(Boolean);
+      const recoveryFixtureRanked = optimizeRoutes(recoveryFixtureRoutes, {
+        bucket: 'recovery',
+        deficits: { low: 0, high: 0, peak: 0 },
+        availableMinutes: 60,
+        estimateMinutes: estimateRecoveryFixtureMinutes,
+        getRouteSegments: route => getSegmentsForRoute(route),
+        recoveryMode: true,
+        limit: recoveryFixtureRoutes.length,
+      });
+      const recoveryOrder = recoveryFixtureRanked.map(route => `${route.name} (${route.score})`).join(' > ');
+      const recoveryScorePass = recoveryFixtureRanked.every(route => route.score === Math.round(route.utility * 100));
+      const recoveryOrderPass =
+        recoveryFixtureRanked[0]?.name === 'Flat Out Fast' &&
+        recoveryFixtureRanked[1]?.name === 'Tempus Fugit' &&
+        recoveryFixtureRanked.every((route, index, ranked) => index === 0 || ranked[index - 1].score >= route.score);
+      html += `<h2>Recovery ranking/display alignment <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Expectation</th><th>Actual</th><th>Result</th></tr>
+        <tr><td>Displayed recovery score equals ranking value for every card</td><td>${recoveryOrder}</td>
+          <td style="color:${recoveryScorePass ? 'var(--green)' : 'var(--red)'}">${recoveryScorePass ? 'PASS' : 'FAIL'}</td></tr>
+        <tr><td>60-minute fixture keeps Flat Out Fast ahead of Tempus Fugit and scores descend with order</td><td>${recoveryOrder}</td>
+          <td style="color:${recoveryOrderPass ? 'var(--green)' : 'var(--red)'}">${recoveryOrderPass ? 'PASS' : 'FAIL'}</td></tr></table>`;
 
       // Stability
       const stabilityRoutes = [

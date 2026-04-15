@@ -753,20 +753,22 @@ export function optimizeRoutes(routes, options = {}) {
       .map(route => {
         const estimatedMinutes = estimateMinutes(route);
         const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
-        const score = scoreRoute(route, 'recovery', tuning);
+        const rawScore = scoreRoute(route, 'recovery', tuning);
         const routeSegments = getRouteSegments(route);
         const contributions = getRouteSupport
           ? getRouteSupport(route, routeSegments, estimatedMinutes)
           : routeContributions(route, tuning);
+        const utility = (rawScore / 100) * timeFit;
         return {
           ...route,
-          score,
+          score: Math.round(utility * 100),
+          rawScore,
           estimatedMinutes,
           optimizerTimeFit: timeFit,
           optimizerBreakdown: contributions,
           wotdTerrainScore: terrainScoreForStructure(route, wotdStructure, routeSegments, contributions),
           optimizerReason: optimizerReason(contributions, {}, 'recovery', describeTimeFit(estimatedMinutes, availableMinutes), wotdStructure),
-          utility: Math.round(score * timeFit),
+          utility,
         };
       })
       .sort((a, b) => compareOptimizedRoutes(a, b, availableMinutes))
