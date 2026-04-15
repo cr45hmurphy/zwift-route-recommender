@@ -909,6 +909,12 @@ section { margin-bottom: 32px; }
   color: #b7e6b9;
 }
 
+.segment-chip.segment {
+  background: color-mix(in srgb, #5b2a86 18%, transparent);
+  border-color: color-mix(in srgb, #8c52c7 72%, var(--border) 28%);
+  color: #d9c2f3;
+}
+
 a.segment-chip:hover {
   text-decoration: none;
   filter: brightness(1.08);
@@ -916,11 +922,32 @@ a.segment-chip:hover {
 
 .route-links {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   font-size: 0.78rem;
   margin-top: auto;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+}
+
+.route-nav-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.route-nav-link:hover {
+  color: color-mix(in srgb, var(--accent) 82%, white 18%);
+}
+
+.route-card-focused {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, white 35%);
+  outline-offset: 3px;
 }
 
 .route-profile {
@@ -978,6 +1005,10 @@ a.segment-chip:hover {
   fill: var(--green);
 }
 
+.route-profile-marker-band.segment {
+  fill: #8c52c7;
+}
+
 .route-profile-marker-tick {
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
@@ -990,6 +1021,10 @@ a.segment-chip:hover {
 
 .route-profile-marker-tick.sprint {
   stroke: var(--green);
+}
+
+.route-profile-marker-tick.segment {
+  stroke: #b27ae6;
 }
 
 .route-profile-marker-text {
@@ -1008,6 +1043,10 @@ a.segment-chip:hover {
 
 .route-profile-marker-text.sprint {
   fill: #b7e6b9;
+}
+
+.route-profile-marker-text.segment {
+  fill: #dfc7ff;
 }
 
 .route-profile-area {
@@ -1059,6 +1098,12 @@ a.segment-chip:hover {
   background: var(--green-dim);
   border-color: var(--green);
   color: #b7e6b9;
+}
+
+.route-profile-pill.segment {
+  background: color-mix(in srgb, #5b2a86 18%, transparent);
+  border-color: color-mix(in srgb, #8c52c7 72%, var(--border) 28%);
+  color: #dfc7ff;
 }
 .time-tag {
   display: inline-block;

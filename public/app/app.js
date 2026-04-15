@@ -275,10 +275,74 @@ function preferNamedSegments(segments = []) {
   return named.length ? named : segments;
 }
 
+function isDisplayableRouteSegment(segment) {
+  return segment?.type === 'sprint' || segment?.type === 'climb' || segment?.type === 'segment';
+}
+
+function segmentDisplayKind(segment) {
+  if (segment?.type === 'climb') return 'climb';
+  if (segment?.type === 'sprint') return 'sprint';
+  return 'segment';
+}
+
+function buildInformationalProfileMarkers(routeTimeline, routeProfile) {
+  const occurrences = Array.isArray(routeTimeline?.segments) ? routeTimeline.segments : [];
+  const totalProfileKm = Number(routeProfile?.totalProfileKm ?? 0);
+  const totalRouteKm = Number(routeProfile?.totalRouteKm ?? 0);
+  if (!occurrences.length || totalProfileKm <= 0 || totalRouteKm <= 0) return [];
+
+  const seen = new Set();
+  const markers = [];
+
+  for (const occurrence of occurrences) {
+    if (occurrence?.type !== 'segment') continue;
+    if (!occurrence?.name || isGenericSegmentName(occurrence.name)) continue;
+
+    const key = occurrence.segmentSlug || `segment:${String(occurrence.name).toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const routeStartKm = Number(occurrence.startKm ?? 0);
+    const routeEndKm = Number(occurrence.endKm ?? routeStartKm);
+    const profileStartKm = Number(((routeStartKm / totalRouteKm) * totalProfileKm).toFixed(3));
+    const profileEndKm = Number(((routeEndKm / totalRouteKm) * totalProfileKm).toFixed(3));
+    const distanceKm = Math.max(Number(occurrence.distanceKm ?? routeEndKm - routeStartKm), 0);
+
+    markers.push({
+      type: 'segment',
+      name: occurrence.name,
+      segmentSlug: occurrence.segmentSlug ?? null,
+      routeStartKm,
+      routeEndKm,
+      profileStartKm,
+      profileEndKm,
+      priority: Number((26 + (distanceKm * 5)).toFixed(2)),
+      sourceSection: occurrence.sourceSection ?? 'route',
+    });
+  }
+
+  return markers;
+}
+
+function mergeProfileMarkers(baseMarkers = [], extraMarkers = []) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const marker of [...baseMarkers, ...extraMarkers]) {
+    if (!marker) continue;
+    const key = marker.segmentSlug || `${marker.type}:${String(marker.name ?? '').toLowerCase()}:${Number(marker.routeStartKm ?? 0).toFixed(3)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(marker);
+  }
+
+  return merged;
+}
+
 function orderedRelevantSegments(route) {
   if (Array.isArray(route.orderedSegments) && route.orderedSegments.length) {
     const ordered = preferNamedSegments(route.orderedSegments)
-      .filter(segment => segment.type === 'sprint' || segment.type === 'climb');
+      .filter(isDisplayableRouteSegment);
     if (ordered.length) return ordered;
   }
 
@@ -296,7 +360,7 @@ function segmentRowHTML(route) {
   const previewSegments = orderedSegments.slice(0, previewLimit);
   const remainingCount = orderedSegments.length - previewSegments.length;
   const previewItems = previewSegments
-    .map(segment => segmentChipHTML(segment, segment.type === 'climb' ? 'climb' : 'sprint'))
+    .map(segment => segmentChipHTML(segment, segmentDisplayKind(segment)))
     .join('');
 
   if (remainingCount <= 0) {
@@ -308,7 +372,7 @@ function segmentRowHTML(route) {
   }
 
   const fullItems = orderedSegments
-    .map(segment => segmentChipHTML(segment, segment.type === 'climb' ? 'climb' : 'sprint'))
+    .map(segment => segmentChipHTML(segment, segmentDisplayKind(segment)))
     .join('');
 
   return `
@@ -847,8 +911,9 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
   const timelineSprints = uniqueTimelineSegments(expandedTimeline, 'sprint');
   const routeTimeline = timeline ? { ...timeline, occurrences: expandedTimeline } : null;
   const orderedSegments = timeline
-    ? preferNamedSegments((timeline.segments ?? []).filter(segment => segment.type === 'sprint' || segment.type === 'climb'))
+    ? preferNamedSegments((timeline.segments ?? []).filter(isDisplayableRouteSegment))
     : [];
+  const informationalProfileMarkers = buildInformationalProfileMarkers(timeline, route.profile);
   const relevantClimbs = timelineClimbs.length ? timelineClimbs.slice(0, 4) : preferNamedSegments(routeSegments.climbs).slice(0, 4);
   const relevantSprints = timelineSprints.length ? timelineSprints : preferNamedSegments(routeSegments.sprints);
   const bucketSupport = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
@@ -865,6 +930,10 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
     routeTimeline,
     timelineOccurrences: expandedTimeline,
     orderedSegments,
+    profileMarkers: mergeProfileMarkers(
+      Array.isArray(route.profileMarkers) ? route.profileMarkers : [],
+      informationalProfileMarkers,
+    ),
     recommendedLapCount: lapCount,
   };
 }
@@ -1014,6 +1083,44 @@ function renderRoutes() {
     `▼ If you had more time (${viableOverBudget.length} routes)`;
 }
 
+function setToggleOpen(toggleId, listId, label) {
+  const list = document.getElementById(listId);
+  const toggle = document.getElementById(toggleId);
+  if (!list || !toggle) return;
+  list.classList.add('open');
+  toggle.textContent = `▲ ${label} (${list.children.length} ${label === 'Other options' ? 'more' : 'routes'})`;
+}
+
+function openSectionForRouteCard(routeKey) {
+  const escapedKey = CSS.escape(routeKey);
+  if (document.querySelector(`#other-list .route-card[data-route-key="${escapedKey}"]`)) {
+    setToggleOpen('other-toggle', 'other-list', 'Other options');
+  }
+  if (document.querySelector(`#more-time-list .route-card[data-route-key="${escapedKey}"]`)) {
+    setToggleOpen('more-time-toggle', 'more-time-list', 'If you had more time');
+  }
+}
+
+function jumpToInspector(routeKey) {
+  if (!routeKey) return;
+  state.selectedRouteKey = routeKey;
+  localStorage.setItem(ROUTE_PICKER_KEY, state.selectedRouteKey);
+  renderRouteInspector();
+  document.getElementById('route-inspector')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function jumpToRecommendationCard(routeKey) {
+  if (!routeKey) return;
+  openSectionForRouteCard(routeKey);
+  const card = document.querySelector(`#routes-section > .route-grid .route-card[data-route-key="${CSS.escape(routeKey)}"]`)
+    || document.querySelector(`#other-list .route-card[data-route-key="${CSS.escape(routeKey)}"]`)
+    || document.querySelector(`#more-time-list .route-card[data-route-key="${CSS.escape(routeKey)}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('route-card-focused');
+  setTimeout(() => card.classList.remove('route-card-focused'), 1600);
+}
+
 function noRouteMessage(approximateCount, overBudgetCount) {
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
   const targetLabel = displayTarget.mode === 'mixed'
@@ -1134,6 +1241,8 @@ function renderRouteInspector() {
       showSummary: true,
       showLabels: false,
     },
+    inspectorMode: true,
+    allowJumpToRecommendation: eligibleRouteKeys.has(route.slug || route.name),
   });
 
   const noteParts = [];
@@ -1166,9 +1275,20 @@ function abbreviateProfileMarkerName(name = '', maxLength = 18) {
 
 function visibleProfileMarkers(route, maxMarkers = 3) {
   const markers = Array.isArray(route?.profileMarkers) ? route.profileMarkers.slice() : [];
-  return markers
+  const selected = markers
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.routeStartKm ?? 0) - (b.routeStartKm ?? 0))
-    .slice(0, maxMarkers)
+    .slice(0, maxMarkers);
+
+  const hasSegment = selected.some(marker => marker?.type === 'segment');
+  const segmentCandidate = markers
+    .filter(marker => marker?.type === 'segment')
+    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.routeStartKm ?? 0) - (b.routeStartKm ?? 0))[0];
+
+  if (!hasSegment && segmentCandidate && selected.length && maxMarkers > 0) {
+    selected[selected.length - 1] = segmentCandidate;
+  }
+
+  return selected
     .sort((a, b) => (a.routeStartKm ?? 0) - (b.routeStartKm ?? 0) || (b.priority ?? 0) - (a.priority ?? 0));
 }
 
@@ -1177,9 +1297,10 @@ function routeProfileSummaryHTML(markers = []) {
   const pills = markers
     .map(marker => `<span class="route-profile-pill ${marker.type}">${abbreviateProfileMarkerName(marker.name, 24)}</span>`)
     .join('');
+  const label = markers.some(marker => marker?.type === 'segment') ? 'Key route features' : 'Key efforts';
   return `
     <div class="route-profile-summary">
-      <span class="route-profile-summary-label">Key efforts</span>
+      <span class="route-profile-summary-label">${label}</span>
       <div class="route-profile-pill-row">${pills}</div>
     </div>`;
 }
@@ -1344,10 +1465,13 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
     : '';
   const cls = compact ? 'route-card compact' : 'route-card';
   const favCls = isFavorited ? ` favorited` : '';
+  const inspectorMode = Boolean(options.inspectorMode);
 
   const links = [
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
     route.whatsOnZwiftUrl ? `<a href="${route.whatsOnZwiftUrl}" target="_blank" rel="noopener">What's on Zwift</a>` : '',
+    !compact && !inspectorMode ? `<button class="route-nav-link" type="button" data-route-key="${routeKey}" data-nav-action="inspect">Inspect in Route Picker</button>` : '',
+    !compact && inspectorMode && options.allowJumpToRecommendation ? `<button class="route-nav-link" type="button" data-route-key="${routeKey}" data-nav-action="recommendation">Jump to recommendation card</button>` : '',
   ].filter(Boolean).join('');
   const status = routeCardStatus(route);
   const honestyFlagText = { 'true-mixed': 'TRUE mixed', 'low-high': 'LOW+HIGH route' };
@@ -2388,6 +2512,23 @@ document.addEventListener('click', (e) => {
   document.querySelectorAll(`.route-card[data-route-key="${CSS.escape(routeKey)}"]`).forEach(card => {
     card.classList.toggle('favorited', isFav);
   });
+});
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.route-nav-link');
+  if (!btn) return;
+  const routeKey = btn.getAttribute('data-route-key');
+  const action = btn.getAttribute('data-nav-action');
+  if (!routeKey || !action) return;
+
+  if (action === 'inspect') {
+    jumpToInspector(routeKey);
+    return;
+  }
+
+  if (action === 'recommendation') {
+    jumpToRecommendationCard(routeKey);
+  }
 });
 
 init();

@@ -6,6 +6,14 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
+### Route card → inspector navigation everywhere
+The new route-card inspect link works on full recommendation cards, but the next step is to make that affordance available anywhere a route profile/card appears, not just the top 5 recommendations.
+
+Desired follow-up:
+- add the same `Inspect in Route Picker` jump affordance on compact route cards too
+- keep the two-way inspector/recommendation navigation coherent when a route is in `Other options` or `If you had more time`
+- make sure non-top-5 routes are just as easy to inspect as the headline recommendations
+
 ### WOTD live validation
 The workout fetch chain is wired but hasn't been tested end-to-end against a live mixed-mode day. When Xert schedules a `#MIXEDMODE` workout:
 - Confirm `training_info` returns a `workoutId`
