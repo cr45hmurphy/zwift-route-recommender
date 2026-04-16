@@ -108,7 +108,7 @@
 
 11. **Flat-profile regression test update** — `scripts/test-profile-scaling.mjs` now treats repaired real fixtures (`Flat Out Fast`, `Tempus Fugit`) as clean while preserving audit coverage with a synthetic phantom-spike route; `npm run test:profiles` and `npm run test:scorer` pass
 
-12. **Share image/text copy repair** — card sharing now has explicit `Image` and `Text` actions; image copy writes PNG-only clipboard data, collapses full route-sequence expansion in the captured clone, and avoids html2canvas's unsupported `color-mix()` path on informational segment chips; text copy remains available for text-only apps such as Notepad++
+12. **Share image/text copy repair** — card sharing now has explicit `Image` and `Text` actions; image copy writes PNG-only clipboard data, collapses full route-sequence expansion in the captured clone, and avoids html2canvas's unsupported `color-mix()` path on informational segment chips; text copy remains available for text-only apps such as Notepad++; both paths have been manually confirmed
 13. **Plan history persistence** — `savePlan()` fires after every live `refresh()`, storing top-5 route slugs + ride cues + bucket + date in `xert_plan_history` localStorage key (max 30 records); lays groundwork for last-ridden tracking and post-ride feedback; mock mode is excluded from saves
 14. **Mock scenario expansion** — three new QA scenarios: `missing-signature` (null FTP/weight), `empty-history` (zero completed rides), `tired-deficit` (Very Tired + nonzero deficits); all added to `MOCK_SCENARIOS` and `DATA_SOURCE_OPTIONS`
 15. **`?mock=<id>` URL query-param** — loading `?mock=tired-deficit` (or any valid scenario id) sets and persists the scenario without touching the switcher; unknown values silently ignored
@@ -141,7 +141,7 @@
 16. **Full route dataset in scorer-test** — rankings and optimizer tables use all ~300 real routes; fixtures kept only for pass/fail heuristic checks
 17. **W/kg difficulty labels** — Comfortable / Moderate / Challenging badge per route card, personalized to rider's gradient ratio vs W/kg; hidden in manual pace mode; thresholds `<2.5` / `2.5–5.0` / `>5.0`
 18. **Lap/repeat suggestions** — when estimated route time fills ≤60% of budget and 2+ laps fit, shows "↩ Consider N laps (~Xm)" in route stats
-19. **Share controls** — `Image` copies a PNG screenshot of the card (html2canvas 2×) as PNG-only clipboard data; `Text` copies the plain route cue for text-only paste targets
+19. **Share controls** — `Image` copies a PNG screenshot of the card (html2canvas 2×) as PNG-only clipboard data; `Text` copies the plain route cue for text-only paste targets; both were manually confirmed after the route-sequence capture cleanup
 20. **Favorite routes** — star button on every card; gold star + amber left border; persisted to `localStorage` under `xert_favorites`; in-place DOM toggle, no re-render
 
 ---

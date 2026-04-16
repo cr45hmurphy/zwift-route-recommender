@@ -24,7 +24,7 @@ This document started as a redesign brief. It now serves as the design-status do
 - **Route honesty label in route flags.** "TRUE mixed" or "LOW+HIGH route" pill shown in the flags row on each card. Styled with bucket-appropriate colors.
 - **Time estimation overhaul.** The old additive climb model was replaced by a single effective-speed model using W/kg-derived flat speed and gradient penalty. The Sugar Cookie estimate that originally missed by ~18 minutes is now close to the observed ride time; remaining work is validation/tuning, not first-pass implementation.
 - **Flat-route profile repair.** The Sauce-derived profile pipeline no longer renders the Flat Out Fast / Tempus Fugit phantom-profile class as mountain-shaped. `Flat Out Fast` was manually confirmed after `scripts/test-profile-scaling.mjs` was updated to treat repaired fixtures as clean while preserving synthetic phantom-spike audit coverage.
-- **Share image/text copy repair.** Route-card sharing now has explicit `Image` and `Text` actions. Image copy writes PNG-only clipboard data, collapses full route-sequence expansion in the capture clone, and avoids html2canvas's unsupported `color-mix()` path on informational segment chips; text copy supports text-only paste targets.
+- **Share image/text copy repair.** Route-card sharing now has explicit `Image` and `Text` actions. Image copy writes PNG-only clipboard data, collapses full route-sequence expansion in the capture clone, and avoids html2canvas's unsupported `color-mix()` path on informational segment chips; text copy supports text-only paste targets. Both paths are manually confirmed.
 - **LOW-day execution display fix.** LOW-day cards now show the prescribed steady-Z2 execution instead of over-advertising incidental HIGH opportunity, while route-truth pills still describe what the venue contains.
 - **Favorites boost and plan history foundation.** Starred routes get a small self-limiting ranking nudge, and live refreshes save a top-5 daily plan into `xert_plan_history` for future history/last-ridden/feedback features.
 - **Mock scenario expansion and `?mock=<id>`.** Missing-signature, empty-history, and tired-deficit QA scenarios are available, and URL query-param selection can persist a mock scenario.
@@ -80,7 +80,7 @@ Use the following checks before merging future scoring changes:
 - No console errors during mock switching, time slider changes, or unit toggling.
 - `scorer-test.html` loads and heuristic checks pass.
 - `npm run test:profiles` passes and covers both repaired flat fixtures plus a synthetic phantom-spike audit case.
-- Share-copy browser check confirms expanded busy-route cards copy as compact `image/png` images, and the separate text action copies plain text for Notepad++ style targets.
+- Share-copy browser check confirms expanded busy-route cards copy as compact `image/png` images, and the separate text action copies plain text for Notepad++ style targets. User manual confirmation completed for both paths.
 
 ---
 
@@ -400,7 +400,6 @@ A flat route dressed up with sprint segments is a LOW route. The app should say 
 
 Priority order for Claude Code:
 
-1. **Fix card image copy regression** — text copy works, but PNG copy via `html2canvas`/`ClipboardItem` stopped working
 1. **Finish inspector navigation coverage** — add Route Inspector jump links to compact cards, `Other options`, and `If you had more time`
 1. **Validate live WOTD mixed-mode flow** — confirm workout enrichment and classification against a real or simulated `#MIXEDMODE` day
 1. **Finish geometry-driven scoring** — use the road-geometry-derived fields more deeply so punchy climbs earn PEAK and flat sprints stay HIGH
