@@ -24,7 +24,7 @@ This document started as a redesign brief. It now serves as the design-status do
 - **Route honesty label in route flags.** "TRUE mixed" or "LOW+HIGH route" pill shown in the flags row on each card. Styled with bucket-appropriate colors.
 - **Time estimation overhaul.** The old additive climb model was replaced by a single effective-speed model using W/kg-derived flat speed and gradient penalty. The Sugar Cookie estimate that originally missed by ~18 minutes is now close to the observed ride time; remaining work is validation/tuning, not first-pass implementation.
 - **Flat-route profile repair.** The Sauce-derived profile pipeline no longer renders the Flat Out Fast / Tempus Fugit phantom-profile class as mountain-shaped. `Flat Out Fast` was manually confirmed after `scripts/test-profile-scaling.mjs` was updated to treat repaired fixtures as clean while preserving synthetic phantom-spike audit coverage.
-- **Share image copy repair.** Route-card sharing now writes PNG-only clipboard data on the image path, with plain text reserved as the fallback. This fixes paste targets choosing text instead of the card image.
+- **Share image/text copy repair.** Route-card sharing now has explicit `Image` and `Text` actions. Image copy writes PNG-only clipboard data, collapses full route-sequence expansion in the capture clone, and avoids html2canvas's unsupported `color-mix()` path on informational segment chips; text copy supports text-only paste targets.
 - **LOW-day execution display fix.** LOW-day cards now show the prescribed steady-Z2 execution instead of over-advertising incidental HIGH opportunity, while route-truth pills still describe what the venue contains.
 - **Favorites boost and plan history foundation.** Starred routes get a small self-limiting ranking nudge, and live refreshes save a top-5 daily plan into `xert_plan_history` for future history/last-ridden/feedback features.
 - **Mock scenario expansion and `?mock=<id>`.** Missing-signature, empty-history, and tired-deficit QA scenarios are available, and URL query-param selection can persist a mock scenario.
@@ -80,7 +80,7 @@ Use the following checks before merging future scoring changes:
 - No console errors during mock switching, time slider changes, or unit toggling.
 - `scorer-test.html` loads and heuristic checks pass.
 - `npm run test:profiles` passes and covers both repaired flat fixtures plus a synthetic phantom-spike audit case.
-- Share-copy browser check confirms route-card copy writes `image/png` only on the rich clipboard path, so paste targets receive the image.
+- Share-copy browser check confirms expanded busy-route cards copy as compact `image/png` images, and the separate text action copies plain text for Notepad++ style targets.
 
 ---
 

@@ -1460,8 +1460,9 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const isFavorited = favorites.has(routeKey);
   const favoriteBtn = `<button class="favorite-btn${isFavorited ? ' favorited' : ''}" data-route-key="${routeKey}" aria-label="Favorite">★</button>`;
   const shareText = buildShareText(route, estMin, shareFillPct, shareBucket);
+  const escapedShareText = shareText.replace(/"/g, '&quot;');
   const shareBtn = !compact
-    ? `<button class="share-btn" data-share-text="${shareText.replace(/"/g, '&quot;')}" aria-label="Copy to clipboard">Copy</button>`
+    ? `<button class="share-btn" data-share-mode="image" data-share-text="${escapedShareText}" aria-label="Copy route card image">Image</button><button class="share-btn share-text-btn" data-share-mode="text" data-share-text="${escapedShareText}" aria-label="Copy route card text">Text</button>`
     : '';
   const cls = compact ? 'route-card compact' : 'route-card';
   const favCls = isFavorited ? ` favorited` : '';
@@ -2466,12 +2467,40 @@ function canvasToPngBlob(canvas) {
   });
 }
 
+function fullSequenceCount(details) {
+  const summaryText = details?.querySelector('summary')?.textContent ?? '';
+  const match = summaryText.match(/\((\d+)\s+efforts?\)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function prepareRouteCardCloneForShare(clonedCard) {
+  if (!clonedCard) return;
+
+  clonedCard.querySelectorAll('.segment-row').forEach(row => {
+    const details = row.querySelector('.segment-details');
+    const totalCount = fullSequenceCount(details);
+    details?.remove();
+
+    const chips = Array.from(row.querySelectorAll('.segment-chips:not(.segment-chips-full) .segment-chip'));
+    const shareLimit = 4;
+    chips.slice(shareLimit).forEach(chip => chip.remove());
+
+    if (totalCount > shareLimit && chips.length > shareLimit) {
+      const moreChip = row.ownerDocument.createElement('span');
+      moreChip.className = 'segment-chip segment';
+      moreChip.textContent = `+${totalCount - shareLimit} more`;
+      row.querySelector('.segment-chips')?.appendChild(moreChip);
+    }
+  });
+}
+
 async function renderRouteCardPng(card) {
   if (!card || !window.html2canvas) return null;
   const canvas = await window.html2canvas(card, {
     scale: 2,
     useCORS: true,
     backgroundColor: null,
+    onclone: (_document, clonedCard) => prepareRouteCardCloneForShare(clonedCard),
   });
   return canvasToPngBlob(canvas);
 }
@@ -2500,14 +2529,22 @@ document.addEventListener('click', async (e) => {
   if (!btn) return;
   const text = btn.getAttribute('data-share-text') || '';
   const card = btn.closest('.route-card');
+  const mode = btn.getAttribute('data-share-mode') || 'image';
+  const idleLabel = btn.textContent;
 
   const finish = (label, success) => {
     btn.textContent = label;
     btn.classList.toggle('copied', success);
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+    setTimeout(() => { btn.textContent = idleLabel; btn.classList.remove('copied'); }, 1500);
   };
 
   try {
+    if (mode === 'text') {
+      await navigator.clipboard.writeText(text);
+      finish('Text copied', true);
+      return;
+    }
+
     const copied = await copyRouteCardToClipboard(card, text);
     finish(copied === 'image' ? 'Image copied!' : 'Text copied', true);
   } catch {

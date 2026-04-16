@@ -105,7 +105,7 @@ Next step when this resurfaces: use `xert_plan_history` as the basis for last-ri
 The app now has a compact Recent Progress panel. A stronger next step would be a fuller 7-day overview showing completed vs target totals across the week rather than just a small per-bucket daily trend strip.
 
 ### Share — format improvements
-Share button is live. The image path now writes PNG-only clipboard data so paste targets choose the card image; plain text remains the fallback when rich clipboard/image rendering is unavailable. Potential improvements: richer plain text formatting, better ride cue truncation, option to share just text without image.
+Share controls are live. `Image` writes PNG-only clipboard data so rich paste targets choose the card image; `Text` writes the plain route cue for text-only apps. The image capture also collapses full route-sequence expansion in the cloned card so busy segment routes stay shareable. Potential improvements: richer plain text formatting and better ride cue truncation.
 
 ### ZwiftMap iframe — expandable route map on cards
 Adds an expandable map panel to route cards using ZwiftMap's public website via iframe so riders can visually inspect the route before starting.

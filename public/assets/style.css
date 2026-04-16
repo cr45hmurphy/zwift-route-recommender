@@ -910,8 +910,8 @@ section { margin-bottom: 32px; }
 }
 
 .segment-chip.segment {
-  background: color-mix(in srgb, #5b2a86 18%, transparent);
-  border-color: color-mix(in srgb, #8c52c7 72%, var(--border) 28%);
+  background: rgba(91, 42, 134, 0.18);
+  border-color: rgba(140, 82, 199, 0.72);
   color: #d9c2f3;
 }
 
