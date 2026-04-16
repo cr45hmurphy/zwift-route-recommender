@@ -110,7 +110,7 @@ function summarizeOccurrenceList(occurrences, maxNames = 4) {
   const visible = source.slice(0, maxNames).map(segment => ({ name: segment.name }));
   const base = formatSegmentList(visible);
   const remaining = source.length - visible.length;
-  return remaining > 0 ? `${base}, plus ${remaining} later efforts` : base;
+  return remaining > 0 ? `${base}, then ${remaining} more later` : base;
 }
 
 function spacingNote(occurrences, shortGapKm = 2) {
@@ -893,7 +893,7 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
     const timelineEfforts = orderedTimelineEfforts(routeTimeline);
     if (timelineSprints.length) {
       if (timelineClimbs.length && timelineEfforts.length) {
-        return `Sprint day: work through the route in order: ${summarizeOccurrenceList(timelineEfforts, 6)}. ${spacingNote(timelineSprints)} Go full gas on the sprint banners; use the KOMs as controlled bridges between them.`;
+        return `Sprint day: follow the route order: ${summarizeOccurrenceList(timelineEfforts, 6)}. ${spacingNote(timelineSprints)} Sprint banners are full gas; KOMs are controlled bridges, not extra max efforts.`;
       }
       return `Sprint every viable banner in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Go full gas, then recover completely.`;
     }
@@ -916,20 +916,20 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
     const timelineEfforts = orderedTimelineEfforts(routeTimeline);
     if (!trueMixed) {
       if (timelineClimbs.length) {
-        return `This route is mostly a climb route, so use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2. It supports low + high work better than true sprint efforts.`;
+        return `This is a LOW+HIGH venue, not a true mixed route. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2 and do not expect much PEAK work.`;
       }
       if (timelineSprints.length) {
-        return `Ride the flats in Z2, then hit every viable sprint in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Expect low + high support more than true PEAK work.`;
+        return `This is a LOW+HIGH venue, not a true mixed route. Ride flats in Z2, then hit sprints in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Expect little true PEAK work.`;
       }
     }
     if (timelineSprints.length) {
       if (timelineClimbs.length && timelineEfforts.length) {
-        return `Ride the flats in Z2, then work through the route in order: ${summarizeOccurrenceList(timelineEfforts, 5)}. ${spacingNote(timelineEfforts)}`;
+        return `Ride Z2 between efforts, then follow the route order: ${summarizeOccurrenceList(timelineEfforts, 5)}. Sprints are max efforts; climbs are controlled hard efforts. ${spacingNote(timelineEfforts)}`;
       }
       return `Ride the flats in Z2, then hit every viable sprint in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)}`;
     }
     if (timelineClimbs.length) {
-      return `This route is mostly a climb route, so use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2. It supports low + high work better than true sprint efforts.`;
+      return `This is mostly a climb route. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2; expect LOW+HIGH more than true PEAK.`;
     }
     const namedSprints = sprints.slice(0, 2);
     if (namedSprints.length >= 1) {

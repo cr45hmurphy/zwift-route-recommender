@@ -1470,7 +1470,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const links = [
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
     route.whatsOnZwiftUrl ? `<a href="${route.whatsOnZwiftUrl}" target="_blank" rel="noopener">What's on Zwift</a>` : '',
-    !compact && !inspectorMode ? `<button class="route-nav-link" type="button" data-route-key="${routeKey}" data-nav-action="inspect">Inspect in Route Picker</button>` : '',
+    !inspectorMode ? `<button class="route-nav-link" type="button" data-route-key="${routeKey}" data-nav-action="inspect">Inspect in Route Picker</button>` : '',
     !compact && inspectorMode && options.allowJumpToRecommendation ? `<button class="route-nav-link" type="button" data-route-key="${routeKey}" data-nav-action="recommendation">Jump to recommendation card</button>` : '',
   ].filter(Boolean).join('');
   const status = routeCardStatus(route);
@@ -2460,6 +2460,50 @@ document.getElementById('settings-data-source').addEventListener('change', async
 
 // ── Delegated: Share button ───────────────────────
 
+function canvasToPngBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas produced no PNG blob')), 'image/png');
+  });
+}
+
+async function renderRouteCardPng(card) {
+  if (!card || !window.html2canvas) return null;
+  const canvas = await window.html2canvas(card, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: null,
+  });
+  return canvasToPngBlob(canvas);
+}
+
+async function writeClipboardItem(items) {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    throw new Error('Rich clipboard unavailable');
+  }
+  await navigator.clipboard.write([new ClipboardItem(items)]);
+}
+
+async function copyRouteCardToClipboard(card, text) {
+  const textBlob = new Blob([text], { type: 'text/plain' });
+  const pngBlob = await renderRouteCardPng(card).catch(() => null);
+
+  if (pngBlob) {
+    try {
+      await writeClipboardItem({
+        'image/png': pngBlob,
+        'text/plain': textBlob,
+      });
+      return 'image';
+    } catch (_) {
+      await writeClipboardItem({ 'image/png': pngBlob });
+      return 'image';
+    }
+  }
+
+  await navigator.clipboard.writeText(text);
+  return 'text';
+}
+
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('.share-btn');
   if (!btn) return;
@@ -2473,22 +2517,12 @@ document.addEventListener('click', async (e) => {
   };
 
   try {
-    const items = { 'text/plain': new Blob([text], { type: 'text/plain' }) };
-
-    if (card && window.html2canvas) {
-      const canvas = await window.html2canvas(card, { scale: 2, useCORS: true, backgroundColor: null });
-      await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(), 'image/png'));
-      const pngBlob = await new Promise((resolve, reject) =>
-        canvas.toBlob(b => b ? resolve(b) : reject(), 'image/png'));
-      items['image/png'] = pngBlob;
-    }
-
-    await navigator.clipboard.write([new ClipboardItem(items)]);
-    finish('Copied!', true);
+    const copied = await copyRouteCardToClipboard(card, text);
+    finish(copied === 'image' ? 'Image copied!' : 'Text copied', true);
   } catch {
     // Fall back to plain text
     navigator.clipboard.writeText(text)
-      .then(() => finish('Copied!', true))
+      .then(() => finish('Text copied', true))
       .catch(() => finish('Error', false));
   }
 });
