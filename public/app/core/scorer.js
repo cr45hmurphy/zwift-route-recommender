@@ -24,8 +24,8 @@ const FAVORITE_BOOST         = 0.08; // utility multiplier for starred routes (s
 const PUNCHY_GRADE_MIN    = 8;   // % — climbs at/above this grade are PEAK-capable when short
 const PUNCHY_DISTANCE_MAX = 2;   // km — climbs shorter than this can generate PEAK neuromuscular work
 const PEAK_COMPACT_DISTANCE_MAX = 0.55; // km — very short rises can still be PEAK even when avg grade is muted by smoothing
-const PEAK_COMPACT_GAIN_MIN     = 18;   // m  — compact punchy climbs should gain meaningful elevation quickly
-const PEAK_SUPPORT_THRESHOLD    = 0.42; // route-level support needed before calling a route truly mixed
+const PEAK_COMPACT_GAIN_MIN     = 14;   // m  — compact punchy climbs should gain meaningful elevation quickly
+const PEAK_SUPPORT_THRESHOLD    = 0.52; // route-level support needed before calling a route truly mixed
 const HIGH_SUPPORT_TARGET       = 1.6;  // summed segment support needed for "full" HIGH support
 const PEAK_SUPPORT_TARGET       = 1.2;  // summed segment support needed for "full" PEAK support
 const PEAK_ROUTE_MIN_SUPPORT    = 0.28; // below this, a route should not contend on PEAK days
@@ -134,7 +134,13 @@ function orderedTimelineOccurrences(routeTimeline, type = null) {
 
 function orderedTimelineEfforts(routeTimeline) {
   return orderedTimelineOccurrences(routeTimeline)
-    .filter(item => item.type === 'sprint' || item.type === 'climb');
+    .filter(item => {
+      if (item.type !== 'sprint' && item.type !== 'climb') return false;
+      // Skip climb occurrences that are net downhill (reverse traversal of a climb segment).
+      // avgGradePct < 0 on a climb type means the route traverses it in the descent direction.
+      if (item.type === 'climb' && typeof item.avgGradePct === 'number' && item.avgGradePct < 0) return false;
+      return true;
+    });
 }
 
 function firstNumber(obj, keys) {
@@ -150,6 +156,9 @@ function segmentAverageGradePct(segment = {}) {
 }
 
 function segmentElevationGainM(segment = {}) {
+  // If net elevation delta is negative (downhill traversal), treat gain as 0 for scoring purposes.
+  const delta = segment.elevationDeltaM ?? null;
+  if (delta !== null && delta < 0) return 0;
   return Math.max(
     valueOr(segment.elevationGainM, segment.elevation, segment.elevationDeltaM, 0) ?? 0,
     0
@@ -275,7 +284,7 @@ export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = n
   const peak = normalizeSupportValue(aggregated.peak * peakDistanceFactor);
   const peakMeaningful =
     peak >= peakThreshold &&
-    aggregated.maxPeak >= 0.6 &&
+    aggregated.maxPeak >= 0.72 &&
     (aggregated.peakOccurrences >= 2 || routeDistance <= 25);
 
   return {

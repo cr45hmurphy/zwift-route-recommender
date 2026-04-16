@@ -89783,7 +89783,8 @@ export const routes = [
     ],
     "segments": [
       "loch-loop",
-      "breakaway-brae-rev"
+      "breakaway-brae-rev",
+      "breakaway-brae"
     ],
     "segmentsOnRoute": [
       {
@@ -89795,6 +89796,11 @@ export const routes = [
         "from": null,
         "to": null,
         "segment": "breakaway-brae-rev"
+      },
+      {
+        "from": null,
+        "to": null,
+        "segment": "breakaway-brae"
       }
     ],
     "zwiftInsiderUrl": "https://zwiftinsider.com/route/loch-loop",
@@ -91432,7 +91438,8 @@ export const routes = [
     ],
     "segments": [
       "sgurr-summit-north",
-      "the-clyde-kicker"
+      "the-clyde-kicker",
+      "breakaway-brae"
     ],
     "segmentsOnRoute": [
       {
@@ -91444,6 +91451,11 @@ export const routes = [
         "from": null,
         "to": null,
         "segment": "the-clyde-kicker"
+      },
+      {
+        "from": null,
+        "to": null,
+        "segment": "breakaway-brae"
       }
     ],
     "zwiftInsiderUrl": "https://zwiftinsider.com/route/scotland-after-party",

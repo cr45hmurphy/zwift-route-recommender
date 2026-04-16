@@ -1597,10 +1597,14 @@ function getTimeSettings() {
   return { minutes, mode: state.timingMode, speed };
 }
 
+// Gradient penalty factor: effective speed degrades as gradient ratio (m/km) increases.
+// Calibrated against real ride data: Flat Out Fast (2.15 m/km) and Sugar Cookie (7.45 m/km).
+const GRADIENT_PENALTY_K = 0.065;
+
 function estimateRouteMinutesManual(route, speedKmh) {
-  const baseMin  = (route.distance / Math.max(speedKmh, 1)) * 60;
-  const climbMin = (route.elevation / 600) * 60; // rough: 600m elevation added per hour
-  return Math.round(baseMin + climbMin);
+  const gradRatio = route.distance > 0 ? (route.elevation ?? 0) / route.distance : 0;
+  const effectiveSpeed = speedKmh / (1 + gradRatio * GRADIENT_PENALTY_K);
+  return Math.round((route.distance / Math.max(effectiveSpeed, 1)) * 60);
 }
 
 function estimateRouteMinutesAuto(route, trainingData) {
@@ -1608,12 +1612,9 @@ function estimateRouteMinutesAuto(route, trainingData) {
   if (!riderWkg) return estimateRouteMinutesManual(route, DEFAULT_SPEED_KMH);
 
   const flatSpeed = estimateFlatSpeedKmh(riderWkg);
-  const baseMinutes = (route.distance / Math.max(flatSpeed, 1)) * 60;
-  const climbingRateMph = clamp(120 + (riderWkg * riderWkg * 125), 350, 2400);
-  const climbMinutes = ((route.elevation ?? 0) / Math.max(climbingRateMph, 1)) * 60;
-  const gradientRatio = route.distance > 0 ? route.elevation / route.distance : 0;
-  const steepnessPenalty = clamp(gradientRatio / 65, 0, 1.1);
-  return Math.round(baseMinutes + climbMinutes + (climbMinutes * steepnessPenalty * 0.35));
+  const gradRatio = route.distance > 0 ? (route.elevation ?? 0) / route.distance : 0;
+  const effectiveSpeed = flatSpeed / (1 + gradRatio * GRADIENT_PENALTY_K);
+  return Math.round((route.distance / Math.max(effectiveSpeed, 1)) * 60);
 }
 
 function estimateRouteMinutes(route, settings, trainingData) {
@@ -2092,7 +2093,7 @@ function getRiderWkg(trainingData) {
 }
 
 function estimateFlatSpeedKmh(riderWkg) {
-  return clamp(18 + riderWkg * 4.5, 18, 40);
+  return clamp(20 + riderWkg * 5, 20, 42);
 }
 
 function estimateBucketImpactXss(minutes, bucket) {

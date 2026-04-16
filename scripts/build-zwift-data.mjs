@@ -77,6 +77,16 @@ const ROUTE_METADATA_OVERRIDES = {
   },
 };
 
+// Segments missing from Sauce route projection for specific routes.
+// Keyed by route slug → array of segment slugs to append.
+// Use when Sauce's routes.json omits a segment that the route clearly passes through.
+// Note: only add real timed Zwift game segments, not ZwiftInsider listing labels.
+const ROUTE_SEGMENT_OVERRIDES = {
+  'scotland-after-party': ['breakaway-brae'],
+  'loch-loop':            ['breakaway-brae'],
+  'loch-loop-reverse':    ['breakaway-brae-rev'],
+};
+
 function decodeXmlEntities(value = '') {
   return String(value)
     .replace(/&apos;/g, '\'')
@@ -421,7 +431,9 @@ function buildRoutes(gameDictionaryXml, routeSegmentMap) {
     const fallbackSegments = Array.isArray(legacyRoute?.segments)
       ? legacyRoute.segments.filter(Boolean)
       : [];
-    const segmentSlugs = xmlSegmentSlugs.length ? xmlSegmentSlugs : fallbackSegments;
+    const baseSegmentSlugs = xmlSegmentSlugs.length ? xmlSegmentSlugs : fallbackSegments;
+    const overrideSegmentSlugs = ROUTE_SEGMENT_OVERRIDES[routeSlug] ?? [];
+    const segmentSlugs = [...new Set([...baseSegmentSlugs, ...overrideSegmentSlugs])];
     const segmentsOnRoute = segmentSlugs.map(segment => ({
       from: null,
       to: null,
