@@ -53,9 +53,9 @@ Current layout:
 Run `npm run build-routes` after updating route-source dependencies or changing the build script in `scripts/`.
 
 ## Catchup Workflow
-When the user says `catchup`, summarize the current project state instead of treating it as a generic question. Start with `git status --short` and `git log --oneline -5`. Then use `rg --files` to find and read continuity notes, especially `docs/planning/catchup.md`, `docs/planning/parkinglot.md`, and any Markdown files under `docs/planning/` whose names include `plan` such as `planning.md`, `test-plan.md`, or `test-plan-feedback.md`.
+When the user says `catchup`, summarize the current project state instead of treating it as a generic question. Start with `git status --short` and `git log --oneline -5`. Then use `rg --files` to find and read continuity notes, especially `docs/planning/catchup.md`, `docs/planning/parkinglot.md`, any Markdown files under `docs/planning/` whose names include `plan` such as `planning.md`, `test-plan.md`, or `test-plan-feedback.md`, and any Markdown files under `docs/` whose names include `design`.
 
-Keep the catchup concise and practical. Report the git state, recent commits, important notes from the planning files, and obvious next actions. Call out generated data files or local artifacts separately from source changes.
+Keep the catchup concise and practical. Report the git state, recent commits, important notes from the planning/design files, and obvious next actions. Call out generated data files or local artifacts separately from source changes.
 
 ## Sauce-Derived Data
 This repo currently uses Sauce for Zwift's release bundle as a build-time data source for route manifests and route-position timelines. It does not depend on the Sauce repo or authenticated Zwift API at runtime.
