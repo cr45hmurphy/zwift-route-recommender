@@ -6,8 +6,6 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
-### Fix card image copy. Text copy works. Image copy (html2canvas PNG via ClipboardItem) stopped working at some point — regression. Text-only fallback is still live. Needs root-cause investigation before next share-button work.
-
 ### Route card → inspector navigation on compact cards and secondary sections
 Inspector navigation is wired on full recommendation cards. Remaining:
 - compact route cards (profile-free summary cards) don't have the inspector affordance yet
@@ -107,7 +105,7 @@ Next step when this resurfaces: use `xert_plan_history` as the basis for last-ri
 The app now has a compact Recent Progress panel. A stronger next step would be a fuller 7-day overview showing completed vs target totals across the week rather than just a small per-bucket daily trend strip.
 
 ### Share — format improvements
-Share button is live (PNG + plain text via ClipboardItem). Potential improvements: richer plain text formatting, better ride cue truncation, option to share just text without image.
+Share button is live. The image path now writes PNG-only clipboard data so paste targets choose the card image; plain text remains the fallback when rich clipboard/image rendering is unavailable. Potential improvements: richer plain text formatting, better ride cue truncation, option to share just text without image.
 
 ### ZwiftMap iframe — expandable route map on cards
 Adds an expandable map panel to route cards using ZwiftMap's public website via iframe so riders can visually inspect the route before starting.
@@ -159,9 +157,9 @@ Use Strava activities after the ride to verify whether the rider actually rode t
 Add a `Download for S4Z` button to supported route cards so the rider can import a pre-built JSON route file into Sauce4Zwift and focus entirely on executing the cue during the ride.
 
 ### Route profiles — fidelity / polish follow-up
-Native route profiles are now generated from Sauce4Zwift road geometry and rendered directly on full route cards plus the Route Inspector. Remaining work is quality-focused rather than plumbing-focused:
+Native route profiles are now generated from Sauce4Zwift road geometry and rendered directly on full route cards plus the Route Inspector. The Flat Out Fast / Tempus Fugit phantom-profile class is fixed; Flat Out Fast was manually confirmed after the regression test was updated. Remaining work is quality-focused rather than plumbing-focused:
 - continue tuning smoothing / exaggeration so profiles read closer to Zwift Insider without hiding real contour
-- validate more routes for geometry interpretation edge cases beyond the `manifest.reverse` + looped-road reverse fixes
+- validate more routes for geometry interpretation edge cases beyond the confirmed `manifest.reverse` + looped-road reverse fixes
 - decide whether compact cards should eventually get a simplified profile treatment
 - consider a stronger profile simplification pass before proportional per-segment XSS work
 

@@ -23,6 +23,8 @@ This document started as a redesign brief. It now serves as the design-status do
 - **Per-bucket XSS badges on route cards — app.js.** Replaced the single blended "~89% of HIGH gap" badge with three per-bucket badges: `LOW ~X/Y · HIGH ~X/Y · PEAK ~X/Y`. HIGH and PEAK show `~0` when no qualifying segments exist. World-fallback routes (no route segment data) show only the LOW badge. Recovery path shows a single LOW estimate.
 - **Route honesty label in route flags.** "TRUE mixed" or "LOW+HIGH route" pill shown in the flags row on each card. Styled with bucket-appropriate colors.
 - **Time estimation overhaul.** The old additive climb model was replaced by a single effective-speed model using W/kg-derived flat speed and gradient penalty. The Sugar Cookie estimate that originally missed by ~18 minutes is now close to the observed ride time; remaining work is validation/tuning, not first-pass implementation.
+- **Flat-route profile repair.** The Sauce-derived profile pipeline no longer renders the Flat Out Fast / Tempus Fugit phantom-profile class as mountain-shaped. `Flat Out Fast` was manually confirmed after `scripts/test-profile-scaling.mjs` was updated to treat repaired fixtures as clean while preserving synthetic phantom-spike audit coverage.
+- **Share image copy repair.** Route-card sharing now writes PNG-only clipboard data on the image path, with plain text reserved as the fallback. This fixes paste targets choosing text instead of the card image.
 - **LOW-day execution display fix.** LOW-day cards now show the prescribed steady-Z2 execution instead of over-advertising incidental HIGH opportunity, while route-truth pills still describe what the venue contains.
 - **Favorites boost and plan history foundation.** Starred routes get a small self-limiting ranking nudge, and live refreshes save a top-5 daily plan into `xert_plan_history` for future history/last-ridden/feedback features.
 - **Mock scenario expansion and `?mock=<id>`.** Missing-signature, empty-history, and tired-deficit QA scenarios are available, and URL query-param selection can persist a mock scenario.
@@ -43,17 +45,16 @@ This document started as a redesign brief. It now serves as the design-status do
 
 ### ❌ Still outstanding
 
-1. **Fix card image copy regression.** Text copy works; PNG copy via `html2canvas`/`ClipboardItem` has regressed.
-2. **Inspector navigation everywhere.** Full recommendation cards are wired, but compact cards plus `Other options` and `If you had more time` need Route Inspector jump links.
-3. **Live WOTD validation.** Confirm the full `training_info -> workoutId -> fetchWorkout -> classifyWOTD -> banner/ranking/cue` chain against a live or simulated `#MIXEDMODE` day.
-4. **Refine cue copy rules.** Better truncation, clearer repeat language, better mixed-route wording, and less awkward handling of interleaved KOM/sprint routes.
-5. **WOTD fallback logic.** Honest "no route fits this bucket mix" messaging instead of forcing a weak match.
-6. **Validate/tune time guidance.** Keep the overhauled time model, but finish the recommended-time/no-fit/over-budget validation round.
-7. **Refactor recommendation scoring.** Move closer to the target architecture: time first, then bucket-segment type match, then density/quality.
-8. **Segment ordering and duplicate hits.** Segment membership is much better, but the UI/cues still need true repeated-hit counts and sequence fidelity where data supports it.
-9. **Post-ride feedback storage.** Store predicted vs. actual per-bucket deltas for calibration.
-10. **Elevation/grade data as active input.** Use road coordinate paths more deeply for accurate per-segment grade classification, PEAK detection, and portal support.
-11. **Expose richer route-truth combos.** Add `HIGH+PEAK`, `LOW+PEAK`, and filtering/browsing affordances for combo-capable routes when the labels are trustworthy.
+1. **Inspector navigation everywhere.** Full recommendation cards are wired, but compact cards plus `Other options` and `If you had more time` need Route Inspector jump links.
+2. **Live WOTD validation.** Confirm the full `training_info -> workoutId -> fetchWorkout -> classifyWOTD -> banner/ranking/cue` chain against a live or simulated `#MIXEDMODE` day.
+3. **Refine cue copy rules.** Better truncation, clearer repeat language, better mixed-route wording, and less awkward handling of interleaved KOM/sprint routes.
+4. **WOTD fallback logic.** Honest "no route fits this bucket mix" messaging instead of forcing a weak match.
+5. **Validate/tune time guidance.** Keep the overhauled time model, but finish the recommended-time/no-fit/over-budget validation round.
+6. **Refactor recommendation scoring.** Move closer to the target architecture: time first, then bucket-segment type match, then density/quality.
+7. **Segment ordering and duplicate hits.** Segment membership is much better, but the UI/cues still need true repeated-hit counts and sequence fidelity where data supports it.
+8. **Post-ride feedback storage.** Store predicted vs. actual per-bucket deltas for calibration.
+9. **Elevation/grade data as active input.** Use road coordinate paths more deeply for accurate per-segment grade classification, PEAK detection, and portal support.
+10. **Expose richer route-truth combos.** Add `HIGH+PEAK`, `LOW+PEAK`, and filtering/browsing affordances for combo-capable routes when the labels are trustworthy.
 
 ---
 
@@ -62,6 +63,7 @@ This document started as a redesign brief. It now serves as the design-status do
 **A first validation pass is complete, and several follow-up fixes have landed.** Key takeaways from route-by-route inspection:
 
 - `Tempus Fugit` is moving in the right direction. Flat sprint routes now read as `LOW+HIGH` with `PEAK ~0`, which is much closer to the truth.
+- `Flat Out Fast` profile display is manually confirmed fixed after the phantom-profile regression test was updated; it should remain a flat-looking conservative profile, not an audit-flagged oddball.
 - `Road to Sky` reads correctly as a climb-oriented `LOW+HIGH` route rather than a fake sprint/PEAK route.
 - `Knights of the Roundabout` and `The Greenway` confirm that timeline order is materially better, but cue copy still gets awkward on interleaved routes and when repeats need explaining.
 - `2018 Worlds Short Lap` / `Leg Snapper KOM` show the next big scoring gap: short punchy climb routes still are not reliably getting PEAK credit, even though the geometry suggests they should be candidates.
@@ -77,6 +79,8 @@ Use the following checks before merging future scoring changes:
 - World-fallback routes (no segment data) — no honesty label, only `LOW ~X` badge.
 - No console errors during mock switching, time slider changes, or unit toggling.
 - `scorer-test.html` loads and heuristic checks pass.
+- `npm run test:profiles` passes and covers both repaired flat fixtures plus a synthetic phantom-spike audit case.
+- Share-copy browser check confirms route-card copy writes `image/png` only on the rich clipboard path, so paste targets receive the image.
 
 ---
 
@@ -84,7 +88,7 @@ Use the following checks before merging future scoring changes:
 
 - Cue phrasing for long mixed or sprint-heavy routes can still be too compressed or too verbose.
 - The full route sequence expander is the truth source for inspection, but the main cue still needs better truncation rules.
-- We are not yet using full road geometry deeply enough as an active scoring/classification input, so segment bucket-mapping is still less honest than it could be.
+- We are not yet using full road geometry deeply enough as an active scoring/classification input, so segment bucket-mapping is still less honest than it could be. This is separate from the repaired flat-route profile rendering issue, which is now confirmed clean for Flat Out Fast.
 - `TRUE mixed` over-application has been tightened, but future scoring passes should keep checking that routes with `PEAK ~0` do not present as true mixed.
 - Short punchy climbs may still be under-detected as PEAK opportunities in borderline cases.
 - Portal road geometry is not yet pulled into the same recommendation path, so Climb Portal support is still shallower than normal route support.

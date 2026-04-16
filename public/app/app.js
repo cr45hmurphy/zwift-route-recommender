@@ -2484,20 +2484,11 @@ async function writeClipboardItem(items) {
 }
 
 async function copyRouteCardToClipboard(card, text) {
-  const textBlob = new Blob([text], { type: 'text/plain' });
   const pngBlob = await renderRouteCardPng(card).catch(() => null);
 
   if (pngBlob) {
-    try {
-      await writeClipboardItem({
-        'image/png': pngBlob,
-        'text/plain': textBlob,
-      });
-      return 'image';
-    } catch (_) {
-      await writeClipboardItem({ 'image/png': pngBlob });
-      return 'image';
-    }
+    await writeClipboardItem({ 'image/png': pngBlob });
+    return 'image';
   }
 
   await navigator.clipboard.writeText(text);

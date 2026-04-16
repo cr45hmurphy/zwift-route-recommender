@@ -1,6 +1,6 @@
 # Catchup — What's Been Built
 
-## Status: feature/zwift-cdn-overhaul branch. All CDN branch work committed and pushed. Core overhaul complete. WOTD fetch fully wired; live classification fires when Xert serves a workoutId.
+## Status: feature/zwift-cdn-overhaul branch. All CDN branch work committed and pushed. Core overhaul complete. WOTD fetch fully wired; live classification fires when Xert serves a workoutId. Flat Out Fast / Tempus Fugit phantom-profile class is fixed and manually confirmed.
 
 ---
 
@@ -100,20 +100,24 @@
 
 7. **Recovery score display + scorer regression tests** — recovery score now displays correctly on route cards; scorer-test.html includes regression assertions for known-good routes to catch future scoring regressions
 
-8. **Looped-road reverse profile fix** — route-profile generation now samples reversed sections on looped roads explicitly instead of wrapping around the full loop; removed phantom-mountain artifact on routes like `Flat Out Fast` and `Tempus Fugit`
+8. **Looped-road reverse profile fix** — route-profile generation now samples reversed sections on looped roads explicitly instead of wrapping around the full loop; removed phantom-mountain artifact on routes like `Flat Out Fast` and `Tempus Fugit`; `Flat Out Fast` has been manually confirmed after the regression test was updated
 
 9. **Native route profiles** — `build-zwift-data.mjs` generates profile geometry from Sauce4Zwift road data and writes it into `routes-data.js`; full route cards and the Route Inspector render native SVG profiles instead of external profile pages
 
 10. **Favorites score boost** — `FAVORITE_BOOST = 0.08` constant in `scorer.js`; `optimizeRoutes()` accepts `favorites` option (Set of route keys); starred routes get an 8% utility nudge, self-limiting so they only move up when already competitive; `recomputeRankedRoutes()` passes `loadFavorites()` automatically
-2. **Plan history persistence** — `savePlan()` fires after every live `refresh()`, storing top-5 route slugs + ride cues + bucket + date in `xert_plan_history` localStorage key (max 30 records); lays groundwork for last-ridden tracking and post-ride feedback; mock mode is excluded from saves
-3. **Mock scenario expansion** — three new QA scenarios: `missing-signature` (null FTP/weight), `empty-history` (zero completed rides), `tired-deficit` (Very Tired + nonzero deficits); all added to `MOCK_SCENARIOS` and `DATA_SOURCE_OPTIONS`
-4. **`?mock=<id>` URL query-param** — loading `?mock=tired-deficit` (or any valid scenario id) sets and persists the scenario without touching the switcher; unknown values silently ignored
-5. **Native route profiles** — `build-zwift-data.mjs` now generates profile geometry from Sauce4Zwift road data and writes it into `routes-data.js`; full route cards and the Route Inspector render native SVG profiles instead of external profile pages
-6. **Card hierarchy cleanup** — route cards now separate route facts from fit/execution tags, order the bucket pills as `LOW / HIGH / PEAK`, and remove the overused "Top fit" badge
-7. **Actionable profile markers** — full cards and the Route Inspector now show key climb/sprint markers from timeline data; compact cards intentionally remain profile-free for now
-8. **Metadata bridge for missing links** — `Flat Out Fast` now has manual ZwiftInsider / What's on Zwift URL overrides where the legacy compatibility source was blank
-9. **Profile interpretation fix** — profile generation now honors `manifest.reverse` in Sauce route geometry, which fixed the phantom-hill issue on routes like `Downtown Eruption` and corrected some flat routes that were rendering too hilly
-10. **Profile polish pass** — on-chart marker text has been removed, profile scaling is less exaggerated, and smoothing is now a light cleanup step rather than heavy shape editing
+
+11. **Flat-profile regression test update** — `scripts/test-profile-scaling.mjs` now treats repaired real fixtures (`Flat Out Fast`, `Tempus Fugit`) as clean while preserving audit coverage with a synthetic phantom-spike route; `npm run test:profiles` and `npm run test:scorer` pass
+
+12. **Share image copy repair** — card sharing now writes PNG-only clipboard data on the image path so paste targets receive the route-card image instead of choosing the text flavor; plain text remains the fallback when rich clipboard support or image rendering is unavailable
+13. **Plan history persistence** — `savePlan()` fires after every live `refresh()`, storing top-5 route slugs + ride cues + bucket + date in `xert_plan_history` localStorage key (max 30 records); lays groundwork for last-ridden tracking and post-ride feedback; mock mode is excluded from saves
+14. **Mock scenario expansion** — three new QA scenarios: `missing-signature` (null FTP/weight), `empty-history` (zero completed rides), `tired-deficit` (Very Tired + nonzero deficits); all added to `MOCK_SCENARIOS` and `DATA_SOURCE_OPTIONS`
+15. **`?mock=<id>` URL query-param** — loading `?mock=tired-deficit` (or any valid scenario id) sets and persists the scenario without touching the switcher; unknown values silently ignored
+16. **Native route profiles** — `build-zwift-data.mjs` now generates profile geometry from Sauce4Zwift road data and writes it into `routes-data.js`; full route cards and the Route Inspector render native SVG profiles instead of external profile pages
+17. **Card hierarchy cleanup** — route cards now separate route facts from fit/execution tags, order the bucket pills as `LOW / HIGH / PEAK`, and remove the overused "Top fit" badge
+18. **Actionable profile markers** — full cards and the Route Inspector now show key climb/sprint markers from timeline data; compact cards intentionally remain profile-free for now
+19. **Metadata bridge for missing links** — `Flat Out Fast` now has manual ZwiftInsider / What's on Zwift URL overrides where the legacy compatibility source was blank
+20. **Profile interpretation fix** — profile generation now honors `manifest.reverse` in Sauce route geometry, which fixed the phantom-hill issue on routes like `Downtown Eruption` and corrected some flat routes that were rendering too hilly
+21. **Profile polish pass** — on-chart marker text has been removed, profile scaling is less exaggerated, and smoothing is now a light cleanup step rather than heavy shape editing
 
 ---
 
@@ -137,7 +141,7 @@
 16. **Full route dataset in scorer-test** — rankings and optimizer tables use all ~300 real routes; fixtures kept only for pass/fail heuristic checks
 17. **W/kg difficulty labels** — Comfortable / Moderate / Challenging badge per route card, personalized to rider's gradient ratio vs W/kg; hidden in manual pace mode; thresholds `<2.5` / `2.5–5.0` / `>5.0`
 18. **Lap/repeat suggestions** — when estimated route time fills ≤60% of budget and 2+ laps fit, shows "↩ Consider N laps (~Xm)" in route stats
-19. **Share button** — copies PNG screenshot of card (html2canvas 2×) + plain text via `ClipboardItem`; paste destination picks best format; falls back to plain text
+19. **Share button** — copies PNG screenshot of card (html2canvas 2×) as PNG-only clipboard data; falls back to plain text when rich clipboard/image rendering is unavailable
 20. **Favorite routes** — star button on every card; gold star + amber left border; persisted to `localStorage` under `xert_favorites`; in-place DOM toggle, no re-render
 
 ---
