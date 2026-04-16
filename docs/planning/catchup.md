@@ -1,8 +1,6 @@
 # Catchup — What's Been Built
 
-## Status: Clean. All changes committed and pushed to master. WOTD fetch is fully wired; live classification will work when Xert serves a workoutId in training_info.
-
-11. **Looped-road reverse profile fix** â€” route-profile generation now samples reversed sections on looped roads explicitly instead of accidentally wrapping around the full loop; this removed the phantom-mountain artifact on routes like `Flat Out Fast` and `Tempus Fugit` and should apply generically to any route with the same manifest pattern
+## Status: feature/zwift-cdn-overhaul branch. All CDN branch work committed and pushed. Core overhaul complete. WOTD fetch fully wired; live classification fires when Xert serves a workoutId.
 
 ---
 
@@ -86,9 +84,27 @@
 
 ---
 
-## Recently completed
+## Recently completed (CDN branch)
 
-1. **Favorites score boost** — `FAVORITE_BOOST = 0.08` constant in `scorer.js`; `optimizeRoutes()` accepts `favorites` option (Set of route keys); starred routes get an 8% utility nudge, self-limiting so they only move up when already competitive; `recomputeRankedRoutes()` passes `loadFavorites()` automatically
+1. **Time estimation overhaul** — replaced additive climb model with a single effective-speed model (`effectiveSpeed = flatSpeed / (1 + gradRatio × GRADIENT_PENALTY_K)`); `GRADIENT_PENALTY_K = 0.065`; flat speed formula bumped from `18 + W/kg×4.5` to `20 + W/kg×5`; fixes both flat-route overestimate (Flat Out Fast: 56→51 min vs Zwift 45) and climb-route underestimate (Sugar Cookie: 87→103 min vs actual 104)
+
+2. **Route honesty label tightening** — `PEAK_SUPPORT_THRESHOLD` raised 0.42→0.52; `maxPeak` floor raised 0.6→0.72; `PEAK_COMPACT_GAIN_MIN` lowered 18→14m; eliminates `TRUE mixed` label on routes where PEAK badge is near zero, and helps borderline short steep kickers qualify as compact PEAK sources
+
+3. **Downhill traversal filter** — `orderedTimelineEfforts()` now excludes climb occurrences with `avgGradePct < 0` (route traverses the climb in reverse, downhill); `segmentElevationGainM()` returns 0 when `elevationDeltaM < 0`; fixes Clyde Kicker appearing as a PEAK opportunity on Scotland After Party (which traverses it downhill ×4)
+
+4. **ROUTE_SEGMENT_OVERRIDES** — manual override map in `build-zwift-data.mjs` for routes where Sauce's projection misses known segments; Scotland After Party, Loch Loop, and Loch Loop Reverse now include Breakaway Brae; override slugs merged with Sauce-projected slugs at build time
+
+5. **Local proxy detection fix** — `PROXY_BASE` in `xert.js` now uses port 8888 = netlify dev pattern; all other localhost routes to `localhost:3000` proxy; fixes JSON parse error when `npx serve` uses a non-3000 port (app was falling through to the Netlify function path, which returned HTML)
+
+6. **Informational route segments + inspector navigation** — route cards and the Route Inspector now surface informational/KOM segments alongside sprint and climb types; inspector navigation affordances wired from recommendation cards
+
+7. **Recovery score display + scorer regression tests** — recovery score now displays correctly on route cards; scorer-test.html includes regression assertions for known-good routes to catch future scoring regressions
+
+8. **Looped-road reverse profile fix** — route-profile generation now samples reversed sections on looped roads explicitly instead of wrapping around the full loop; removed phantom-mountain artifact on routes like `Flat Out Fast` and `Tempus Fugit`
+
+9. **Native route profiles** — `build-zwift-data.mjs` generates profile geometry from Sauce4Zwift road data and writes it into `routes-data.js`; full route cards and the Route Inspector render native SVG profiles instead of external profile pages
+
+10. **Favorites score boost** — `FAVORITE_BOOST = 0.08` constant in `scorer.js`; `optimizeRoutes()` accepts `favorites` option (Set of route keys); starred routes get an 8% utility nudge, self-limiting so they only move up when already competitive; `recomputeRankedRoutes()` passes `loadFavorites()` automatically
 2. **Plan history persistence** — `savePlan()` fires after every live `refresh()`, storing top-5 route slugs + ride cues + bucket + date in `xert_plan_history` localStorage key (max 30 records); lays groundwork for last-ridden tracking and post-ride feedback; mock mode is excluded from saves
 3. **Mock scenario expansion** — three new QA scenarios: `missing-signature` (null FTP/weight), `empty-history` (zero completed rides), `tired-deficit` (Very Tired + nonzero deficits); all added to `MOCK_SCENARIOS` and `DATA_SOURCE_OPTIONS`
 4. **`?mock=<id>` URL query-param** — loading `?mock=tired-deficit` (or any valid scenario id) sets and persists the scenario without touching the switcher; unknown values silently ignored
@@ -157,4 +173,5 @@ Deployed on Netlify, connected to `https://github.com/cr45hmurphy/zwift-route-re
 
 ## Git
 Repo: `https://github.com/cr45hmurphy/zwift-route-recommender`
-Branch: `master`
+Active branch: `feature/zwift-cdn-overhaul`
+Merge target: `master`

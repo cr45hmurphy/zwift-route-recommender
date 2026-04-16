@@ -6,15 +6,13 @@ Organized by priority tier. Top of each section = tackle first.
 
 ## Tier 1 — Next up (clear value, well-scoped)
 
-### Fix card copy. Copies to text fine, but the card image copy stopped at somepoint and it needs to be brought back.
+### Fix card image copy. Text copy works. Image copy (html2canvas PNG via ClipboardItem) stopped working at some point — regression. Text-only fallback is still live. Needs root-cause investigation before next share-button work.
 
-### Route card → inspector navigation everywhere
-The new route-card inspect link works on full recommendation cards, but the next step is to make that affordance available anywhere a route profile/card appears, not just the top 5 recommendations.
-
-Desired follow-up:
-- add the same `Inspect in Route Picker` jump affordance on compact route cards too
-- keep the two-way inspector/recommendation navigation coherent when a route is in `Other options` or `If you had more time`
-- make sure non-top-5 routes are just as easy to inspect as the headline recommendations
+### Route card → inspector navigation on compact cards and secondary sections
+Inspector navigation is wired on full recommendation cards. Remaining:
+- compact route cards (profile-free summary cards) don't have the inspector affordance yet
+- `Other options` and `If you had more time` sections still need the jump link
+- two-way navigation (inspector → back to recommendation) should stay coherent across all entry points
 
 ### WOTD live validation
 The workout fetch chain is wired but hasn't been tested end-to-end against a live mixed-mode day. When Xert schedules a `#MIXEDMODE` workout:
@@ -61,6 +59,18 @@ Acceptance criteria when this is tackled:
 - Duplicate segment hits are shown explicitly
 - Triple Flat Loops resolves to two named sprint targets with correct duplicate counts
 - Route-specific checks are possible even when the route is outside today's active worlds
+
+---
+
+---
+
+## Known data gaps / intentional non-bugs
+
+### Volcano Circuit PEAK score near zero
+Sauce4Zwift's route projection for Volcano Circuit only yields a lap marker with zero elevation — no climb segments are projected for this route. The PEAK ~0 badge is correct given available data. Not a code bug. If a better segment source becomes available, revisit.
+
+### Segment membership is Sauce-projection accuracy
+Where Sauce's projected XML misses known segments, `ROUTE_SEGMENT_OVERRIDES` in `build-zwift-data.mjs` provides a manual fix. Currently used for Scotland After Party / Loch Loop (Breakaway Brae). Any future gap reports should be evaluated against Sauce first; if Sauce is definitively missing it, add an override entry.
 
 ---
 

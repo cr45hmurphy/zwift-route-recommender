@@ -39,11 +39,12 @@ weight              — rider weight in kg
 
 ---
 
-### 2. Zwift public CDN snapshot
-- **Authoritative source:** Zwift public CDN XML
-- **Usage:** Normalize Zwift route and schedule XML into generated browser modules during a build step
-- **Generator:** `node scripts/build-zwift-data.mjs`
-- **Generated outputs:** `routes-data.js`, `segments-data.js`, `zwift-metadata.js`
+### 2. Sauce4Zwift release bundle (build-time)
+- **Authoritative source:** Sauce4Zwift's published release bundle (`SAUCE_RELEASE_VERSION` in `build-zwift-data.mjs`)
+- **Usage:** Extract route manifests, road geometry, route-position timelines, and segment metadata; normalize into generated browser modules during a build step. Not a runtime dependency — no Sauce install or auth required.
+- **Generator:** `npm run build-routes` → `scripts/build-zwift-data.mjs`
+- **Generated outputs:** `routes-data.js`, `segments-data.js`, `route-timelines-data.js`, `zwift-metadata.js`
+- **Update workflow:** See `docs/reference/sauce-update-workflow.md`
 
 **Key fields per route:**
 ```
@@ -64,6 +65,8 @@ whatsOnZwiftUrl     — Link to What's on Zwift page
 ---
 
 ## Core Logic
+
+> **Note:** The formulas below describe the original spec. The live implementation in `scorer.js` has evolved significantly — it uses geometry-driven route truth scoring, segment-support aggregation, WOTD terrain matching, and a honesty-label system. Treat this section as intent documentation, not implementation spec. See `scorer.js` and `catchup.md` for the current logic.
 
 ### Step 1 — Calculate Bucket Deficit
 For each of the three Xert energy systems, calculate how far current training load is from the recommended target:
@@ -201,13 +204,30 @@ Keep this simple and dependency-light:
 
 ```
 zwift-recommender/
-├── index.html
-├── style.css
-├── app.js              # Main logic — auth, API calls, scoring, rendering
-├── routes.js           # Zwift route data helpers over generated snapshot data
-├── xert.js             # Xert API wrapper (auth, training_info fetch)
-├── scorer.js           # Route scoring logic (isolated, easy to tune)
-└── README.md
+├── public/
+│   ├── index.html
+│   ├── assets/style.css
+│   └── app/
+│       ├── app.js              # Orchestration: init, auth flow, rendering, time estimation
+│       └── core/
+│           ├── scorer.js       # Route scoring, honesty labels, cue generation (pure functions)
+│           ├── xert.js         # Xert OAuth2 + API wrapper; localStorage token
+│           ├── routes.js       # Route metadata helpers and world filters
+│           ├── segments.js     # Segment lookup helpers
+│           └── timelines.js    # Route timeline helpers, lap expansion, recovery gaps
+│   └── app/data/
+│       ├── routes-data.js      # Generated: route manifests + SVG profiles
+│       ├── segments-data.js    # Generated: segment metadata
+│       ├── route-timelines-data.js  # Generated: per-route effort timelines
+│       └── zwift-metadata.js   # Generated: world schedules and metadata
+├── scripts/
+│   ├── build-zwift-data.mjs   # Build-time generator (Sauce4Zwift → generated data)
+│   └── proxy.js               # Local CORS proxy for Xert API (dev only)
+├── netlify/functions/
+│   └── xert-proxy.js          # Production proxy (Netlify serverless)
+└── public/tests/
+    ├── scorer-test.html        # Live scoring harness with tuning sliders
+    └── xert-test.html          # Live Xert API test harness
 ```
 
 ---
@@ -255,12 +275,19 @@ const WORLD_NAMES = {
 
 ---
 
-## Future v2 Ideas (don't build now, just notes)
+## Implemented (was Future v2)
+
+- Route filtering by world — `Today's worlds only` uses Zwift's published MapSchedule_v2 rotation
+- WOTD fetch and mixed-mode classification — workout detail fetched from Xert and merged into ranking
+- Segment-aware ride cues — cues name specific climbs/sprints from route-linked segment data
+- Route profiles — native SVG profiles generated from Sauce4Zwift road geometry
+- Favorites, share button, time slider, imperial/metric toggle
+
+## Future v2 Ideas (not yet built)
 
 - Connect Sauce4Zwift WebSocket to show live power/bucket progress during a ride
-- Add ZwiftGopher scouting for TTT events
-- Route filtering by world (only show routes in today's Zwift guest world)
 - Strava segment integration for personal PRs on recommended routes
+- Post-ride feedback loop
 
 ---
 
