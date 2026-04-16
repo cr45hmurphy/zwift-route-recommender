@@ -2,9 +2,9 @@
 
 ## Based on Test Ride #1: Sugar Cookie, Watopia — April 11 2026
 
-## Implementation Status — April 12 2026 (updated)
+## Implementation Status — April 16 2026
 
-This document started as a redesign brief. It now serves as the status document for the `feature/zwift-cdn-overhaul` branch. Update this section at the end of each session.
+This document started as a redesign brief. It now serves as the design-status document for the `feature/zwift-cdn-overhaul` branch. Treat the Sugar Cookie findings below as historical context; this top section is the current source of truth for what the redesign has already fixed and what remains outstanding.
 
 ---
 
@@ -17,11 +17,15 @@ This document started as a redesign brief. It now serves as the status document 
 - **Ordered route sequence inspection.** Route cards show an ordered preview of effort points with a full-sequence expander.
 - **Recovery spacing (first pass).** Closely spaced efforts flagged in cue copy.
 - **Today's worlds / event-only / level-locked visibility.** Cards surface `Not in today's worlds`, `Event only`, `Direct inspection`, and `Level locked` flags.
-- **Live-world source stack.** The app now prefers live current-world truth over `MapSchedule_v2.xml`: `relay/worlds` if it yields guest worlds, then What's on Zwift, then ZwiftInsider, with schedule/manual fallback only if all live sources fail.
+- **Zwift schedule/world availability integration.** Today's-world filtering now prefers Zwift's published guest-world rotation and keeps the old manual picker as a fallback when schedule data is unavailable.
 - **`classifySegmentBucket(segment)` — scorer.js.** Classifies each segment as `'high'` or `'peak'` based on type + `avgIncline` + `distance`. Sprints always → HIGH. Short steep climbs (≥8%, <2 km) → PEAK. Very short climbs with no grade data (<1 km) → PEAK. Sustained/moderate climbs → HIGH. Exported from `scorer.js`.
-- **`routeHonestyLabel(routeSegments)` — scorer.js.** Returns `'true-mixed'` if any PEAK-classified segment is present, `'low-high'` otherwise, `null` for world-fallback routes. Computed in `enrichRoute` using the full segment list and stored on the route object as `route.honestyLabel`.
+- **Route honesty labels, tightened pass.** The app exposes route-truth flags such as `LOW+HIGH route` and `TRUE mixed`, and recent tuning raised PEAK support thresholds, raised the `maxPeak` floor, lowered the compact PEAK gain minimum, and filters downhill traversals so routes with near-zero PEAK support are less likely to be mislabeled as true mixed.
 - **Per-bucket XSS badges on route cards — app.js.** Replaced the single blended "~89% of HIGH gap" badge with three per-bucket badges: `LOW ~X/Y · HIGH ~X/Y · PEAK ~X/Y`. HIGH and PEAK show `~0` when no qualifying segments exist. World-fallback routes (no route segment data) show only the LOW badge. Recovery path shows a single LOW estimate.
 - **Route honesty label in route flags.** "TRUE mixed" or "LOW+HIGH route" pill shown in the flags row on each card. Styled with bucket-appropriate colors.
+- **Time estimation overhaul.** The old additive climb model was replaced by a single effective-speed model using W/kg-derived flat speed and gradient penalty. The Sugar Cookie estimate that originally missed by ~18 minutes is now close to the observed ride time; remaining work is validation/tuning, not first-pass implementation.
+- **LOW-day execution display fix.** LOW-day cards now show the prescribed steady-Z2 execution instead of over-advertising incidental HIGH opportunity, while route-truth pills still describe what the venue contains.
+- **Favorites boost and plan history foundation.** Starred routes get a small self-limiting ranking nudge, and live refreshes save a top-5 daily plan into `xert_plan_history` for future history/last-ridden/feedback features.
+- **Mock scenario expansion and `?mock=<id>`.** Missing-signature, empty-history, and tired-deficit QA scenarios are available, and URL query-param selection can persist a mock scenario.
 
 ---
 
@@ -29,36 +33,39 @@ This document started as a redesign brief. It now serves as the status document 
 
 - **Cue copy rules.** Better than before, but truncation rules for long routes with many segments still need refinement. Some routes read too compressed, others too verbose.
 - **Route-truth combos.** `LOW+HIGH` and `TRUE mixed` are useful, but we do not yet surface broader combo states like `HIGH+PEAK` or `LOW+PEAK`, and there is no dedicated filter/view for those yet.
-- **Geometry-driven route truth.** The build now carries road-geometry-derived fields into segment and timeline data, but scoring and route-truth labels are not yet using that data deeply enough. This is why some punchy-climb routes still read `LOW+HIGH`, and some `TRUE mixed` labels are still too generous.
+- **Geometry-driven route truth.** The build now carries road-geometry-derived fields into segment and timeline data, and recent tuning made route labels stricter. Still, scoring and route-truth labels are not using geometry deeply enough to be considered finished, especially for borderline punchy-climb PEAK detection.
 - **Fallback honesty.** The app is safer than before, but the explicit "no good PEAK route in this time budget — here's why" path is not yet a first-class UX state.
-- **Time estimation.** Lap support and route-position awareness exist, but the underlying ride-time model is still our own W/kg estimate. Sugar Cookie predicted 1h 27m, Zwift said 1h 45m, actual was 1h 44m. Not solved yet.
+- **Time guidance validation.** The time model has been fixed enough to close the original Sugar Cookie miss, but the Time Guidance Round still needs validation: recommended time should choose the first route-feasible time, no-fit states should be honest, and "If you had more time" should sort by nearest viable overrun.
 - **XSS rate calibration.** The per-bucket badges are honest about which buckets a route can fill (PEAK = 0 for flat routes), but the absolute XSS estimates still use flat rates (65/90/50 XSS/hr). These rates represent "doing that intensity for the full hour" — the real per-segment contribution is much smaller. Needs calibration from real ride data. Noted as a future task.
+- **Plan history UX.** Plan history is saved locally, but the reopen-saved-plan UI was intentionally removed after testing because it interrupted the main flow. Reuse this data later for last-ridden context, post-ride feedback, or a dedicated history view rather than a reopen gate.
 
 ---
 
-### ❌ Not yet started (from priority list)
+### ❌ Still outstanding
 
-3. **Refine cue copy rules** — better truncation, clearer "×2" repeat language, better mixed-route wording
-4. ~~**Route honesty labels**~~ — **done** (see above)
-5. **WOTD fallback logic** — honest "no route fits this bucket mix" instead of forcing a bad match
-6. **Recalibrate time estimates** — buffer for real-world pace vs. theoretical W/kg
-7. **Refactor recommendation scoring** — time-first, then bucket-segment type match, then density
-8. **Handle unmatched timeline routes** — 5 routes still fall back to older behavior (Red Rock Loop, Red Rock Loop Arcade, Red Rock Loop Reverse, Red Rock Run, Yumezi Grit)
-9. **Post-ride feedback storage** — predicted vs. actual per-bucket deltas for calibration
-10. **Elevation/grade data (Phase 3)** — road coordinate paths for accurate per-segment grade classification
-11. **Expose richer route-truth combos** — `HIGH+PEAK`, `LOW+PEAK`, and filtering/browsing affordances for combo-capable routes
+1. **Fix card image copy regression.** Text copy works; PNG copy via `html2canvas`/`ClipboardItem` has regressed.
+2. **Inspector navigation everywhere.** Full recommendation cards are wired, but compact cards plus `Other options` and `If you had more time` need Route Inspector jump links.
+3. **Live WOTD validation.** Confirm the full `training_info -> workoutId -> fetchWorkout -> classifyWOTD -> banner/ranking/cue` chain against a live or simulated `#MIXEDMODE` day.
+4. **Refine cue copy rules.** Better truncation, clearer repeat language, better mixed-route wording, and less awkward handling of interleaved KOM/sprint routes.
+5. **WOTD fallback logic.** Honest "no route fits this bucket mix" messaging instead of forcing a weak match.
+6. **Validate/tune time guidance.** Keep the overhauled time model, but finish the recommended-time/no-fit/over-budget validation round.
+7. **Refactor recommendation scoring.** Move closer to the target architecture: time first, then bucket-segment type match, then density/quality.
+8. **Segment ordering and duplicate hits.** Segment membership is much better, but the UI/cues still need true repeated-hit counts and sequence fidelity where data supports it.
+9. **Post-ride feedback storage.** Store predicted vs. actual per-bucket deltas for calibration.
+10. **Elevation/grade data as active input.** Use road coordinate paths more deeply for accurate per-segment grade classification, PEAK detection, and portal support.
+11. **Expose richer route-truth combos.** Add `HIGH+PEAK`, `LOW+PEAK`, and filtering/browsing affordances for combo-capable routes when the labels are trustworthy.
 
 ---
 
 ### 🧪 Current testing status
 
-**A first validation pass is now complete.** Key takeaways from route-by-route inspection:
+**A first validation pass is complete, and several follow-up fixes have landed.** Key takeaways from route-by-route inspection:
 
 - `Tempus Fugit` is moving in the right direction. Flat sprint routes now read as `LOW+HIGH` with `PEAK ~0`, which is much closer to the truth.
 - `Road to Sky` reads correctly as a climb-oriented `LOW+HIGH` route rather than a fake sprint/PEAK route.
 - `Knights of the Roundabout` and `The Greenway` confirm that timeline order is materially better, but cue copy still gets awkward on interleaved routes and when repeats need explaining.
 - `2018 Worlds Short Lap` / `Leg Snapper KOM` show the next big scoring gap: short punchy climb routes still are not reliably getting PEAK credit, even though the geometry suggests they should be candidates.
-- `Watopia Figure 8` and similar routes show that `TRUE mixed` is still too generous in some cases. A route with `PEAK ~0` should not be presented as truly mixed just because it has climbs and sprints.
+- `Watopia Figure 8` and similar routes originally showed that `TRUE mixed` was too generous in some cases. Recent threshold/downhill-traversal fixes were intended to reduce this, but the check remains important before future scoring changes merge.
 
 Use the following checks before merging future scoring changes:
 
@@ -75,12 +82,11 @@ Use the following checks before merging future scoring changes:
 
 ### Known gaps (updated)
 
-- 5 routes have no timeline match and fall back to older behavior: `Red Rock Loop`, `Red Rock Loop Arcade`, `Red Rock Loop Reverse`, `Red Rock Run`, `Yumezi Grit`
 - Cue phrasing for long mixed or sprint-heavy routes can still be too compressed or too verbose.
 - The full route sequence expander is the truth source for inspection, but the main cue still needs better truncation rules.
-- We are not yet using full road geometry as an active scoring/classification input, so segment bucket-mapping is still less honest than it could be.
-- `TRUE mixed` is still over-applied on some routes that effectively behave as `LOW+HIGH` because PEAK contribution remains near zero.
-- Short punchy climbs are still under-detected as PEAK opportunities in the current scorer pass.
+- We are not yet using full road geometry deeply enough as an active scoring/classification input, so segment bucket-mapping is still less honest than it could be.
+- `TRUE mixed` over-application has been tightened, but future scoring passes should keep checking that routes with `PEAK ~0` do not present as true mixed.
+- Short punchy climbs may still be under-detected as PEAK opportunities in borderline cases.
 - Portal road geometry is not yet pulled into the same recommendation path, so Climb Portal support is still shallower than normal route support.
 
 -----
@@ -180,9 +186,9 @@ Route scoring for PEAK should require segments that can actually deliver PEAK XS
 
 ### Problem 4: Time is not being used as the primary filter
 
-**Status:** Not solved yet.
+**Status:** Partially addressed, not finished.
 
-**Current behavior:** Time fit is still part of the optimizer, but the overall architecture is still route-ranking-led rather than cue-plan-led.
+**Current behavior:** Time fit is part of the optimizer, the time model has been overhauled, and the current test plan focuses on route-feasible recommended time plus honest no-fit/over-budget behavior. The broader architecture is still more route-ranking-led than cue-plan-led.
 
 **What's wrong:** Time determines how much LOW you can accumulate. Everything else fits inside that constraint. If the rider has 90 minutes, that caps the LOW ceiling regardless of route. The app should be honest about this upfront before recommending anything.
 
@@ -208,11 +214,11 @@ Route scoring for PEAK should require segments that can actually deliver PEAK XS
 
 ### Problem 6: Time estimate uses app profile, not Zwift history
 
-**Current behavior:** App calculates time from W/kg profile (1.7 W/kg → ~26 km/h flat).
+**Status:** First-pass model fix landed; validation still needed.
 
-**What's wrong:** Zwift's own estimate for Sugar Cookie was 1h 45m, which matched reality exactly. App's estimate of 1h 27m was 18 minutes short (~17% off).
+**Current behavior:** App calculates time from W/kg profile using an overhauled effective-speed model with a gradient penalty. The original Sugar Cookie miss has been corrected enough that this is no longer an unimplemented item, but it remains an app estimate rather than Zwift's own estimate.
 
-**Fix needed:** Investigate whether Zwift's time estimate can be surfaced, or recalibrate the app's time model. At minimum, add a buffer for real-world pace vs. theoretical W/kg pace.
+**Remaining work:** Validate the current model across more real rides and keep investigating whether Zwift's own estimate can be surfaced. The current Time Guidance Round should confirm recommended-time stability, honest no-fit messaging, and nearest-over-budget ordering.
 
 -----
 
@@ -390,13 +396,16 @@ A flat route dressed up with sprint segments is a LOW route. The app should say 
 
 Priority order for Claude Code:
 
-1. **Finish geometry-driven scoring** — use the new road-geometry-derived fields more deeply so punchy climbs earn PEAK and flat sprints stay HIGH
-1. **Tighten route-truth labels** — keep `LOW+HIGH`, add richer combo labels where justified, and stop using `TRUE mixed` when `PEAK ~0`
+1. **Fix card image copy regression** — text copy works, but PNG copy via `html2canvas`/`ClipboardItem` stopped working
+1. **Finish inspector navigation coverage** — add Route Inspector jump links to compact cards, `Other options`, and `If you had more time`
+1. **Validate live WOTD mixed-mode flow** — confirm workout enrichment and classification against a real or simulated `#MIXEDMODE` day
+1. **Finish geometry-driven scoring** — use the road-geometry-derived fields more deeply so punchy climbs earn PEAK and flat sprints stay HIGH
+1. **Continue tightening route-truth labels** — keep `LOW+HIGH`, add richer combo labels where justified, and keep guarding against `TRUE mixed` when `PEAK ~0`
 1. **Refine cue copy rules** — better truncation rules, clearer explanation of repeats, and better mixed-route wording
 1. **Add WOTD fallback logic** — honest no-result when no route fits the required bucket mix
 1. **Refactor recommendation scoring** — time first, then bucket-segment type match, then density
-1. **Recalibrate time estimates** — add real-world buffer or surface Zwift's estimate
-1. **Handle unmatched timeline routes deliberately** — either map them or clearly classify them as known fallback-only routes
+1. **Validate and tune time guidance** — the first model overhaul landed; finish recommended-time, no-fit, and over-budget route validation
+1. **Handle unmatched or fallback-only routes deliberately** — either map them or clearly classify them as known fallback routes
 1. **Pull portal road geometry into the build path** — make portal routes first-class if we want portal recommendations to be honest
 1. **Add combo-based browsing affordances** — filters or sections for `LOW+HIGH`, `HIGH+PEAK`, `LOW+PEAK`, and `TRUE mixed`
 1. **Add post-ride feedback storage** — store predicted vs. actual per-bucket deltas to calibrate segment-to-bucket mapping over time
