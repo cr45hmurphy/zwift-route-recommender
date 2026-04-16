@@ -51,18 +51,35 @@ function testClimbingRoutesStillReadLikeClimbs() {
   );
 }
 
-function testFlatProfileAuditStillFlagsOddballs() {
+function testFlatProfileAuditTreatsRepairedFixturesAsClean() {
   ['Flat Out Fast', 'Tempus Fugit'].forEach(name => {
     const route = routeByName[name];
     const summary = summarizeProfile(route);
-    assert.ok(summary?.flatAuditFlag, `${name} should remain flagged for flat-profile audit follow-up`);
+    assert.equal(summary?.flatAuditFlag, false, `${name} should not need flat-profile audit follow-up`);
   });
+}
+
+function testFlatProfileAuditStillFlagsSyntheticOddballs() {
+  const profile = Array.from({ length: 21 }, (_, index) => [
+    index,
+    index === 10 ? 260 : 100,
+    index,
+  ]);
+  const summary = summarizeProfile({
+    name: 'Synthetic flat route with phantom spike',
+    distance: 20,
+    elevation: 20,
+    profile,
+  });
+
+  assert.equal(summary?.flatAuditFlag, true, 'obvious phantom spikes on flat routes should still be flagged');
 }
 
 function main() {
   testFlatRoutesStayConservative();
   testClimbingRoutesStillReadLikeClimbs();
-  testFlatProfileAuditStillFlagsOddballs();
+  testFlatProfileAuditTreatsRepairedFixturesAsClean();
+  testFlatProfileAuditStillFlagsSyntheticOddballs();
   console.log('PASS scripts/test-profile-scaling.mjs');
 }
 
