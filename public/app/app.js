@@ -6,6 +6,7 @@ import { scaleProfilePoints } from './core/profile.js';
 import { getSegmentsForRoute } from './core/segments.js';
 import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, uniqueTimelineSegments, withRecoveryGaps } from './core/timelines.js';
 import { analyzeTrainingDay, deriveRouteBucketSupport, generateRideCue, optimizeRoutes, routeHonestyLabel, wotdTerrainScore } from './core/scorer.js';
+import { countRouteCards, formatWorldContextLabel, formatWorldContextSourceDetail } from './core/ui.js';
 import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
 
 // ── Constants ─────────────────────────────────────
@@ -2054,8 +2055,9 @@ function setTimingMode(mode) {
 
 function updateGuestWorldsLabel() {
   const context = activeWorldContext();
-  const worlds = [...context.worlds].map(worldName).join(' · ');
-  document.getElementById('today-worlds-label').textContent = `${worlds} · ${context.source}`;
+  const label = document.getElementById('today-worlds-label');
+  label.textContent = formatWorldContextLabel(context, worldName);
+  label.title = formatWorldContextSourceDetail(context);
 
   const hint = document.querySelector('.world-cb-hint');
   if (hint) {
@@ -2450,7 +2452,7 @@ document.getElementById('other-toggle').addEventListener('click', () => {
   const list   = document.getElementById('other-list');
   const toggle = document.getElementById('other-toggle');
   const open   = list.classList.toggle('open');
-  const count  = list.children.length;
+  const count  = countRouteCards(list);
   toggle.textContent = `${open ? '▲' : '▼'} Other options (${count} more)`;
 });
 
@@ -2458,7 +2460,7 @@ document.getElementById('more-time-toggle').addEventListener('click', () => {
   const list   = document.getElementById('more-time-list');
   const toggle = document.getElementById('more-time-toggle');
   const open   = list.classList.toggle('open');
-  const count  = list.children.length;
+  const count  = countRouteCards(list);
   toggle.textContent = `${open ? '▲' : '▼'} If you had more time (${count} routes)`;
 });
 

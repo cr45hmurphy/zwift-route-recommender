@@ -77,7 +77,7 @@ function serializeWorldContext(context) {
     source: context.source,
     guestWorlds: [...(context.guestWorlds ?? [])],
     worlds: [...(context.worlds ?? [])],
-    fetchedAt: Date.now(),
+    fetchedAt: context.fetchedAt ?? Date.now(),
   };
 }
 
@@ -132,6 +132,7 @@ async function fetchRelayWorldContext() {
     source: 'live worlds',
     guestWorlds,
     worlds: new Set(['watopia', ...guestWorlds]),
+    fetchedAt: Date.now(),
   };
 }
 
@@ -146,6 +147,7 @@ async function fetchProxyWorldContext(source) {
     source: payload?.sourceLabel ?? source,
     guestWorlds,
     worlds: new Set(['watopia', ...guestWorlds]),
+    fetchedAt: Date.parse(payload?.fetchedAt) || Date.now(),
   };
 }
 
@@ -168,9 +170,31 @@ export function getWorldScheduleContext(guestWorldsFallback = [], now = new Date
   };
 }
 
+function supplementGuestWorldsFromSchedule(context, guestWorldsFallback = [], now = new Date()) {
+  if (!context?.guestWorlds?.length || context.guestWorlds.length >= 2) return context;
+
+  const scheduleCtx = getWorldScheduleContext(guestWorldsFallback, now);
+  const startingCount = context.guestWorlds.length;
+  for (const world of scheduleCtx.guestWorlds) {
+    if (!context.guestWorlds.includes(world)) {
+      context.guestWorlds.push(world);
+      context.worlds.add(world);
+    }
+    if (context.guestWorlds.length >= 2) break;
+  }
+
+  if (context.guestWorlds.length > startingCount && !String(context.source).includes('fallback')) {
+    context.source = `${context.source} + schedule fallback`;
+  }
+
+  return context;
+}
+
 export async function getPreferredWorldContext(guestWorldsFallback = [], now = new Date()) {
   const cached = loadCachedLiveWorldContext();
   if (cached) return cached;
+
+  let partialContext = null;
 
   for (const fetcher of [
     () => fetchRelayWorldContext(),
@@ -180,12 +204,21 @@ export async function getPreferredWorldContext(guestWorldsFallback = [], now = n
     try {
       const context = await fetcher();
       if (context?.guestWorlds?.length) {
-        saveCachedLiveWorldContext(context);
-        return context;
+        if (context.guestWorlds.length >= 2) {
+          saveCachedLiveWorldContext(context);
+          return context;
+        }
+        partialContext ??= context;
       }
     } catch {
       // try next source
     }
+  }
+
+  if (partialContext) {
+    supplementGuestWorldsFromSchedule(partialContext, guestWorldsFallback, now);
+    saveCachedLiveWorldContext(partialContext);
+    return partialContext;
   }
 
   return defaultWorldContext(guestWorldsFallback, now);

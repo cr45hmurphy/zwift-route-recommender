@@ -690,19 +690,19 @@ section { margin-bottom: 32px; }
   letter-spacing: 0.07em;
   color: var(--text-muted);
 }
-.route-world[data-world="watopia"]          { color: #4caf50; }
-.route-world[data-world="london"]           { color: #ef5350; }
-.route-world[data-world="new-york"]         { color: #64b5f6; }
-.route-world[data-world="innsbruck"]        { color: #81c784; }
-.route-world[data-world="richmond"]         { color: #ffb74d; }
-.route-world[data-world="bologna"]          { color: #ffd54f; }
-.route-world[data-world="yorkshire"]        { color: #b39ddb; }
-.route-world[data-world="crit-city"]        { color: #4dd0e1; }
-.route-world[data-world="makuri-islands"]   { color: #26c6da; }
-.route-world[data-world="france"]           { color: #5c6bc0; }
-.route-world[data-world="paris"]            { color: #f48fb1; }
-.route-world[data-world="scotland"]         { color: #66bb6a; }
-.route-world[data-world="gravel-mountain"]  { color: #a5826d; }
+.route-world[data-world="watopia"]          { color: #EE4000; }
+.route-world[data-world="richmond"]         { color: #F2F2F2; }
+.route-world[data-world="london"]           { color: #62C0EB; }
+.route-world[data-world="new-york"]         { color: #D92592; }
+.route-world[data-world="innsbruck"]        { color: #68C446; }
+.route-world[data-world="bologna"]          { color: #5BA2FF; }
+.route-world[data-world="yorkshire"]        { color: #E9C500; }
+.route-world[data-world="crit-city"]        { color: #9CEF8C; }
+.route-world[data-world="makuri-islands"]   { color: #268100; }
+.route-world[data-world="france"]           { color: #8E7CFF; }
+.route-world[data-world="paris"]            { color: #B4D8E7; }
+.route-world[data-world="gravel-mountain"]  { color: #A05602; }
+.route-world[data-world="scotland"]         { color: #9B86FF; }
 
 .route-score {
   font-size: 0.72rem;

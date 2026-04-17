@@ -7,7 +7,8 @@
     "build-segments": "node scripts/build-zwift-data.mjs",
     "serve": "npx serve public",
     "test:scorer": "node scripts/test-scorer.mjs",
-    "test:profiles": "node scripts/test-profile-scaling.mjs"
+    "test:profiles": "node scripts/test-profile-scaling.mjs",
+    "test:ui-fixes": "node scripts/test-ui-fixes.mjs"
   },
   "dependencies": {
     "@electron/asar": "^4.2.0",
