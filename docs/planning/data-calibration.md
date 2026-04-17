@@ -6,6 +6,18 @@ Use this file for real-ride evidence that can tune route scoring, time estimates
 
 ## Ride Datapoints
 
+### 2026-04-16 - Road to Sky, Watopia
+
+- Source note: `1st Annual Trip to Santa's Workshop on Road to Sky in Watopia`
+- Start time: 08:35 AM
+- Distance: 19.1 mi
+- Duration: 3h 36m
+- Total XSS: 180
+- XSS split: 178 LOW / 1.1 HIGH / 0.5 PEAK
+- Intended workout: not specified
+- Actual execution: not specified; XSS split implies very steady low-intensity climbing
+- Calibration takeaway: even a major climbing route can produce almost entirely LOW when ridden gently. Terrain is opportunity, not automatic bucket fill; route recommendations and cards should keep distinguishing venue capability from prescribed execution.
+
 ### 2026-04-11 - Sugar Cookie, Watopia
 
 - Source note: `Zwift - Sugar Cookie in Watopia`
