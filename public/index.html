@@ -103,6 +103,7 @@
         <div class="rec-subtitle" id="rec-subtitle"></div>
         <div id="override-note" class="override-note" style="display:none"></div>
         <div class="wotd" id="wotd" style="display:none"></div>
+        <div id="portal-today" class="portal-today" style="display:none"></div>
       </section>
 
       <!-- Time Available -->
@@ -110,8 +111,9 @@
         <div id="time-controls">
           <div class="time-control-row">
             <label for="time-available">Time available</label>
-            <input type="range" id="time-available" min="20" max="180" step="10" value="60">
-            <span id="time-label">60 min</span>
+            <input type="range" id="time-available" min="15" max="480" step="15" value="60">
+            <span id="time-label">1:00</span>
+            <button id="time-recommended" class="btn-secondary time-recommended-btn" type="button">Use recommended time</button>
           </div>
           <div class="time-control-row">
             <label>Timing</label>
@@ -182,19 +184,31 @@
             <label class="world-cb-item">
               <input type="checkbox" class="guest-world-cb" value="scotland"> Scotland
             </label>
-            <div class="world-cb-hint">Select up to 2 worlds available today alongside Watopia.</div>
+            <div class="world-cb-hint">Fallback mode: select up to 2 guest worlds alongside Watopia.</div>
           </div>
         </div>
         <div class="route-grid" id="route-grid"></div>
+
+        <div id="more-time-options" style="display:none">
+          <button id="more-time-toggle">▼ If you had more time</button>
+          <div id="more-time-list"></div>
+        </div>
 
         <div id="other-options">
           <button id="other-toggle">▼ Other options</button>
           <div id="other-list"></div>
         </div>
 
-        <div id="more-time-options" style="display:none">
-          <button id="more-time-toggle">▼ If you had more time</button>
-          <div id="more-time-list"></div>
+        <div id="route-inspector">
+          <div class="route-inspector-header">Route Inspector</div>
+          <div class="route-inspector-controls">
+            <label for="route-picker">Check a specific route</label>
+            <select id="route-picker">
+              <option value="">Choose a route…</option>
+            </select>
+          </div>
+          <div id="route-picker-note" class="route-inspector-note"></div>
+          <div id="route-picked-card"></div>
         </div>
       </section>
 

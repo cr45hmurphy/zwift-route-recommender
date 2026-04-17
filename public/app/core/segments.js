@@ -16,6 +16,7 @@ function compareClimbs(a, b) {
   return (
     climbWeight(b.climbType) - climbWeight(a.climbType) ||
     (b.elevation ?? 0) - (a.elevation ?? 0) ||
+    (b.avgIncline ?? 0) - (a.avgIncline ?? 0) ||
     (b.distance ?? 0) - (a.distance ?? 0) ||
     a.name.localeCompare(b.name)
   );

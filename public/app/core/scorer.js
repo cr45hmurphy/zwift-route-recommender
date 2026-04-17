@@ -20,6 +20,18 @@ const ACTIVE_BUCKET_WEIGHT   = 0.65; // how strongly the active bucket's route c
 const OPTIMIZER_SORT_EPSILON = 0.001;
 const FAVORITE_BOOST         = 0.08; // utility multiplier for starred routes (self-limiting: only matters when close to top)
 
+// Segment bucket classification thresholds
+const PUNCHY_GRADE_MIN    = 8;   // % — climbs at/above this grade are PEAK-capable when short
+const PUNCHY_DISTANCE_MAX = 2;   // km — climbs shorter than this can generate PEAK neuromuscular work
+const PEAK_COMPACT_DISTANCE_MAX = 0.55; // km — very short rises can still be PEAK even when avg grade is muted by smoothing
+const PEAK_COMPACT_GAIN_MIN     = 14;   // m  — compact punchy climbs should gain meaningful elevation quickly
+const PEAK_SUPPORT_THRESHOLD    = 0.52; // route-level support needed before calling a route truly mixed
+const HIGH_SUPPORT_TARGET       = 1.6;  // summed segment support needed for "full" HIGH support
+const PEAK_SUPPORT_TARGET       = 1.2;  // summed segment support needed for "full" PEAK support
+const PEAK_ROUTE_MIN_SUPPORT    = 0.28; // below this, a route should not contend on PEAK days
+const PEAK_ROUTE_STRONG_SUPPORT = 0.5;  // clear PEAK-day contender threshold
+const MIXED_COPY_PEAK_THRESHOLD = PEAK_SUPPORT_THRESHOLD; // mixed copy must match the route-truth threshold
+
 /**
  * DEFAULTS — exported snapshot of every tunable constant.
  * Used by scorer-test.html to populate sliders and by the reset button.
@@ -34,6 +46,8 @@ export const DEFAULTS = {
   PUNCH_GRADIENT_TARGET,
   ACTIVE_BUCKET_WEIGHT,
   FAVORITE_BOOST,
+  PUNCHY_GRADE_MIN,
+  PUNCHY_DISTANCE_MAX,
 };
 
 function clamp(value, min, max) {
@@ -74,14 +88,248 @@ function formatSegmentList(segments) {
   return `${segments.slice(0, -1).map(segment => segment.name).join(', ')}, and ${segments.at(-1).name}`;
 }
 
+function isGenericEffortName(name = '') {
+  const normalized = String(name).trim().toLowerCase();
+  return (
+    normalized === 'sprint' ||
+    normalized === 'sprint reverse' ||
+    normalized === 'sprint forward end' ||
+    normalized === 'sprint reverse end' ||
+    normalized === 'kom' ||
+    normalized === 'kom reverse' ||
+    normalized === 'qom' ||
+    normalized === 'qom reverse' ||
+    normalized === 'unknown segment'
+  );
+}
+
+function summarizeOccurrenceList(occurrences, maxNames = 4) {
+  const filtered = occurrences.filter(segment => !isGenericEffortName(segment?.name));
+  const source = filtered.length ? filtered : occurrences;
+  if (!source.length) return '';
+  const visible = source.slice(0, maxNames).map(segment => ({ name: segment.name }));
+  const base = formatSegmentList(visible);
+  const remaining = source.length - visible.length;
+  return remaining > 0 ? `${base}, then ${remaining} more later` : base;
+}
+
+function spacingNote(occurrences, shortGapKm = 2) {
+  const shortRecoveries = occurrences
+    .filter(item => Number.isFinite(item?.recoveryGapKm) && item.recoveryGapKm < shortGapKm)
+    .length;
+
+  if (!shortRecoveries) return 'Recovery gaps are workable between efforts.';
+  if (shortRecoveries === 1) return 'One recovery gap is short, so expect one effort to be slightly compromised.';
+  return `${shortRecoveries} recovery gaps are short, so later efforts will be somewhat degraded.`;
+}
+
+function orderedTimelineOccurrences(routeTimeline, type = null) {
+  if (!routeTimeline?.occurrences?.length) return [];
+  return routeTimeline.occurrences.filter(item =>
+    (!type || item.type === type) &&
+    item.name &&
+    !isGenericEffortName(item.name)
+  );
+}
+
+function orderedTimelineEfforts(routeTimeline) {
+  return orderedTimelineOccurrences(routeTimeline)
+    .filter(item => {
+      if (item.type !== 'sprint' && item.type !== 'climb') return false;
+      // Skip climb occurrences that are net downhill (reverse traversal of a climb segment).
+      // avgGradePct < 0 on a climb type means the route traverses it in the descent direction.
+      if (item.type === 'climb' && typeof item.avgGradePct === 'number' && item.avgGradePct < 0) return false;
+      return true;
+    });
+}
+
 function firstNumber(obj, keys) {
   return valueOr(...keys.map(key => obj?.[key]));
+}
+
+function segmentDistanceKm(segment = {}) {
+  return valueOr(segment.distanceKm, segment.distance, segment.lengthKm, 0) ?? 0;
+}
+
+function segmentAverageGradePct(segment = {}) {
+  return valueOr(segment.avgGradePct, segment.avgIncline);
+}
+
+function segmentElevationGainM(segment = {}) {
+  // If net elevation delta is negative (downhill traversal), treat gain as 0 for scoring purposes.
+  const delta = segment.elevationDeltaM ?? null;
+  if (delta !== null && delta < 0) return 0;
+  return Math.max(
+    valueOr(segment.elevationGainM, segment.elevation, segment.elevationDeltaM, 0) ?? 0,
+    0
+  );
+}
+
+function segmentSupport(segment) {
+  if (!segment) return { high: 0, peak: 0 };
+
+  if (segment?.type !== 'climb') {
+    const distance = segmentDistanceKm(segment);
+    const grade = segmentAverageGradePct(segment);
+    const flatness = grade === null ? 0.7 : clamp(1 - (Math.abs(grade) / 5), 0.3, 1);
+    const sprintLength = clamp(distance / 0.35, 0.45, 1);
+    return {
+      high: clamp(0.45 + (flatness * 0.3) + (sprintLength * 0.2), 0.45, 0.95),
+      peak: 0,
+    };
+  }
+
+  const distance = segmentDistanceKm(segment);
+  const avgGrade = segmentAverageGradePct(segment);
+  const elevationGain = segmentElevationGainM(segment);
+  const shortness = distance > 0 ? clamp(1 - (distance / 1.4), 0, 1) : 0;
+  const compactRise = clamp(elevationGain / 28, 0, 1);
+  const steepness = avgGrade === null ? 0.35 : clamp((avgGrade - 4.5) / 4, 0, 1);
+  const sustainedness = Math.max(
+    clamp(distance / 2.6, 0, 1),
+    clamp(elevationGain / 140, 0, 1),
+    avgGrade === null ? 0.25 : clamp((avgGrade - 3.5) / 4.5, 0, 1)
+  );
+
+  const explicitPunch = (
+    avgGrade !== null &&
+    avgGrade >= PUNCHY_GRADE_MIN &&
+    distance > 0 &&
+    distance < PUNCHY_DISTANCE_MAX
+  ) ? 1 : 0;
+  const compactPunch = (
+    distance > 0 &&
+    distance <= PEAK_COMPACT_DISTANCE_MAX &&
+    elevationGain >= PEAK_COMPACT_GAIN_MIN
+  ) ? 0.92 : 0;
+  const shortRisePunch = (
+    distance > 0 &&
+    distance <= 0.9 &&
+    elevationGain >= 24 &&
+    (avgGrade === null || avgGrade >= 5.5)
+  ) ? 0.8 : 0;
+
+  let peak = Math.max(
+    explicitPunch,
+    compactPunch,
+    shortRisePunch,
+    (steepness * 0.45) + (shortness * 0.35) + (compactRise * 0.3)
+  );
+
+  if (distance >= 3 || elevationGain >= 140) {
+    peak *= 0.12;
+  } else if (distance >= 2 || elevationGain >= 90) {
+    peak *= 0.35;
+  }
+
+  return {
+    high: clamp(0.35 + (sustainedness * 0.6) + Math.min(peak * 0.18, 0.12), 0.35, 1),
+    peak: clamp(peak, 0, 1),
+  };
+}
+
+function normalizeSupportValue(value) {
+  if (value === null || value === undefined) return null;
+  return clamp(value, 0, 1);
+}
+
+function aggregateSegmentSupport(segments = []) {
+  if (!segments.length) return { high: 0, peak: 0, maxPeak: 0, peakOccurrences: 0 };
+
+  let totalHigh = 0;
+  let totalPeak = 0;
+  let maxPeak = 0;
+  let peakOccurrences = 0;
+
+  for (const segment of segments) {
+    const support = segmentSupport(segment);
+    totalHigh += support.high;
+    totalPeak += support.peak;
+    maxPeak = Math.max(maxPeak, support.peak);
+    if (support.peak >= 0.5) peakOccurrences += 1;
+  }
+
+  const peakRepeatBonus = peakOccurrences > 1 ? Math.min((peakOccurrences - 1) * 0.08, 0.18) : 0;
+
+  return {
+    high: clamp(totalHigh / HIGH_SUPPORT_TARGET, 0, 1),
+    peak: clamp(Math.max(totalPeak / PEAK_SUPPORT_TARGET, maxPeak * 0.85) + peakRepeatBonus, 0, 1),
+    maxPeak,
+    peakOccurrences,
+  };
+}
+
+export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = null, lapCount = 1, C = {}) {
+  const low = scoreRoute(route, 'low', C) / 100;
+  const fallback = {
+    low,
+    high: scoreRoute(route, 'high', C) / 100,
+    peak: scoreRoute(route, 'peak', C) / 100,
+    source: routeSegments?.source ?? 'world',
+    peakMeaningful: false,
+  };
+
+  if (!routeSegments || routeSegments.source === 'world') {
+    return fallback;
+  }
+
+  const occurrenceSource = Array.isArray(routeTimeline?.occurrences) && routeTimeline.occurrences.length
+    ? routeTimeline.occurrences
+    : [...(routeSegments.climbs ?? []), ...(routeSegments.sprints ?? [])];
+
+  const aggregated = aggregateSegmentSupport(occurrenceSource);
+  const peakThreshold = C.PEAK_SUPPORT_THRESHOLD ?? PEAK_SUPPORT_THRESHOLD;
+  const routeDistance = route?.distance ?? 0;
+  const peakDistanceFactor = clamp(1 - (routeDistance / 60), 0.25, 1);
+  const peak = normalizeSupportValue(aggregated.peak * peakDistanceFactor);
+  const peakMeaningful =
+    peak >= peakThreshold &&
+    aggregated.maxPeak >= 0.72 &&
+    (aggregated.peakOccurrences >= 2 || routeDistance <= 25);
+
+  return {
+    low,
+    high: normalizeSupportValue(aggregated.high),
+    peak,
+    source: routeSegments.source,
+    peakMeaningful,
+    peakOccurrences: aggregated.peakOccurrences,
+    lapCount,
+  };
 }
 
 function wotdDurationMinutes(wotd) {
   const durationSeconds = firstNumber(wotd, ['duration', 'durationSeconds', 'seconds', 'totalDuration']);
   if (durationSeconds === null) return null;
   return durationSeconds > 300 ? durationSeconds / 60 : durationSeconds;
+}
+
+/**
+ * classifySegmentBucket — which energy bucket a segment primarily fills.
+ *
+ * Flat/rolling sprint banners are threshold (HIGH) work, not neuromuscular.
+ * Only short, steep climb segments demand PEAK effort.
+ *
+ * @param {object} segment — segment record (from segments-data.js or merged timeline entry)
+ * @returns {'high'|'peak'}
+ */
+export function classifySegmentBucket(segment) {
+  return segmentSupport(segment).peak >= 0.5 ? 'peak' : 'high';
+}
+
+/**
+ * routeHonestyLabel — terrain-honest description of what buckets a route can fill.
+ *
+ * @param {object} routeSegments — { climbs, sprints, source }
+ * @returns {'low'|'low-high'|'true-mixed'|null}
+ */
+export function routeHonestyLabel(route, routeSegments, routeTimeline = null, lapCount = 1, C = {}) {
+  if (!routeSegments || routeSegments.source === 'world') return null;
+
+  const support = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount, C);
+  if ((support.high ?? 0) < 0.12) return null;
+
+  return support.peakMeaningful ? 'true-mixed' : 'low-high';
 }
 
 export function classifyWOTD(wotd, ftp = null) {
@@ -169,7 +417,7 @@ export function detectBucket(tl, targetXSS) {
 /**
  * scoreRoute — score a single route 0-100 against a target bucket.
  *
- * @param {object} route  — zwift-data route object
+ * @param {object} route  — normalized route object from the generated Zwift snapshot
  * @param {string} bucket — 'low' | 'high' | 'peak' | 'recovery'
  * @returns {number}
  */
@@ -220,7 +468,7 @@ export function scoreRoute(route, bucket, C = {}) {
  * rankRoutes — filter, score, and sort routes for a given bucket.
  * Returns top 15 (top 5 primary + up to 10 "other options").
  *
- * @param {Array}  routes — full zwift-data routes array
+ * @param {Array}  routes — full normalized routes array
  * @param {string} bucket — 'low' | 'high' | 'peak' | 'recovery'
  * @returns {Array} routes with added `score` property, sorted descending
  */
@@ -370,6 +618,39 @@ export function wotdTerrainScore(route, wotdStructure, routeSegments) {
   return 0.5;
 }
 
+function routeTruthProfile(contributions = {}) {
+  const peak = contributions.peak ?? 0;
+  const high = contributions.high ?? 0;
+
+  if (peak >= PEAK_SUPPORT_THRESHOLD) return 'true-mixed';
+  if (high >= 0.12) return 'low-high';
+  return 'low';
+}
+
+function terrainScoreForStructure(route, wotdStructure, routeSegments, contributions = null) {
+  if (!contributions) return wotdTerrainScore(route, wotdStructure, routeSegments);
+
+  const baseScore = wotdTerrainScore(route, wotdStructure, routeSegments);
+  const truth = routeTruthProfile(contributions);
+  const peak = contributions.peak ?? 0;
+  const high = contributions.high ?? 0;
+
+  if (wotdStructure === 'sprint_power') {
+    if (peak < PEAK_ROUTE_MIN_SUPPORT) return Math.min(baseScore, 0.08);
+    if (peak < PEAK_ROUTE_STRONG_SUPPORT) return Math.min(baseScore, 0.45);
+    return clamp(Math.max(baseScore, 0.78) + Math.min((peak - PEAK_ROUTE_STRONG_SUPPORT) * 0.45, 0.18), 0, 1);
+  }
+
+  if (wotdStructure === 'mixed_mode') {
+    if (truth !== 'true-mixed' || peak < MIXED_COPY_PEAK_THRESHOLD) {
+      return Math.min(baseScore, 0.62);
+    }
+    return clamp(Math.max(baseScore, 0.82) + Math.min(high * 0.12, 0.12), 0, 1);
+  }
+
+  return baseScore;
+}
+
 function bucketDeficitScore(contributions, bucket, deficits, C = {}) {
   const activeBucketWeight = C.ACTIVE_BUCKET_WEIGHT ?? ACTIVE_BUCKET_WEIGHT;
   const deficitState = normalizeDeficits(deficits);
@@ -408,9 +689,15 @@ function optimizerReason(contributions, weights, bucket, timeFitTag, wotdStructu
   }
 
   if (wotdStructure === 'mixed_mode') {
-    if (timeFitTag === 'near-time') return 'Best support for low + high + peak work at your target time.';
-    if (timeFitTag === 'under-time') return 'Strong low + high + peak support that fits comfortably inside your time budget.';
-    return 'Strong low + high + peak support if you can go a little longer today.';
+    const peak = contributions.peak ?? 0;
+    if (peak >= MIXED_COPY_PEAK_THRESHOLD) {
+      if (timeFitTag === 'near-time') return 'Best support for low + high + peak work at your target time.';
+      if (timeFitTag === 'under-time') return 'Strong low + high + peak support that fits comfortably inside your time budget.';
+      return 'Strong low + high + peak support if you can go a little longer today.';
+    }
+    if (timeFitTag === 'near-time') return 'Best support for low + high work at your target time.';
+    if (timeFitTag === 'under-time') return 'Strong low + high support that fits comfortably inside your time budget.';
+    return 'Strong low + high support if you can go a little longer today.';
   }
 
   if (!top.length) {
@@ -456,6 +743,7 @@ export function optimizeRoutes(routes, options = {}) {
     availableMinutes = 60,
     estimateMinutes = () => null,
     getRouteSegments = () => ({ climbs: [], sprints: [] }),
+    getRouteSupport = null,
     wotdStructure = null,
     limit = 15,
     recoveryMode = bucket === 'recovery',
@@ -474,18 +762,22 @@ export function optimizeRoutes(routes, options = {}) {
       .map(route => {
         const estimatedMinutes = estimateMinutes(route);
         const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
-        const score = scoreRoute(route, 'recovery', tuning);
-        const contributions = routeContributions(route, tuning);
+        const rawScore = scoreRoute(route, 'recovery', tuning);
         const routeSegments = getRouteSegments(route);
+        const contributions = getRouteSupport
+          ? getRouteSupport(route, routeSegments, estimatedMinutes)
+          : routeContributions(route, tuning);
+        const utility = (rawScore / 100) * timeFit;
         return {
           ...route,
-          score,
+          score: Math.round(utility * 100),
+          rawScore,
           estimatedMinutes,
           optimizerTimeFit: timeFit,
           optimizerBreakdown: contributions,
-          wotdTerrainScore: wotdTerrainScore(route, wotdStructure, routeSegments),
+          wotdTerrainScore: terrainScoreForStructure(route, wotdStructure, routeSegments, contributions),
           optimizerReason: optimizerReason(contributions, {}, 'recovery', describeTimeFit(estimatedMinutes, availableMinutes), wotdStructure),
-          utility: Math.round(score * timeFit),
+          utility,
         };
       })
       .sort((a, b) => compareOptimizedRoutes(a, b, availableMinutes))
@@ -495,20 +787,24 @@ export function optimizeRoutes(routes, options = {}) {
   return eligible
     .map(route => {
       const estimatedMinutes = estimateMinutes(route);
-      const contributions = routeContributions(route, tuning);
       const routeSegments = getRouteSegments(route);
-      const terrainScore = wotdTerrainScore(route, wotdStructure, routeSegments);
+      const contributions = getRouteSupport
+        ? getRouteSupport(route, routeSegments, estimatedMinutes)
+        : routeContributions(route, tuning);
+      const terrainScore = terrainScoreForStructure(route, wotdStructure, routeSegments, contributions);
       const deficitScore = bucketDeficitScore(contributions, bucket, deficits, tuning);
       const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
       const weights = optimizerWeights(wotdStructure);
       let utility = (terrainScore * weights.terrain) + (deficitScore * weights.deficit) + (timeFit * weights.time);
 
-      const sprintCount = countSprintSegments(routeSegments);
       if (bucket === 'peak' && wotdStructure === 'sprint_power') {
-        if (sprintCount === 0 && (route.elevation ?? 0) > 500) {
+        if ((contributions.peak ?? 0) < PEAK_ROUTE_MIN_SUPPORT) {
           utility = 0;
-        } else if (sprintCount >= 1) {
-          utility = (utility * 1.4) + (contributions.peak * 0.35);
+        } else {
+          utility = (utility * 0.8) + ((contributions.peak ?? 0) * 1.1);
+          if ((contributions.peak ?? 0) >= PEAK_ROUTE_STRONG_SUPPORT) {
+            utility += 0.08;
+          }
         }
       }
 
@@ -531,13 +827,20 @@ export function optimizeRoutes(routes, options = {}) {
     .slice(0, limit);
 }
 
-export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
+export function generateRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline = null) {
   const namedSegmentsAvailable = routeSegments?.source !== 'world';
   const climbs = namedSegmentsAvailable ? (routeSegments?.climbs ?? []) : [];
   const sprints = namedSegmentsAvailable ? (routeSegments?.sprints ?? []) : [];
+  const timelineClimbs = orderedTimelineOccurrences(routeTimeline, 'climb');
+  const timelineSprints = orderedTimelineOccurrences(routeTimeline, 'sprint');
+  const namedClimbs = climbs.filter(segment => !isGenericEffortName(segment?.name));
+  const namedSprints = sprints.filter(segment => !isGenericEffortName(segment?.name));
   const distance = route?.distance ?? 0;
   const elevation = route?.elevation ?? 0;
   const gradientRatio = distance > 0 ? elevation / distance : 0;
+  const routeSupport = route?.bucketSupport ?? null;
+  const peakSupport = routeSupport?.peak ?? 0;
+  const trueMixed = peakSupport >= PEAK_SUPPORT_THRESHOLD;
 
   if (bucket === 'recovery') {
     return 'Easy spin only. Roll through any sprint banners with no efforts today.';
@@ -552,6 +855,9 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
   }
 
   if (wotdStructure === 'repeated_punchy') {
+    if (timelineClimbs.length) {
+      return `Hit every punchy climb in order: ${summarizeOccurrenceList(timelineClimbs)}. ${spacingNote(timelineClimbs)} Today calls for repeated surges, not one steady grind.`;
+    }
     const namedClimbs = highestRatedClimbs(routeSegments, 2);
     if (namedClimbs.length === 2) {
       return `Hit ${formatSegmentList(namedClimbs)} hard, then fully recover between them. Today calls for repeated threshold surges, not a steady grind.`;
@@ -563,9 +869,42 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
   }
 
   if (wotdStructure === 'sprint_power') {
-    const namedSprints = sprints.slice(0, 3);
+    if (peakSupport < PEAK_ROUTE_MIN_SUPPORT) {
+      if (timelineClimbs.length) {
+        return `This route can only fake a sprint day. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)} for hard surges, but expect more HIGH than true PEAK work.`;
+      }
+      if (namedClimbs.length) {
+        return `This route can only fake a sprint day. Hit ${formatSegmentList(namedClimbs.slice(0, 2))} hard, but expect more HIGH than true PEAK work.`;
+      }
+      return 'This route is better for hard surges than true PEAK work. If you ride it anyway, treat the sharpest rises as your best approximation and keep expectations modest.';
+    }
+    if (peakSupport < PEAK_SUPPORT_THRESHOLD) {
+      if (timelineClimbs.length) {
+        return `This route gives you a few punchy approximations. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)} for your hardest surges, but expect more HIGH work than true PEAK repeatability.`;
+      }
+      if (namedClimbs.length) {
+        return `This route gives you a few punchy approximations. Hit ${formatSegmentList(namedClimbs.slice(0, 2))} as your hardest efforts, but expect more HIGH work than true PEAK repeatability.`;
+      }
+      if (namedSprints.length) {
+        return `This route gives you a few punchy approximations. Sprint ${formatSegmentList(namedSprints.slice(0, 2))} hard, but expect more HIGH work than true PEAK repeatability.`;
+      }
+      return 'This route offers only a rough PEAK approximation. Treat the sharpest rises as your hardest efforts, but expect more HIGH work than true PEAK repeatability.';
+    }
+    const timelineEfforts = orderedTimelineEfforts(routeTimeline);
+    if (timelineSprints.length) {
+      if (timelineClimbs.length && timelineEfforts.length) {
+        return `Sprint day: follow the route order: ${summarizeOccurrenceList(timelineEfforts, 6)}. ${spacingNote(timelineSprints)} Sprint banners are full gas; KOMs are controlled bridges, not extra max efforts.`;
+      }
+      return `Sprint every viable banner in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Go full gas, then recover completely.`;
+    }
+    if (namedClimbs.length) {
+      if (namedClimbs.length === 1) {
+        return `Punch ${namedClimbs[0].name} at absolute max, then recover fully before the next hard effort. This route earns its PEAK support from short sharp climbs, not flat sprint runways.`;
+      }
+      return `Punch the climbs in order: ${formatSegmentList(namedClimbs.slice(0, 3))}. Full gas on each rise, then recover completely because these are your best PEAK opportunities on this route today.`;
+    }
     if (namedSprints.length >= 2) {
-      return `Sprint ${formatSegmentList(namedSprints)} at absolute max effort. Full gas, then fully recover because these are your PEAK XSS generators today.`;
+      return `Sprint ${formatSegmentList(namedSprints)} at absolute max effort. Full gas, then fully recover because these are your best PEAK opportunities on this route today.`;
     }
     if (namedSprints.length === 1) {
       return `Sprint ${namedSprints[0].name} at absolute max effort. Recover completely, then repeat if the route allows with no half-efforts.`;
@@ -574,6 +913,24 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments) {
   }
 
   if (wotdStructure === 'mixed_mode') {
+    const timelineEfforts = orderedTimelineEfforts(routeTimeline);
+    if (!trueMixed) {
+      if (timelineClimbs.length) {
+        return `This is a LOW+HIGH venue, not a true mixed route. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2 and do not expect much PEAK work.`;
+      }
+      if (timelineSprints.length) {
+        return `This is a LOW+HIGH venue, not a true mixed route. Ride flats in Z2, then hit sprints in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Expect little true PEAK work.`;
+      }
+    }
+    if (timelineSprints.length) {
+      if (timelineClimbs.length && timelineEfforts.length) {
+        return `Ride Z2 between efforts, then follow the route order: ${summarizeOccurrenceList(timelineEfforts, 5)}. Sprints are max efforts; climbs are controlled hard efforts. ${spacingNote(timelineEfforts)}`;
+      }
+      return `Ride the flats in Z2, then hit every viable sprint in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)}`;
+    }
+    if (timelineClimbs.length) {
+      return `This is mostly a climb route. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2; expect LOW+HIGH more than true PEAK.`;
+    }
     const namedSprints = sprints.slice(0, 2);
     if (namedSprints.length >= 1) {
       return `Ride the flats in Z2 to build aerobic base, sprint ${formatSegmentList(namedSprints)} at absolute max when you hit them. Full recovery between efforts, then back to Z2.`;

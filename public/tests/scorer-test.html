@@ -124,9 +124,11 @@
 
   <script type="module">
     import {
-      scoreRoute, rankRoutes, detectBucket, optimizeRoutes,
-      classifyWOTD, wotdTerrainScore, DEFAULTS,
+      scoreRoute, rankRoutes, detectBucket, optimizeRoutes, generateRideCue,
+      classifyWOTD, deriveRouteBucketSupport, routeHonestyLabel, wotdTerrainScore, DEFAULTS,
     } from '../app/core/scorer.js';
+    import { getSegmentsForRoute } from '../app/core/segments.js';
+    import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, withRecoveryGaps } from '../app/core/timelines.js';
     import { routes as ALL_ROUTES } from '../app/data/routes-data.js';
 
     // ── Slider definitions ──────────────────────────────────────────────────
@@ -293,7 +295,45 @@
       { name: 'Running Route',         world: 'watopia',        distance: 5.0,    elevation: 50,   eventOnly: false, sports: ['running'] },
     ];
 
+    const RECOVERY_ESTIMATE_MINUTES = new Map([
+      ['Flat Out Fast', 56],
+      ['Tempus Fugit', 44],
+      ['Tick Tock', 46],
+      ['Going Coastal', 46],
+      ['Red Zone Repeats', 56],
+    ]);
+
     const estimateMinutes = r => Math.round((r.distance / 28) * 60 + (r.elevation / 700) * 60);
+    const routeByNameData = Object.fromEntries(ALL_ROUTES.map(route => [route.name, route]));
+
+    function estimateRecoveryFixtureMinutes(route) {
+      return RECOVERY_ESTIMATE_MINUTES.get(route.name) ?? estimateMinutes(route);
+    }
+
+    function supportForRouteName(name, availableMinutes = 60) {
+      const route = routeByNameData[name];
+      const routeSegments = getSegmentsForRoute(route);
+      const timeline = getRouteTimeline(route);
+      const lapCount = recommendedLapCount({ ...route, estimatedMinutes: estimateMinutes(route) }, availableMinutes);
+      const occurrences = timeline ? withRecoveryGaps(expandTimelineForLaps({ ...route, estimatedMinutes: estimateMinutes(route) }, timeline, lapCount)) : [];
+      const routeTimeline = timeline ? { ...timeline, occurrences } : null;
+      const support = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
+      return {
+        support,
+        label: routeHonestyLabel(route, routeSegments, routeTimeline, lapCount),
+      };
+    }
+
+    function cueForRouteName(name, bucket, wotdStructure, availableMinutes = 60) {
+      const route = routeByNameData[name];
+      const routeSegments = getSegmentsForRoute(route);
+      const timeline = getRouteTimeline(route);
+      const lapCount = recommendedLapCount({ ...route, estimatedMinutes: estimateMinutes(route) }, availableMinutes);
+      const occurrences = timeline ? withRecoveryGaps(expandTimelineForLaps({ ...route, estimatedMinutes: estimateMinutes(route) }, timeline, lapCount)) : [];
+      const routeTimeline = timeline ? { ...timeline, occurrences } : null;
+      const bucketSupport = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
+      return generateRideCue({ ...route, bucketSupport }, bucket, wotdStructure, routeSegments, routeTimeline);
+    }
 
     const BUCKET_LABELS = {
       low: 'LOW (aerobic)',
@@ -372,6 +412,97 @@
       }).join('');
       html += `<h2>wotdTerrainScore checks <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
         <table><tr><th>Scenario</th><th>Expectation</th><th>Actual</th><th>Result</th></tr>${terrainRows}</table>`;
+
+      const routeTruthCases = [
+        {
+          label: 'Tempus Fugit stays LOW+HIGH with negligible PEAK',
+          actual: supportForRouteName('Tempus Fugit', 45),
+          pass: ({ support, label }) => label === 'low-high' && (support.peak ?? 0) <= 0.1,
+        },
+        {
+          label: 'Road to Sky stays climb-oriented, not TRUE mixed',
+          actual: supportForRouteName('Road to Sky', 75),
+          pass: ({ support, label }) => label === 'low-high' && (support.peak ?? 0) <= 0.1 && (support.high ?? 0) >= 0.6,
+        },
+        {
+          label: 'Leg Snapper route gets meaningful PEAK credit',
+          actual: supportForRouteName('2018 Worlds Short Lap', 60),
+          pass: ({ support }) => (support.peak ?? 0) >= 0.4,
+        },
+        {
+          label: 'Watopia Figure 8 does not overclaim TRUE mixed',
+          actual: supportForRouteName('Watopia Figure 8', 60),
+          pass: ({ label, support }) => label === 'low-high' && (support.peak ?? 0) < 0.42,
+        },
+      ];
+      const routeTruthRows = routeTruthCases.map(t => {
+        const result = t.actual;
+        const pass = t.pass(result);
+        const detail = `label=${result.label ?? 'null'} · L/H/P ${(result.support.low ?? 0).toFixed(2)}/${(result.support.high ?? 0).toFixed(2)}/${(result.support.peak ?? 0).toFixed(2)}`;
+        return `<tr><td>${t.label}</td><td>${detail}</td>
+          <td style="color:${pass ? 'var(--green)' : 'var(--red)'}">${pass ? 'PASS' : 'FAIL'}</td></tr>`;
+      }).join('');
+      html += `<h2>Route truth checks <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Scenario</th><th>Actual</th><th>Result</th></tr>${routeTruthRows}</table>`;
+
+      const peakScenarioRoutes = [
+        routeByNameData['Tempus Fugit'],
+        routeByNameData['Watopia Figure 8'],
+        routeByNameData['2018 Worlds Short Lap'],
+      ].filter(Boolean);
+      const peakScenarioRanked = optimizeRoutes(peakScenarioRoutes, {
+        bucket: 'peak',
+        deficits: { low: 15, high: 11, peak: 18 },
+        availableMinutes: 60,
+        estimateMinutes,
+        getRouteSegments: route => getSegmentsForRoute(route),
+        getRouteSupport: route => supportForRouteName(route.name, 60).support,
+        wotdStructure: 'sprint_power',
+      });
+      const peakOrder = peakScenarioRanked.map(route => route.name).join(' > ');
+      const peakStrictPass =
+        peakScenarioRanked[0]?.name === '2018 Worlds Short Lap' &&
+        peakScenarioRanked.at(-1)?.name === 'Tempus Fugit';
+      html += `<h2>PEAK-day strictness <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Expectation</th><th>Actual</th><th>Result</th></tr>
+        <tr><td>Punchy climb route outranks flat sprint route on PEAK day</td><td>${peakOrder}</td>
+          <td style="color:${peakStrictPass ? 'var(--green)' : 'var(--red)'}">${peakStrictPass ? 'PASS' : 'FAIL'}</td></tr></table>`;
+
+      const worldsShortLapCue = cueForRouteName('2018 Worlds Short Lap', 'peak', 'sprint_power', 60);
+      const cueNamePass = worldsShortLapCue.includes('Leg Snapper KOM') && !worldsShortLapCue.includes('Unknown Segment');
+      html += `<h2>Cue naming <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Expectation</th><th>Actual</th><th>Result</th></tr>
+        <tr><td>PEAK cue uses rider-facing climb name on 2018 Worlds Short Lap</td><td>${worldsShortLapCue}</td>
+          <td style="color:${cueNamePass ? 'var(--green)' : 'var(--red)'}">${cueNamePass ? 'PASS' : 'FAIL'}</td></tr></table>`;
+
+      const recoveryFixtureRoutes = [
+        routeByNameData['Flat Out Fast'],
+        routeByNameData['Tempus Fugit'],
+        routeByNameData['Tick Tock'],
+        routeByNameData['Going Coastal'],
+        routeByNameData['Red Zone Repeats'],
+      ].filter(Boolean);
+      const recoveryFixtureRanked = optimizeRoutes(recoveryFixtureRoutes, {
+        bucket: 'recovery',
+        deficits: { low: 0, high: 0, peak: 0 },
+        availableMinutes: 60,
+        estimateMinutes: estimateRecoveryFixtureMinutes,
+        getRouteSegments: route => getSegmentsForRoute(route),
+        recoveryMode: true,
+        limit: recoveryFixtureRoutes.length,
+      });
+      const recoveryOrder = recoveryFixtureRanked.map(route => `${route.name} (${route.score})`).join(' > ');
+      const recoveryScorePass = recoveryFixtureRanked.every(route => route.score === Math.round(route.utility * 100));
+      const recoveryOrderPass =
+        recoveryFixtureRanked[0]?.name === 'Flat Out Fast' &&
+        recoveryFixtureRanked[1]?.name === 'Tempus Fugit' &&
+        recoveryFixtureRanked.every((route, index, ranked) => index === 0 || ranked[index - 1].score >= route.score);
+      html += `<h2>Recovery ranking/display alignment <span style="color:var(--muted);font-weight:normal;font-size:0.8rem">(static)</span></h2>
+        <table><tr><th>Expectation</th><th>Actual</th><th>Result</th></tr>
+        <tr><td>Displayed recovery score equals ranking value for every card</td><td>${recoveryOrder}</td>
+          <td style="color:${recoveryScorePass ? 'var(--green)' : 'var(--red)'}">${recoveryScorePass ? 'PASS' : 'FAIL'}</td></tr>
+        <tr><td>60-minute fixture keeps Flat Out Fast ahead of Tempus Fugit and scores descend with order</td><td>${recoveryOrder}</td>
+          <td style="color:${recoveryOrderPass ? 'var(--green)' : 'var(--red)'}">${recoveryOrderPass ? 'PASS' : 'FAIL'}</td></tr></table>`;
 
       // Stability
       const stabilityRoutes = [
