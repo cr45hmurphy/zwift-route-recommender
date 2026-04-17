@@ -12,6 +12,19 @@ Inspector navigation is wired on full recommendation cards. Remaining:
 - `Other options` and `If you had more time` sections still need the jump link
 - two-way navigation (inspector → back to recommendation) should stay coherent across all entry points
 
+### Route browsing cleanup: more-time caps, profiles, and inspector UX
+The secondary route browsing sections need a focused product pass.
+
+Current problems / desired changes:
+- `If you had more time` has no practical cap. At low time budgets such as 30 minutes, it can show almost all routes. Decide whether to cap by time over budget, e.g. only routes between X and Y minutes over planned time, or by a fixed max card count.
+- Reconsider whether `Other options` should exist at all. It may not offer enough beyond the Route Inspector and could be removed or folded into a better browsing/search surface.
+- Add route profiles to `If you had more time` cards so the section has enough context to be useful without jumping elsewhere.
+- Pull route-profile smoothing back slightly so contours feel a bit more truthful while staying readable.
+- Remove the `Key efforts` section from Route Inspector; it is not needed there.
+- Reorganize Route Inspector so it is easier to find a desired route. The current dropdown may not scale well.
+- Explore route discovery by training need, such as filters for which buckets a route helps: LOW, HIGH, PEAK, `LOW+HIGH`, or true mixed.
+- Lighten the Watopia world title color slightly. The current orange is good, but needs a small readability bump.
+
 ### WOTD live validation
 The workout fetch chain is wired but hasn't been tested end-to-end against a live mixed-mode day. When Xert schedules a `#MIXEDMODE` workout:
 - Confirm `training_info` returns a `workoutId`
