@@ -6,6 +6,19 @@ Use this file for real-ride evidence that can tune route scoring, time estimates
 
 ## Ride Datapoints
 
+### 2026-04-11 - Sugar Cookie, Watopia
+
+- Source note: `Zwift - Sugar Cookie in Watopia`
+- Start time: 11:19 AM
+- Distance: 24.3 mi
+- Duration: 1h 44m
+- Total XSS: 100
+- XSS split: 95 LOW / 3.7 HIGH / 1.7 PEAK
+- Pre-ride target gaps: 127.8 LOW / 16.2 HIGH / 9.3 PEAK
+- Actual target fill: 74% LOW / 23% HIGH / 18% PEAK
+- Original app estimate: no per-bucket prediction; showed a blended `89% of today's gap`
+- Calibration takeaway: the blended estimate was misleading because HIGH and PEAK were barely touched. This ride is the core evidence for showing per-bucket predictions and treating mostly flat routes with sprint opportunities as LOW-dominant unless the cue and terrain can genuinely produce meaningful HIGH/PEAK.
+
 ### 2026-04-16 - Flat Out Fast, Watopia
 
 - Source note: `Zwift - Flat Out Fast in Watopia`
