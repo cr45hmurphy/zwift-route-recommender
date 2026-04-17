@@ -1467,7 +1467,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
         return `<span class="xss-fill ${bkt}"><span class="bucket-word ${bkt}">${bkt.toUpperCase()}</span> ~${xss}${target}</span>`;
       }).filter(Boolean);
       bucketXssTag = parts.join('');
-      const bXss = perBucketXss[b] ?? estimateBucketImpactXss(estMin, b);
+      const bXss = estimateBucketImpactXss(estMin, b);
       const remainingForBucket = state.dailySummary?.remaining?.[b] ?? null;
       shareFillPct = remainingForBucket
         ? Math.min(Math.round(bXss / Math.max(remainingForBucket, 1) * 100), 100)
