@@ -1,4 +1,8 @@
-# Route Recommender — Design Redesign
+# Archived: Route Recommender — Design Redesign
+
+Archived on April 17, 2026. The core recommender/cue-generator overhaul is complete enough that this document is no longer the active planning surface. Remaining work was consolidated into `docs/planning/parkinglot.md`.
+
+This file is preserved as historical context for the Sugar Cookie test ride, the cue-generator reframe, and the Sauce-derived route timeline design.
 
 ## Based on Test Ride #1: Sugar Cookie, Watopia — April 11 2026
 

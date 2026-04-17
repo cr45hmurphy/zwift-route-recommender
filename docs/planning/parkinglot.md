@@ -1,208 +1,165 @@
-# Parking Lot — Ideas & Issues for Later
+# Parking Lot
 
-Organized by priority tier. Top of each section = tackle first.
-
----
-
-## Tier 1 — Next up (clear value, well-scoped)
-
-### Route card → inspector navigation on compact cards and secondary sections
-Inspector navigation is wired on full recommendation cards. Remaining:
-- compact route cards (profile-free summary cards) don't have the inspector affordance yet
-- `Other options` and `If you had more time` sections still need the jump link
-- two-way navigation (inspector → back to recommendation) should stay coherent across all entry points
-
-### Route browsing cleanup: more-time caps, profiles, and inspector UX
-The secondary route browsing sections need a focused product pass.
-
-Current problems / desired changes:
-- `If you had more time` has no practical cap. At low time budgets such as 30 minutes, it can show almost all routes. Decide whether to cap by time over budget, e.g. only routes between X and Y minutes over planned time, or by a fixed max card count.
-- Reconsider whether `Other options` should exist at all. It may not offer enough beyond the Route Inspector and could be removed or folded into a better browsing/search surface.
-- Add route profiles to `If you had more time` cards so the section has enough context to be useful without jumping elsewhere.
-- Pull route-profile smoothing back slightly so contours feel a bit more truthful while staying readable.
-- Remove the `Key efforts` section from Route Inspector; it is not needed there.
-- Reorganize Route Inspector so it is easier to find a desired route. The current dropdown may not scale well.
-- Explore route discovery by training need, such as filters for which buckets a route helps: LOW, HIGH, PEAK, `LOW+HIGH`, or true mixed.
-- Lighten the Watopia world title color slightly. The current orange is good, but needs a small readability bump.
-
-### WOTD live validation
-The workout fetch chain is wired but hasn't been tested end-to-end against a live mixed-mode day. When Xert schedules a `#MIXEDMODE` workout:
-- Confirm `training_info` returns a `workoutId`
-- Confirm `fetchWorkout` enriches rawWotd with `xlss/xhss/xpss/intervalPower/intervalDuration`
-- Confirm `classifyWOTD` returns `'mixed_mode'`
-- Confirm banner, route ranking, and ride cue all match the mixed-mode intent
-
-### WOTD terrain heuristics tuning pass
-After accumulating real ride data, revisit:
-- `wotdTerrainScore()` cutoffs for `sustained_climb`, `repeated_punchy`, and `aerobic_endurance`
-- Whether world-fallback segment data should influence sprint-power ranking as strongly as route-linked segment data
-- Whether WOTD-first weighting should demote low/high support even further in `sprint_power` days
-
-### Scoring / optimizer tuning pass
-The live tuning panel in `scorer-test.html` makes this easy — adjust sliders and see ranking changes immediately. After accumulating real ride data, revisit:
-- `ACTIVE_BUCKET_WEIGHT` — currently 0.65 (specialist weight vs 0.35 deficit balance); fixed the all-rounder bias but may need further tuning
-- `PUNCH_ELEVATION_CAP` — currently 400m; may need adjustment
-- `PUNCH_DISTANCE_MAX` — currently 18 km; still heuristic
-- Whether LOW and mixed-deficit behavior still over-favors “all-rounder” routes on long time budgets
-
-### Daily Summary fidelity pass
-Confirm edge cases: multiple rides, imported rides, timezone boundaries, rounding differences with Xert's own UI.
-
-### Route segment ordering, duplicate hits, and route inspection
-The app is much better on route-to-segment membership now, but it still does not preserve the true order segments occur on a route, nor whether a route hits the same segment multiple times.
-
-Why this still matters:
-- Segment chips are membership-accurate, but not sequence-accurate
-- Ride cues can name good targets, but not reliably say when they happen
-- Duplicate sprint routes can understate how many opportunities a rider actually gets
-- UI validation is harder because some routes are not visible under today's world filter, and there is no dedicated route-inspection test page
-
-Future implementation direction:
-1. Investigate whether Zwift has another public source with route-position data for segments, or whether existing community datasets can provide ordered segment positions per route
-2. If no better source exists, evaluate a compatibility bridge using legacy `zwift-data` `segmentsOnRoute.from/to` data where available
-3. Extend generated route data to support ordered segment occurrences, not just unique segment membership
-4. Update route chips and ride cues to express duplicate occurrences, e.g. `JWB Sprint Rev. ×2`
-5. Prefer rider-facing names like `JWB Sprint Reverse` over internal XML labels like `Sprint Forward End`
-6. Add a lightweight route inspection/test harness so specific routes like `Road to Sky`, `Tempus Fugit`, `Surrey Hills`, and `Triple Flat Loops` can be checked regardless of today's worlds
-
-Acceptance criteria when this is tackled:
-- Segment chips reflect route order, not just sorted importance
-- Duplicate segment hits are shown explicitly
-- Triple Flat Loops resolves to two named sprint targets with correct duplicate counts
-- Route-specific checks are possible even when the route is outside today's active worlds
+The core route recommender is complete enough to treat the remaining work as polish, validation, calibration, and future extensions. This is the active list. Historical design and implementation records live in `docs/planning/archive/` or older planning files.
 
 ---
 
----
+## Tier 1 - Product Polish And Validation
 
-## Known data gaps / intentional non-bugs
+### Route Browsing Cleanup
+The secondary browsing surfaces need a product pass.
 
-### Volcano Circuit PEAK score near zero
-Sauce4Zwift's route projection for Volcano Circuit only yields a lap marker with zero elevation — no climb segments are projected for this route. The PEAK ~0 badge is correct given available data. Not a code bug. If a better segment source becomes available, revisit.
+- Cap `If you had more time`. At low budgets such as 30 minutes, it can show nearly everything. Decide whether to cap by time overrun, such as routes X-Y minutes above the selected time, or by a fixed max card count.
+- Reconsider whether `Other options` should exist. It may not add enough beyond Route Inspector and could be removed or folded into a better browsing surface.
+- Add route profiles to `If you had more time` cards so over-budget options are visually scannable.
+- Add inspector jump links to compact cards and secondary sections if those sections remain.
+- Keep two-way navigation coherent from recommendation card to inspector and back.
 
-### Segment membership is Sauce-projection accuracy
-Where Sauce's projected XML misses known segments, `ROUTE_SEGMENT_OVERRIDES` in `build-zwift-data.mjs` provides a manual fix. Currently used for Scotland After Party / Loch Loop (Breakaway Brae). Any future gap reports should be evaluated against Sauce first; if Sauce is definitively missing it, add an override entry.
+### Route Inspector UX
+Route Inspector is useful, but the dropdown is getting hard to scan.
 
----
+- Remove the `Key efforts` section from Route Inspector.
+- Reorganize route finding: search input, world filter, bucket-support filter, or grouped route picker.
+- Explore filtering by route usefulness: LOW, HIGH, PEAK, `LOW+HIGH`, `HIGH+PEAK`, `LOW+PEAK`, and true mixed.
+- Keep inspector useful for routes outside today's active worlds.
 
-## Tier 2 — Good features, moderate effort
+### Visual Polish
+- Lighten Watopia's world title color slightly. The current orange is directionally right but needs a small readability bump.
+- Route profiles should be smoothed a little less so contours feel more truthful while staying readable.
+- Mobile layout works but still needs a real-device pass.
+- Testing/dev data-source controls are functional but plainly styled; improve affordances if they remain long term.
 
-### Cue card editorial tuning
-The route timelines and honesty labels are in much better shape now, but the copy still gets awkward on medium and busy routes. The next editorial pass should focus on:
-- when to list the full effort sequence vs summarize
-- better repeat language than `plus 8 later efforts`
-- clearer mixed-route narration when sprints and KOMs interleave
-- better handling for routes that are honest `LOW+HIGH` rather than true mixed
+### Manual QA Round
+Run a focused browser pass after the current PR lands.
 
-This is a product-quality pass, not a data-plumbing pass.
+- `Mock: Low Deficit`: flat route cards should show `PEAK ~0`, and Tempus Fugit should remain `LOW+HIGH route`.
+- `Mock: Peak Focus`: punchy routes such as Volcano Climb / Cobbled Climbs style should rank high; Volcano Circuit's PEAK near zero remains a known data gap.
+- `scorer-test.html`: heuristic checks should stay green.
+- Mock switching, time slider, unit toggle, source label tooltip, and world filtering should not produce console errors.
 
-### Bucket-combo route discovery
-The honesty labels (`LOW+HIGH`, `TRUE mixed`) are useful enough that the UI may want a second layer of route browsing:
-- filters or tabs for `LOW+HIGH`, `HIGH+PEAK`, `LOW+PEAK`, `TRUE mixed`
-- optional section near the bottom for "routes that are honest at this bucket combo, even if they are not the top recommendation"
+### Live WOTD Validation
+The workout fetch chain is wired but still needs end-to-end validation against a live mixed-mode day.
 
-This should wait until the geometry-driven classification pass is a little more mature, so the combos are trustworthy.
-
-### Recent Progress panel — reconsider or remove
-The bar chart is hard to read in practice (bars tend to be all-or-nothing), the history only accumulates when the live app is used daily, and it's unclear what value it provides. Deferred: leave it for now, evaluate whether to remove it or redesign it after more live usage.
-
-### “You've filled this before” context
-Recent Progress snapshots are currently used only for the small trend panel. Reuse that local history to show lightweight context on the banner or route card, e.g. “Last HIGH day you generated 87 XSS.” This would help riders calibrate whether today's recommendation is conservative or aggressive without any new API.
-
-### Cue persistence / today's ride plan
-Plan history now saves silently to `xert_plan_history` in localStorage after every live refresh (top-5 routes with slug, name, world, distance, elevation, and ride cue; max 30 records; upserted by date). This is the data foundation but the reopen UI — showing the saved plan before fetching fresh data — was intentionally removed after testing: it got in the way rather than helping.
-
-Next step when this resurfaces: use `xert_plan_history` as the basis for last-ridden context (“ridden X days ago”), post-ride feedback matching, or a dedicated history view rather than a reopen gate.
-
-### Weekly progress overview
-The app now has a compact Recent Progress panel. A stronger next step would be a fuller 7-day overview showing completed vs target totals across the week rather than just a small per-bucket daily trend strip.
-
-### Share — format improvements
-Share controls are live and manually confirmed. `Image` writes PNG-only clipboard data so rich paste targets choose the card image; `Text` writes the plain route cue for text-only apps. The image capture also collapses full route-sequence expansion in the cloned card so busy segment routes stay shareable. Potential improvements: richer plain text formatting and better ride cue truncation.
-
-### ZwiftMap iframe — expandable route map on cards
-Adds an expandable map panel to route cards using ZwiftMap's public website via iframe so riders can visually inspect the route before starting.
-
-Implementation shape:
-- "View Map" button on each route card opens a panel below the card containing an iframe
-- Only one map panel open at a time
-- Lazy load the iframe only when opened
-- Fall back to an external "View on ZwiftMap" link if embedding ever stops working
-
-### Post-ride feedback loop
-After the ride, ask for a lightweight completion signal such as `Executed / Partially / Not really` or a simple thumbs up/down on the recommendation. Even local-only storage would let the app start learning which route/cue combinations actually work for the rider.
-
-### Multi-lap / compound route builder
-On longer PEAK or mixed days, the right answer may be a short effort route repeated multiple times or a short hard route followed by a cooldown route. Long term, build compound plans instead of forcing every recommendation into a single-route answer.
-
-### "Last ridden" tracking
-Once activity history is being fetched more deliberately, show "last ridden 18 days ago" on route cards. Give a small score boost to routes not ridden recently to add variety without the rider having to think about it.
-
-### Browser reminders
-Optional daily notification via the browser Notifications API. "Your Xert data is ready — check today's route." No backend needed, fully client-side.
-
-### Events matching training needs
-Zwift has an unofficial events API (requires Zwift OAuth — separate from Xert auth, adds complexity). Useful version: surface upcoming events that match your target bucket — group rides for LOW days, climbing races for HIGH days, crits/sprints for PEAK. Needs Zwift login flow added alongside Xert.
-
-### Equipment recommendations (frame/wheel)
-No live API — Zwift doesn't expose your garage. But can be a static recommendation system based on route characteristics, using Zwift Insider's published testing data:
-- Gradient >30 m/km → climbing frame
-- Flat/TT route → aero frame + deep wheels
-- Mixed → all-rounder
-
-### Workout-route pairing
-WOTD data already comes from Xert. Match the workout structure to a route — interval workout → route with repeated punchable climbs; long endurance block → flat loop; recovery spin → short flat. Bridges the gap between "do this workout" and "ride this route."
-
-### PR targeting via Strava segment links
-`zwift-data`'s segments export includes `stravaSegmentUrl` for most climbs and sprints. Surface these directly on route cards as tappable chips so riders can jump to current PRs before the ride.
-
-### Strava integration, phase 1: live PRs on segment chips
-Add Strava OAuth and fetch the rider's current PRs for the climbs/sprints on today's recommended routes so the chips show real personal context rather than only linking out.
-
-### Strava integration, phase 2: post-ride verification and feedback
-Use Strava activities after the ride to verify whether the rider actually rode the recommended route, which segments fired, and how their efforts compared with the cue. Xert remains the source of truth for bucket accounting and XSS.
+- Confirm `training_info` returns `workoutId`.
+- Confirm `fetchWorkout()` enriches raw WOTD with `xlss`, `xhss`, `xpss`, `intervalPower`, and `intervalDuration`.
+- Confirm `classifyWOTD()` returns `mixed_mode` for a real or simulated `#MIXEDMODE` day.
+- Confirm banner, route ranking, and ride cue all match the mixed-mode intent.
 
 ---
 
-## Tier 3 — Longer term / needs more thought
+## Tier 2 - Recommendation Quality
 
-### Sauce4Zwift route export: pre-built JSON library
-Add a `Download for S4Z` button to supported route cards so the rider can import a pre-built JSON route file into Sauce4Zwift and focus entirely on executing the cue during the ride.
+### Scoring And Optimizer Tuning
+The current scoring is good enough for the main recommender, but should be tuned against real rides.
 
-### Route profiles — fidelity / polish follow-up
-Native route profiles are now generated from Sauce4Zwift road geometry and rendered directly on full route cards plus the Route Inspector. The Flat Out Fast / Tempus Fugit phantom-profile class is fixed; Flat Out Fast was manually confirmed after the regression test was updated. Remaining work is quality-focused rather than plumbing-focused:
-- continue tuning smoothing / exaggeration so profiles read closer to Zwift Insider without hiding real contour
-- validate more routes for geometry interpretation edge cases beyond the confirmed `manifest.reverse` + looped-road reverse fixes
-- decide whether compact cards should eventually get a simplified profile treatment
-- consider a stronger profile simplification pass before proportional per-segment XSS work
+- Revisit `ACTIVE_BUCKET_WEIGHT`, currently 0.65 specialist vs 0.35 deficit balance.
+- Revisit `PUNCH_ELEVATION_CAP`, currently 400 m.
+- Revisit `PUNCH_DISTANCE_MAX`, currently 18 km.
+- Check whether LOW and mixed-deficit days still over-favor all-rounder routes on long budgets.
+- Check whether sprint-power days should demote LOW/HIGH support even further.
 
-### Sauce4Zwift live integration
-WebSocket connection to Sauce4Zwift for live Magic Buckets tracking during a ride. Would show real-time bucket fill as you ride rather than pre-ride estimates. Requires Sauce4Zwift to be running and exposes a local WebSocket.
+### Time Guidance And More-Time Behavior
+The time model is substantially improved, but the guidance layer still needs calibration.
 
-### Strava segment integration
-Personal PRs on recommended routes. Requires Strava OAuth. Nice motivational layer — "you PRd this climb 3 weeks ago, you're fresher now."
+- Validate recommended-time behavior: it should choose the first route-feasible time, not just theoretical bucket math.
+- Keep no-fit states honest when nothing fits the selected time.
+- Sort `If you had more time` by nearest viable overrun first, then use score/utility as a tie-breaker.
+- Decide whether Zwift's own time estimates can be surfaced or approximated better.
 
-### Seasonal / phase awareness
-Xert exposes enough context that the app may eventually infer whether the rider is in build, maintenance, taper, or recovery emphasis. That could tune the language and aggressiveness of recommendations even when today's deficits look similar on paper.
+### Cue Copy Editorial Pass
+Timeline-aware cues are in place, but copy still gets awkward on busy routes.
 
-### Sauce4Zwift: dynamic WOTD-tailored route generation
-Instead of only recommending pre-existing Zwift routes, generate custom S4Z route JSON tailored to the workout structure, e.g. repeated KOM hits with controlled recovery between.
+- Improve truncation rules for long route sequences.
+- Replace awkward repeat language such as `plus 8 later efforts`.
+- Clarify mixed-route narration when climbs and sprints interleave.
+- Better explain honest `LOW+HIGH` routes so riders know what to do today versus what the venue contains.
 
-### Proportional XSS per segment
-Rather than labeling a route as "LOW" or "HIGH", estimate how much XSS each bucket generates from it (flat sections → low, climbs → high, sprint points → peak). Much closer to how Xert actually thinks about rides. Depends on route profile fidelity being solid enough to trust per-segment attribution.
+### Route Truth And Bucket Modeling
+Route honesty labels work, but they should eventually become more expressive and better grounded in terrain.
+
+- Add richer route-truth combos when justified: `HIGH+PEAK`, `LOW+PEAK`, and true mixed.
+- Keep guarding against `TRUE mixed` when PEAK support is effectively zero.
+- Use road geometry more deeply for segment-to-bucket mapping, especially punchy-climb PEAK detection.
+- Start estimating proportional XSS per segment instead of treating a route as one blended bucket.
+- Add explicit no-good-fit messaging when no route can deliver the WOTD bucket mix inside the time budget.
+
+### Route Segment Order And Duplicate Hits
+Sauce-derived timelines solved most route-position needs, but some route/segment display remains approximate.
+
+- Preserve true route order and duplicate segment hits wherever source data supports it.
+- Show duplicate hits explicitly, for example `JWB Sprint Reverse x2`.
+- Keep rider-facing names preferred over internal XML labels.
+- Validate routes such as Road to Sky, Tempus Fugit, Surrey Hills, Triple Flat Loops, and 2018 Worlds Short Lap.
+
+### Daily Summary Fidelity
+Confirm edge cases against live Xert behavior.
+
+- Multiple rides in one day.
+- Imported rides.
+- Timezone boundaries.
+- Rounding differences with Xert's own UI.
+- Activity detail failures and summary fallback behavior.
 
 ---
 
-## UI polish (pick up anytime)
-- Route cards have no visual differentiation between worlds. A small world colour tag could help scanability.
-- Mobile layout works but hasn't been tested on a real device.
-- HIE display: consider one decimal place since it's a smaller number than FTP.
-- The Recent Progress panel is clearer now, but a legend or tooltip may still help explain target track vs completed fill for first-time users.
-- The testing/dev data-source controls are functional, but they are plainly styled. If they stay long term, they could use better affordances and maybe a “dev only” visual treatment.
+## Tier 3 - Future Features
+
+### Plan History And Last-Ridden Context
+Plan history is saved locally in `xert_plan_history`, but the reopen UI was intentionally removed because it interrupted the main flow.
+
+- Reuse plan history for last-ridden context, such as `ridden 18 days ago`.
+- Add lightweight post-ride feedback: executed, partially, not really, thumbs up/down.
+- Compare predicted route bucket fill against actual post-ride results.
+- Build a dedicated history view only if it helps decision-making.
+
+### Recent Progress Reconsideration
+The panel exists, but its value is uncertain.
+
+- Decide whether to remove it, redesign it, or expand into a fuller 7-day overview.
+- Add clearer legend/tooltip for target track versus completed fill if it stays.
+- Consider lightweight context like `Last HIGH day you generated 87 XSS`.
+
+### Share Improvements
+Share image/text controls work and were manually confirmed.
+
+- Improve plain-text formatting.
+- Improve ride cue truncation in shared cards.
+- Keep PNG-only image copy behavior because rich paste targets choose the card image correctly.
+
+### Maps And External Context
+- Add expandable ZwiftMap iframe or external map link on route cards.
+- Surface Strava segment PR links from route chips.
+- Later: Strava OAuth for live PRs and post-ride verification.
+- Later: static equipment recommendations based on route characteristics and published Zwift Insider testing.
+
+### Workout And Event Matching
+- Pair Xert workout structure to route shape more directly.
+- Surface Zwift events that match training needs: LOW group rides, HIGH climbing events, PEAK crits/sprints.
+- Requires separate Zwift auth if events need authenticated APIs.
+
+### Sauce4Zwift Extensions
+- Add `Download for S4Z` route JSON for supported cards.
+- Explore Sauce4Zwift live WebSocket integration for real-time Magic Buckets during a ride.
+- Long term: generate custom S4Z routes tailored to the WOTD instead of only recommending existing Zwift routes.
+
+---
+
+## Known Data Gaps / Intentional Non-Bugs
+
+### Volcano Circuit PEAK Score Near Zero
+Sauce4Zwift's route projection for Volcano Circuit only yields a lap marker with zero elevation, so no climb segments are projected for this route. The PEAK near-zero badge is correct given available data. Revisit only if a better segment source becomes available.
+
+### Segment Membership Is Sauce-Projection Accuracy
+Where Sauce's projected XML misses known segments, `ROUTE_SEGMENT_OVERRIDES` in `scripts/build-zwift-data.mjs` provides manual fixes. Currently used for Scotland After Party / Loch Loop Breakaway Brae style gaps. Future reports should be checked against Sauce first; if Sauce is definitively missing it, add an override.
+
+### Portal Routes Are Not First-Class Recommendations Yet
+Climb Portal support is surfaced as a side note. Portal road geometry is not yet pulled into the same recommendation path as normal Zwift routes.
+
+---
 
 ## Operational
-- Token TTL is hardcoded to 1 hour in `xert.js`. Xert's actual TTL may differ — worth checking if users hit unexpected logouts.
-- Generated route data should be refreshed when Zwift publishes new world or route data: `npm run build-routes` then commit the updated snapshot files.
-- Local dev still requires two terminals (`node proxy.js` + `npx serve .`). A `start.sh`/`start.bat` launcher would simplify this.
-- QA docs now live in `test-plan.md` and `rapid-qa-checklist.md`; keep them updated whenever major recommendation logic or testing affordances change.
 
+- Token TTL is hardcoded to 1 hour in `public/app/core/xert.js`; verify if users hit unexpected logouts.
+- Refresh generated route data when Zwift publishes meaningful world/route changes: `npm run build-routes`, review generated output, commit generated files with the build-script change if any.
+- Local dev still benefits from `npx netlify dev` for proxy/function testing.
+- Keep `docs/planning/test-plan.md` and `docs/planning/rapid-qa-checklist.md` updated when recommendation logic or manual QA steps change.
