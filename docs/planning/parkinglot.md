@@ -82,9 +82,7 @@ Route honesty labels work, but they should eventually become more expressive and
 - Use road geometry more deeply for segment-to-bucket mapping, especially punchy-climb PEAK detection.
 - Start estimating proportional XSS per segment instead of treating a route as one blended bucket.
 - Add explicit no-good-fit messaging when no route can deliver the WOTD bucket mix inside the time budget.
-
-Calibration datapoint:
-- April 16, 2026: Wandering Flats, Makuri Islands. Intended LOW-only day; rider did the first two sprints and rode Z2 before/after. Result: 15.8 mi, 1h 4m, 67 XSS total = 62 LOW / 2.5 HIGH / 2.4 PEAK. This supports the current caution that flat sprint routes are primarily LOW venues with small incidental HIGH/PEAK unless the cue calls for much more aggressive repeated efforts.
+- Keep real-ride calibration notes in `docs/planning/data-calibration.md`.
 
 ### Route Segment Order And Duplicate Hits
 Sauce-derived timelines solved most route-position needs, but some route/segment display remains approximate.
