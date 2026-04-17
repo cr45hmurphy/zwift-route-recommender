@@ -1468,9 +1468,18 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
       }).filter(Boolean);
       bucketXssTag = parts.join('');
       const bXss = perBucketXss[b] ?? estimateBucketImpactXss(estMin, b);
-      shareFillPct = state.dailySummary?.remaining?.[b]
-        ? Math.min(Math.round(bXss / Math.max(state.dailySummary.remaining[b], 1) * 100), 100)
+      const remainingForBucket = state.dailySummary?.remaining?.[b] ?? null;
+      shareFillPct = remainingForBucket
+        ? Math.min(Math.round(bXss / Math.max(remainingForBucket, 1) * 100), 100)
         : null;
+      console.log(`[coverage-debug] ${route.name} (${b})`, {
+        estMin,
+        bXss,
+        remaining: remainingForBucket,
+        pct: shareFillPct,
+        executionFirstLowDay,
+        bucketSupport_low: bucketSupport.low,
+      });
     }
   }
 
@@ -2332,6 +2341,25 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     total: targetXSS?.total ?? 0,
   };
 
+  const remaining = {
+    low: Math.max(targets.low - completed.low, 0),
+    high: Math.max(targets.high - completed.high, 0),
+    peak: Math.max(targets.peak - completed.peak, 0),
+    total: Math.max(targets.total - completed.total, 0),
+  };
+  console.log('[coverage-debug] daily summary', {
+    targetXSS_low: targets.low,
+    targetXSS_high: targets.high,
+    targetXSS_peak: targets.peak,
+    completed_low: completed.low,
+    completed_high: completed.high,
+    completed_peak: completed.peak,
+    remaining_low: remaining.low,
+    remaining_high: remaining.high,
+    remaining_peak: remaining.peak,
+    activityCount: countedActivities,
+  });
+
   return {
     count: countedActivities,
     totalActivities: activities.length,
@@ -2340,12 +2368,7 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     failedCount,
     completed,
     targets,
-    remaining: {
-      low: Math.max(targets.low - completed.low, 0),
-      high: Math.max(targets.high - completed.high, 0),
-      peak: Math.max(targets.peak - completed.peak, 0),
-      total: Math.max(targets.total - completed.total, 0),
-    },
+    remaining,
   };
 }
 
