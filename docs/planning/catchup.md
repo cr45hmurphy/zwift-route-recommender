@@ -1,6 +1,6 @@
 # Catchup — What's Been Built
 
-## Status: feature/zwift-cdn-overhaul branch. All CDN branch work committed and pushed. Core overhaul complete. WOTD fetch fully wired; live classification fires when Xert serves a workoutId. Flat Out Fast / Tempus Fugit phantom-profile class is fixed and manually confirmed.
+## Status: PR #8 open (`claude/parking-lot-catchup-3pAfa` → `feature/zwift-cdn-overhaul`). UI polish pass complete: section order, world colors, share on all cards, group by world. Coverage % consistency bug fixed. Diagnostic logging in place pending live verification — remove once confirmed stable.
 
 ---
 
@@ -119,6 +119,18 @@
 20. **Profile interpretation fix** — profile generation now honors `manifest.reverse` in Sauce route geometry, which fixed the phantom-hill issue on routes like `Downtown Eruption` and corrected some flat routes that were rendering too hilly
 21. **Profile polish pass** — on-chart marker text has been removed, profile scaling is less exaggerated, and smoothing is now a light cleanup step rather than heavy shape editing
 
+22. **Section order fix** — "If you had more time" section moved above "Other options" in `index.html` so over-budget routes appear closer to the primary grid
+
+23. **Per-world color badges** — `.route-world` span now carries `data-world="${slug}"` attribute; CSS attribute selectors apply a distinct color per world (Watopia green, London red, New York blue, Innsbruck light green, Richmond orange, Bologna yellow, Yorkshire purple, Crit City cyan, Makuri Islands teal, France indigo, Paris pink, Scotland forest green, Gravel Mountain earth brown); font-weight bumped to 700
+
+24. **Share on all cards** — Image + Text share buttons are now present on compact cards (Other options, If you had more time), not just primary recommendation cards; `!compact` gate removed from `shareBtn`
+
+25. **Group secondary sections by world** — Other options and If you had more time now render via `groupedByWorldHTML()`: routes are bucketed by world slug, each group gets a colored world heading (`route-world` + `data-world`), and the cards render in a per-group 3-column grid (`.world-group-cards`); `setToggleOpen()` updated to count `.route-card` elements instead of direct children so the toggle label stays accurate with grouped markup
+
+26. **Coverage % consistency fix** — `shareFillPct` was using `perBucketXss[b]` (support-weighted) as the numerator, which silently switched calculation paths depending on whether `executionFirstLowDay` was true at render time; WOTD classification state varies between loads, so the same route on the same time budget showed different coverage %s (observed: 84%→65%) despite `targetXSS.low` being completely stable; root cause confirmed via logging: denominator (`remaining = targetXSS − completed`) was stable, numerator was fluctuating; fixed to always use `estimateBucketImpactXss(estMin, b)` directly for the gap-coverage %, regardless of WOTD classification state
+
+27. **Coverage % diagnostic logging** — `[coverage-debug]` `console.log` calls added to `fetchTodaysDailySummary` (logs `targetXSS`, `completed`, `remaining`, activity count) and `routeCardHTML` (logs `estMin`, `bXss`, `remaining`, `pct`, `executionFirstLowDay`, `bucketSupport.low` per card); **remove both log calls once live verification confirms % is stable across refreshes**
+
 ---
 
 ### Previously completed
@@ -177,5 +189,6 @@ Deployed on Netlify, connected to `https://github.com/cr45hmurphy/zwift-route-re
 
 ## Git
 Repo: `https://github.com/cr45hmurphy/zwift-route-recommender`
-Active branch: `feature/zwift-cdn-overhaul`
-Merge target: `master`
+Active branch: `claude/parking-lot-catchup-3pAfa`
+Merge target: `feature/zwift-cdn-overhaul`
+Open PR: #8

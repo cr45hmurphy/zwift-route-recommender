@@ -281,7 +281,10 @@ const WORLD_NAMES = {
 - WOTD fetch and mixed-mode classification — workout detail fetched from Xert and merged into ranking
 - Segment-aware ride cues — cues name specific climbs/sprints from route-linked segment data
 - Route profiles — native SVG profiles generated from Sauce4Zwift road geometry
-- Favorites, share button, time slider, imperial/metric toggle
+- Favorites, share button (Image + Text on all cards), time slider, imperial/metric toggle
+- Per-world color badges on every route card
+- Secondary sections (Other options, If you had more time) grouped by world with colored world headings
+- "If you had more time" appears above "Other options" in the route list
 
 ## Future v2 Ideas (not yet built)
 

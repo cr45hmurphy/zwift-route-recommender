@@ -8,9 +8,8 @@ Organized by priority tier. Top of each section = tackle first.
 
 ### Route card → inspector navigation on compact cards and secondary sections
 Inspector navigation is wired on full recommendation cards. Remaining:
-- compact route cards (profile-free summary cards) don't have the inspector affordance yet
-- `Other options` and `If you had more time` sections still need the jump link
-- two-way navigation (inspector → back to recommendation) should stay coherent across all entry points
+- compact route cards still don't have the "Inspect in Route Picker" affordance (share buttons and world grouping were added, but not the inspector jump link)
+- two-way navigation (inspector → back to recommendation) should stay coherent across all entry points once compact cards get the jump link
 
 ### WOTD live validation
 The workout fetch chain is wired but hasn't been tested end-to-end against a live mixed-mode day. When Xert schedules a `#MIXEDMODE` workout:
@@ -105,7 +104,7 @@ Next step when this resurfaces: use `xert_plan_history` as the basis for last-ri
 The app now has a compact Recent Progress panel. A stronger next step would be a fuller 7-day overview showing completed vs target totals across the week rather than just a small per-bucket daily trend strip.
 
 ### Share — format improvements
-Share controls are live and manually confirmed. `Image` writes PNG-only clipboard data so rich paste targets choose the card image; `Text` writes the plain route cue for text-only apps. The image capture also collapses full route-sequence expansion in the cloned card so busy segment routes stay shareable. Potential improvements: richer plain text formatting and better ride cue truncation.
+Share controls are live on all cards (primary and compact). `Image` writes PNG-only clipboard data; `Text` writes the plain route cue. Remaining quality work: richer plain text formatting and better ride cue truncation for busy routes.
 
 ### ZwiftMap iframe — expandable route map on cards
 Adds an expandable map panel to route cards using ZwiftMap's public website via iframe so riders can visually inspect the route before starting.
