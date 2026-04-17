@@ -685,10 +685,24 @@ section { margin-bottom: 32px; }
 
 .route-world {
   font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--text-muted);
 }
+.route-world[data-world="watopia"]          { color: #4caf50; }
+.route-world[data-world="london"]           { color: #ef5350; }
+.route-world[data-world="new-york"]         { color: #64b5f6; }
+.route-world[data-world="innsbruck"]        { color: #81c784; }
+.route-world[data-world="richmond"]         { color: #ffb74d; }
+.route-world[data-world="bologna"]          { color: #ffd54f; }
+.route-world[data-world="yorkshire"]        { color: #b39ddb; }
+.route-world[data-world="crit-city"]        { color: #4dd0e1; }
+.route-world[data-world="makuri-islands"]   { color: #26c6da; }
+.route-world[data-world="france"]           { color: #5c6bc0; }
+.route-world[data-world="paris"]            { color: #f48fb1; }
+.route-world[data-world="scotland"]         { color: #66bb6a; }
+.route-world[data-world="gravel-mountain"]  { color: #a5826d; }
 
 .route-score {
   font-size: 0.72rem;
@@ -1199,7 +1213,17 @@ a.segment-chip:hover {
 }
 
 #other-list.open,
-#more-time-list.open { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+#more-time-list.open { display: block; margin-top: 12px; }
+
+.world-group { margin-bottom: 20px; }
+.world-group-header { margin-bottom: 8px; }
+.world-group-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.world-group-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 
 .route-card.compact { padding: 14px; }
 .route-card.compact .route-name { font-size: 0.88rem; }
@@ -1431,8 +1455,7 @@ a.segment-chip:hover {
 
 @media (max-width: 800px) {
   .route-grid,
-  #other-list.open,
-  #more-time-list.open {
+  .world-group-cards {
     grid-template-columns: 1fr;
   }
 

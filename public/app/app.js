@@ -1070,14 +1070,14 @@ function renderRoutes() {
   const otherLabel = viableWithinBudget.length
     ? `▼ Other options (${overflowRoutes.length} more)`
     : `▼ Best approximate options (${overflowRoutes.length} routes)`;
-  otherList.innerHTML = overflowRoutes.map(route => routeCardHTML(route, true, favorites)).join('');
+  otherList.innerHTML = groupedByWorldHTML(overflowRoutes, favorites);
   document.getElementById('other-toggle').textContent = otherLabel;
   document.getElementById('other-options').style.display = overflowRoutes.length ? 'block' : 'none';
 
   // "If you had more time": over-budget routes
   const moreSection = document.getElementById('more-time-options');
   const moreList    = document.getElementById('more-time-list');
-  moreList.innerHTML = viableOverBudget.map(route => routeCardHTML(route, true, favorites)).join('');
+  moreList.innerHTML = groupedByWorldHTML(viableOverBudget, favorites);
   moreSection.style.display = viableOverBudget.length ? 'block' : 'none';
   document.getElementById('more-time-toggle').textContent =
     `▼ If you had more time (${viableOverBudget.length} routes)`;
@@ -1088,7 +1088,25 @@ function setToggleOpen(toggleId, listId, label) {
   const toggle = document.getElementById(toggleId);
   if (!list || !toggle) return;
   list.classList.add('open');
-  toggle.textContent = `▲ ${label} (${list.children.length} ${label === 'Other options' ? 'more' : 'routes'})`;
+  const count = list.querySelectorAll('.route-card').length;
+  toggle.textContent = `▲ ${label} (${count} ${label === 'Other options' ? 'more' : 'routes'})`;
+}
+
+function groupedByWorldHTML(routes, favorites) {
+  const groups = new Map();
+  for (const route of routes) {
+    const w = route.world ?? '';
+    if (!groups.has(w)) groups.set(w, []);
+    groups.get(w).push(route);
+  }
+  return [...groups.entries()].map(([world, worldRoutes]) => {
+    const label = worldName(world);
+    const cards = worldRoutes.map(r => routeCardHTML(r, true, favorites)).join('');
+    return `<div class="world-group">
+      <div class="world-group-header"><span class="world-group-label route-world" data-world="${world}">${label}</span></div>
+      <div class="world-group-cards">${cards}</div>
+    </div>`;
+  }).join('');
 }
 
 function openSectionForRouteCard(routeKey) {
@@ -1450,9 +1468,18 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
       }).filter(Boolean);
       bucketXssTag = parts.join('');
       const bXss = perBucketXss[b] ?? estimateBucketImpactXss(estMin, b);
-      shareFillPct = state.dailySummary?.remaining?.[b]
-        ? Math.min(Math.round(bXss / Math.max(state.dailySummary.remaining[b], 1) * 100), 100)
+      const remainingForBucket = state.dailySummary?.remaining?.[b] ?? null;
+      shareFillPct = remainingForBucket
+        ? Math.min(Math.round(bXss / Math.max(remainingForBucket, 1) * 100), 100)
         : null;
+      console.log(`[coverage-debug] ${route.name} (${b})`, {
+        estMin,
+        bXss,
+        remaining: remainingForBucket,
+        pct: shareFillPct,
+        executionFirstLowDay,
+        bucketSupport_low: bucketSupport.low,
+      });
     }
   }
 
@@ -1461,9 +1488,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const favoriteBtn = `<button class="favorite-btn${isFavorited ? ' favorited' : ''}" data-route-key="${routeKey}" aria-label="Favorite">★</button>`;
   const shareText = buildShareText(route, estMin, shareFillPct, shareBucket);
   const escapedShareText = shareText.replace(/"/g, '&quot;');
-  const shareBtn = !compact
-    ? `<button class="share-btn" data-share-mode="image" data-share-text="${escapedShareText}" aria-label="Copy route card image">Image</button><button class="share-btn share-text-btn" data-share-mode="text" data-share-text="${escapedShareText}" aria-label="Copy route card text">Text</button>`
-    : '';
+  const shareBtn = `<button class="share-btn" data-share-mode="image" data-share-text="${escapedShareText}" aria-label="Copy route card image">Image</button><button class="share-btn share-text-btn" data-share-mode="text" data-share-text="${escapedShareText}" aria-label="Copy route card text">Text</button>`;
   const cls = compact ? 'route-card compact' : 'route-card';
   const favCls = isFavorited ? ` favorited` : '';
   const inspectorMode = Boolean(options.inspectorMode);
@@ -1504,7 +1529,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   return `
     <div class="${cls}${favCls}" data-route-key="${routeKey}">
       <div class="route-card-header">
-        <span class="route-world">${world}</span>
+        <span class="route-world" data-world="${route.world ?? ''}">${world}</span>
         <div class="route-card-actions">
           ${shareBtn}
           ${favoriteBtn}
@@ -2316,6 +2341,25 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     total: targetXSS?.total ?? 0,
   };
 
+  const remaining = {
+    low: Math.max(targets.low - completed.low, 0),
+    high: Math.max(targets.high - completed.high, 0),
+    peak: Math.max(targets.peak - completed.peak, 0),
+    total: Math.max(targets.total - completed.total, 0),
+  };
+  console.log('[coverage-debug] daily summary', {
+    targetXSS_low: targets.low,
+    targetXSS_high: targets.high,
+    targetXSS_peak: targets.peak,
+    completed_low: completed.low,
+    completed_high: completed.high,
+    completed_peak: completed.peak,
+    remaining_low: remaining.low,
+    remaining_high: remaining.high,
+    remaining_peak: remaining.peak,
+    activityCount: countedActivities,
+  });
+
   return {
     count: countedActivities,
     totalActivities: activities.length,
@@ -2324,12 +2368,7 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     failedCount,
     completed,
     targets,
-    remaining: {
-      low: Math.max(targets.low - completed.low, 0),
-      high: Math.max(targets.high - completed.high, 0),
-      peak: Math.max(targets.peak - completed.peak, 0),
-      total: Math.max(targets.total - completed.total, 0),
-    },
+    remaining,
   };
 }
 
