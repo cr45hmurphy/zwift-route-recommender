@@ -1,8 +1,12 @@
 import { authenticate, fetchTrainingInfo, fetchWorkout, fetchActivitiesInRange, fetchActivityDetail, parseTrainingData, clearToken, hasToken } from './core/xert.js';
 import { routes } from './core/routes.js';
-import { filterToAvailableWorlds, todaysWorlds, worldName } from './core/routes.js';
+import { getPreferredWorldContext, getWorldScheduleContext, filterRoutesToWorlds, worldName } from './core/routes.js';
+import { getTodaysPortalRoad } from './core/portal.js';
+import { scaleProfilePoints } from './core/profile.js';
 import { getSegmentsForRoute } from './core/segments.js';
-import { analyzeTrainingDay, generateRideCue, optimizeRoutes, wotdTerrainScore } from './core/scorer.js';
+import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, uniqueTimelineSegments, withRecoveryGaps } from './core/timelines.js';
+import { analyzeTrainingDay, deriveRouteBucketSupport, generateRideCue, optimizeRoutes, routeHonestyLabel, wotdTerrainScore } from './core/scorer.js';
+import { countRouteCards, formatWorldContextLabel, formatWorldContextSourceDetail } from './core/ui.js';
 import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
 
 // ── Constants ─────────────────────────────────────
@@ -18,9 +22,15 @@ const HISTORY_KEY = 'xert_history';
 const HISTORY_LIMIT = 10;
 const PLAN_HISTORY_KEY = 'xert_plan_history';
 const PLAN_HISTORY_LIMIT = 30;
+const ROUTE_PICKER_KEY = 'route-picker';
 const MANUAL_SPEED_MIN_KMH = 15;
 const MANUAL_SPEED_MAX_KMH = 50;
 const DAILY_SUMMARY_BUFFER_HOURS = 12;
+const TIME_SLIDER_MIN = 15;
+const TIME_SLIDER_MAX = 480;
+const TIME_SLIDER_STEP = 15;
+let recommendedTimeCache = { key: null, value: null };
+let evaluatedRoutesCache = { key: null, routes: [] };
 
 // Unit conversion factors (metric is the internal standard; these are display-only)
 const KM_TO_MI = 0.621371;
@@ -51,6 +61,10 @@ function getTimingMode() {
 function getDataSourceId() {
   const stored = localStorage.getItem(DATA_SOURCE_KEY) || 'live';
   return stored === 'live' || MOCK_SCENARIOS[stored] ? stored : 'live';
+}
+
+function getRoutePickerValue() {
+  return localStorage.getItem(ROUTE_PICKER_KEY) || '';
 }
 
 function isLiveDataSource(dataSourceId = state.dataSourceId) {
@@ -186,6 +200,25 @@ function displaySpeed(kmh) {
     : `${Math.round(kmh)} km/h`;
 }
 
+function formatClockMinutes(minutes) {
+  const safe = Math.max(0, Math.round(minutes));
+  const h = Math.floor(safe / 60);
+  const m = safe % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+function formatDurationText(minutes) {
+  const safe = Math.max(0, Math.round(minutes));
+  if (safe < 60) return `${safe} min`;
+  const h = Math.floor(safe / 60);
+  const m = safe % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function snapMinutes(value) {
+  return clamp(Math.round(value / TIME_SLIDER_STEP) * TIME_SLIDER_STEP, TIME_SLIDER_MIN, TIME_SLIDER_MAX);
+}
+
 function bucketColorClass(bucket) {
   if (bucket === 'low' || bucket === 'high' || bucket === 'peak') return bucket;
   return '';
@@ -221,6 +254,137 @@ function emphasizedTitle(text, emphasis, bucketClass) {
 
 function bucketBadgeHTML(baseClass, bucket, innerHtml) {
   return `<span class="${baseClass} ${bucketColorClass(bucket)}">${innerHtml}</span>`;
+}
+
+function isGenericSegmentName(name = '') {
+  const normalized = String(name).trim().toLowerCase();
+  return (
+    normalized === 'sprint' ||
+    normalized === 'sprint reverse' ||
+    normalized === 'sprint forward end' ||
+    normalized === 'sprint reverse end' ||
+    normalized === 'kom' ||
+    normalized === 'kom reverse' ||
+    normalized === 'qom' ||
+    normalized === 'qom reverse' ||
+    normalized === 'unknown segment'
+  );
+}
+
+function preferNamedSegments(segments = []) {
+  const named = segments.filter(segment => !isGenericSegmentName(segment?.name));
+  return named.length ? named : segments;
+}
+
+function isDisplayableRouteSegment(segment) {
+  return segment?.type === 'sprint' || segment?.type === 'climb' || segment?.type === 'segment';
+}
+
+function segmentDisplayKind(segment) {
+  if (segment?.type === 'climb') return 'climb';
+  if (segment?.type === 'sprint') return 'sprint';
+  return 'segment';
+}
+
+function buildInformationalProfileMarkers(routeTimeline, routeProfile) {
+  const occurrences = Array.isArray(routeTimeline?.segments) ? routeTimeline.segments : [];
+  const totalProfileKm = Number(routeProfile?.totalProfileKm ?? 0);
+  const totalRouteKm = Number(routeProfile?.totalRouteKm ?? 0);
+  if (!occurrences.length || totalProfileKm <= 0 || totalRouteKm <= 0) return [];
+
+  const seen = new Set();
+  const markers = [];
+
+  for (const occurrence of occurrences) {
+    if (occurrence?.type !== 'segment') continue;
+    if (!occurrence?.name || isGenericSegmentName(occurrence.name)) continue;
+
+    const key = occurrence.segmentSlug || `segment:${String(occurrence.name).toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const routeStartKm = Number(occurrence.startKm ?? 0);
+    const routeEndKm = Number(occurrence.endKm ?? routeStartKm);
+    const profileStartKm = Number(((routeStartKm / totalRouteKm) * totalProfileKm).toFixed(3));
+    const profileEndKm = Number(((routeEndKm / totalRouteKm) * totalProfileKm).toFixed(3));
+    const distanceKm = Math.max(Number(occurrence.distanceKm ?? routeEndKm - routeStartKm), 0);
+
+    markers.push({
+      type: 'segment',
+      name: occurrence.name,
+      segmentSlug: occurrence.segmentSlug ?? null,
+      routeStartKm,
+      routeEndKm,
+      profileStartKm,
+      profileEndKm,
+      priority: Number((26 + (distanceKm * 5)).toFixed(2)),
+      sourceSection: occurrence.sourceSection ?? 'route',
+    });
+  }
+
+  return markers;
+}
+
+function mergeProfileMarkers(baseMarkers = [], extraMarkers = []) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const marker of [...baseMarkers, ...extraMarkers]) {
+    if (!marker) continue;
+    const key = marker.segmentSlug || `${marker.type}:${String(marker.name ?? '').toLowerCase()}:${Number(marker.routeStartKm ?? 0).toFixed(3)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(marker);
+  }
+
+  return merged;
+}
+
+function orderedRelevantSegments(route) {
+  if (Array.isArray(route.orderedSegments) && route.orderedSegments.length) {
+    const ordered = preferNamedSegments(route.orderedSegments)
+      .filter(isDisplayableRouteSegment);
+    if (ordered.length) return ordered;
+  }
+
+  return [
+    ...preferNamedSegments(route.relevantClimbs ?? []),
+    ...preferNamedSegments(route.relevantSprints ?? []),
+  ];
+}
+
+function segmentRowHTML(route) {
+  const orderedSegments = orderedRelevantSegments(route);
+  if (!orderedSegments.length) return '';
+
+  const previewLimit = 6;
+  const previewSegments = orderedSegments.slice(0, previewLimit);
+  const remainingCount = orderedSegments.length - previewSegments.length;
+  const previewItems = previewSegments
+    .map(segment => segmentChipHTML(segment, segmentDisplayKind(segment)))
+    .join('');
+
+  if (remainingCount <= 0) {
+    return `
+      <div class="segment-row">
+        <span class="segment-label">Segments on this route:</span>
+        <div class="segment-chips">${previewItems}</div>
+      </div>`;
+  }
+
+  const fullItems = orderedSegments
+    .map(segment => segmentChipHTML(segment, segmentDisplayKind(segment)))
+    .join('');
+
+  return `
+    <div class="segment-row">
+      <span class="segment-label">Segments on this route:</span>
+      <div class="segment-chips">${previewItems}</div>
+      <details class="segment-details">
+        <summary>Show full route sequence (${orderedSegments.length} efforts)</summary>
+        <div class="segment-chips segment-chips-full">${fullItems}</div>
+      </details>
+    </div>`;
 }
 
 function getDisplayTarget(wotdStructure, fallbackBucket) {
@@ -265,12 +429,35 @@ let state = {
   wotdStructure:  'recovery',
   history:        [],
   ranked:         [],
+  selectedRouteKey: '',
   lastUpdated:    null,
   timingMode:     'auto',
   todayOnly:      true,
   guestWorlds:    [],
+  worldContext:   getWorldScheduleContext(getGuestWorlds()),
   wotdDetailLoaded: false,
 };
+
+function activeWorldContext() {
+  return state.worldContext ?? getWorldScheduleContext(state.guestWorlds);
+}
+
+async function refreshWorldContext({ rerender = true } = {}) {
+  const previousWorlds = [...activeWorldContext().worlds].sort().join(',');
+  state.worldContext = await getPreferredWorldContext(state.guestWorlds);
+  const nextWorlds = [...activeWorldContext().worlds].sort().join(',');
+
+  updateGuestWorldsLabel();
+  updateGuestWorldsPickerVisibility();
+
+  if (!rerender || !state.trainingData) return;
+
+  if (previousWorlds !== nextWorlds || state.todayOnly) {
+    recomputeRankedRoutes();
+    renderRoutes();
+    renderRouteInspector();
+  }
+}
 
 // ── Init ──────────────────────────────────────────
 
@@ -286,8 +473,10 @@ async function init() {
   state.history = loadHistory();
   state.timingMode = getTimingMode();
   state.dataSourceId = getDataSourceId();
+  state.selectedRouteKey = getRoutePickerValue();
 
   populateDataSourceOptions();
+  populateRoutePickerOptions();
   syncDataSourceControls();
 
   // Restore saved unit preference (updates button state + speed label without re-rendering)
@@ -303,6 +492,7 @@ async function init() {
 
   state.todayOnly = getTodayOnly();
   state.guestWorlds = getGuestWorlds();
+  state.worldContext = getWorldScheduleContext(state.guestWorlds);
   document.getElementById('today-only-toggle').checked = state.todayOnly;
   document.querySelectorAll('.guest-world-cb').forEach(cb => {
     cb.checked = state.guestWorlds.includes(cb.value);
@@ -310,18 +500,22 @@ async function init() {
   updateGuestWorldsLabel();
   updateGuestWorldsPickerVisibility();
   updateGuestWorldCheckboxes();
+  updateTimeLabel();
   renderTimingControls();
   renderSourceNotes();
 
   if (!isLiveDataSource()) {
+    void refreshWorldContext();
     loadMockScenario();
     return;
   }
 
   if (hasToken()) {
     showApp();
+    void refreshWorldContext();
     await refresh();
   } else {
+    void refreshWorldContext({ rerender: false });
     showAuth();
   }
 }
@@ -381,13 +575,18 @@ async function handleLogout() {
     wotdStructure:  'recovery',
     history:        loadHistory(),
     ranked:         [],
+    selectedRouteKey: getRoutePickerValue(),
     lastUpdated:    null,
     timingMode:     getTimingMode(),
     todayOnly:      getTodayOnly(),
+    guestWorlds:    getGuestWorlds(),
+    worldContext:   getWorldScheduleContext(getGuestWorlds()),
     wotdDetailLoaded: false,
   };
   syncDataSourceControls();
   renderSourceNotes();
+  updateGuestWorldsLabel();
+  updateGuestWorldsPickerVisibility();
   showAuth();
 }
 
@@ -496,6 +695,7 @@ function renderAll() {
   renderTimingControls();
   renderTimeSummary();
   renderRoutes();
+  renderRouteInspector();
   renderLastUpdated();
 }
 
@@ -646,22 +846,29 @@ function renderRecommendation() {
     recTitleEl.innerHTML = emphasizedTitle('Today calls for aerobic base work', 'aerobic base work', 'low');
     recSubtitleEl.textContent = `Xert's workout targets ${remaining.low.toFixed(1)} low XSS — steady Z2, let the distance do the work.`;
   } else {
-    const titles = {
-      low: emphasizedTitle('Your low bucket needs work', 'low', 'low'),
-      high: emphasizedTitle('Your high bucket needs work', 'high', 'high'),
-      peak: emphasizedTitle('Your peak bucket needs work', 'peak', 'peak'),
-      recovery: 'You\'re on top of all your targets',
-    };
+    const activeNeeds = ['low', 'high', 'peak'].filter(name => (remaining[name] ?? 0) > 0.5);
+    if (activeNeeds.length >= 2) {
+      recTitleEl.textContent = 'Multiple buckets still need work';
+      recSubtitleEl.textContent =
+        `You still have ${remaining.low.toFixed(1)} low, ${remaining.high.toFixed(1)} high, and ${remaining.peak.toFixed(1)} peak XSS left today — the top route is being chosen by best overall fit, not just one bucket.`;
+    } else {
+      const titles = {
+        low: emphasizedTitle('Your low bucket needs work', 'low', 'low'),
+        high: emphasizedTitle('Your high bucket needs work', 'high', 'high'),
+        peak: emphasizedTitle('Your peak bucket needs work', 'peak', 'peak'),
+        recovery: 'You\'re on top of all your targets',
+      };
 
-    const subtitles = {
-      low: `You still have ${remaining.low.toFixed(1)} low XSS left today — a long flat ride will help.`,
-      high: `You still have ${remaining.high.toFixed(1)} high XSS left today — a climbing route will help.`,
-      peak: `You still have ${remaining.peak.toFixed(1)} peak XSS left today — a short punchy route will help.`,
-      recovery: 'All buckets at or above target. Take it easy — flat and short today.',
-    };
+      const subtitles = {
+        low: `You still have ${remaining.low.toFixed(1)} low XSS left today — a long flat ride will help.`,
+        high: `You still have ${remaining.high.toFixed(1)} high XSS left today — a climbing route will help.`,
+        peak: `You still have ${remaining.peak.toFixed(1)} peak XSS left today — a short punchy route will help.`,
+        recovery: 'All buckets at or above target. Take it easy — flat and short today.',
+      };
 
-    recTitleEl.innerHTML = titles[b] ?? '';
-    recSubtitleEl.textContent = subtitles[b] ?? '';
+      recTitleEl.innerHTML = titles[b] ?? '';
+      recSubtitleEl.textContent = subtitles[b] ?? '';
+    }
   }
 
   const wotdEl = document.getElementById('wotd');
@@ -684,20 +891,65 @@ function renderRecommendation() {
   } else {
     overrideEl.style.display = 'none';
   }
+
+  const portalEl = document.getElementById('portal-today');
+  const portal = getTodaysPortalRoad();
+  if (portal) {
+    const featured = portal.portalOfMonth ? ' · portal of the month' : '';
+    portalEl.innerHTML = `<strong>Today's Climb Portal:</strong> ${portal.name} · ${displayDist(portal.distance)} / ${displayElev(portal.elevation)} · ${portal.worldName}${featured}`;
+    portalEl.style.display = 'block';
+  } else {
+    portalEl.style.display = 'none';
+  }
 }
 
-function enrichRoutes(rankedRoutes, bucket, wotdStructure) {
-  return rankedRoutes.map(route => {
-    const routeSegments = getSegmentsForRoute(route);
-    return {
-      ...route,
-      rideCue: generateRideCue(route, bucket, wotdStructure, routeSegments),
-      wotdTerrainScore: route.wotdTerrainScore ?? wotdTerrainScore(route, wotdStructure, routeSegments),
-      relevantClimbs: routeSegments.climbs.slice(0, 3),
-      relevantSprints: routeSegments.sprints,
-      segmentSource: routeSegments.source,
-    };
-  });
+function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
+  const routeSegments = getSegmentsForRoute(route);
+  const timeline = getRouteTimeline(route);
+  const lapCount = recommendedLapCount(route, availableMinutes);
+  const expandedTimeline = timeline ? withRecoveryGaps(expandTimelineForLaps(route, timeline, lapCount)) : [];
+  const timelineClimbs = uniqueTimelineSegments(expandedTimeline, 'climb');
+  const timelineSprints = uniqueTimelineSegments(expandedTimeline, 'sprint');
+  const routeTimeline = timeline ? { ...timeline, occurrences: expandedTimeline } : null;
+  const orderedSegments = timeline
+    ? preferNamedSegments((timeline.segments ?? []).filter(isDisplayableRouteSegment))
+    : [];
+  const informationalProfileMarkers = buildInformationalProfileMarkers(timeline, route.profile);
+  const relevantClimbs = timelineClimbs.length ? timelineClimbs.slice(0, 4) : preferNamedSegments(routeSegments.climbs).slice(0, 4);
+  const relevantSprints = timelineSprints.length ? timelineSprints : preferNamedSegments(routeSegments.sprints);
+  const bucketSupport = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
+
+  return {
+    ...route,
+    rideCue: generateRideCue({ ...route, bucketSupport }, bucket, wotdStructure, routeSegments, routeTimeline),
+    wotdTerrainScore: route.wotdTerrainScore ?? wotdTerrainScore(route, wotdStructure, routeSegments),
+    relevantClimbs,
+    relevantSprints,
+    segmentSource: routeSegments.source,
+    bucketSupport,
+    honestyLabel: routeHonestyLabel(route, routeSegments, routeTimeline, lapCount),
+    routeTimeline,
+    timelineOccurrences: expandedTimeline,
+    orderedSegments,
+    profileMarkers: mergeProfileMarkers(
+      Array.isArray(route.profileMarkers) ? route.profileMarkers : [],
+      informationalProfileMarkers,
+    ),
+    recommendedLapCount: lapCount,
+  };
+}
+
+function enrichRoutes(rankedRoutes, bucket, wotdStructure, availableMinutes) {
+  return rankedRoutes.map(route => enrichRoute(route, bucket, wotdStructure, availableMinutes));
+}
+
+function getRouteSupportForScenario(route, availableMinutes) {
+  const routeSegments = getSegmentsForRoute(route);
+  const timeline = getRouteTimeline(route);
+  const lapCount = recommendedLapCount(route, availableMinutes);
+  const expandedTimeline = timeline ? withRecoveryGaps(expandTimelineForLaps(route, timeline, lapCount)) : [];
+  const routeTimeline = timeline ? { ...timeline, occurrences: expandedTimeline } : null;
+  return deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
 }
 
 function recomputeRankedRoutes() {
@@ -706,50 +958,323 @@ function recomputeRankedRoutes() {
     return;
   }
 
-  const eligibleRoutes = state.todayOnly ? filterToAvailableWorlds(routes, state.guestWorlds) : routes;
   const settings = getTimeSettings();
+  state.ranked = getEvaluatedRoutes(settings);
+}
+
+function routeRecommendationViable(route) {
+  return (route?.score ?? 0) > 0;
+}
+
+function visibleRankedRoutes() {
+  return state.ranked;
+}
+
+function recommendationSettingsForMinutes(minutes) {
+  const baseSettings = getTimeSettings();
+  return {
+    minutes,
+    mode: baseSettings.mode,
+    speed: baseSettings.speed,
+  };
+}
+
+function evaluatedRoutesCacheKey(settings = getTimeSettings()) {
+  const riderWkg = getRiderWkg(state.trainingData);
+  const context = activeWorldContext();
+  return JSON.stringify({
+    bucket: state.bucket,
+    wotdStructure: state.wotdStructure,
+    dataSourceId: state.dataSourceId,
+    todayOnly: state.todayOnly,
+    worlds: context.worlds,
+    source: context.source,
+    timingMode: settings.mode,
+    manualSpeed: settings.mode === 'manual' ? settings.speed : null,
+    riderWkg: Number.isFinite(riderWkg) ? riderWkg.toFixed(3) : null,
+    remaining: state.dailySummary?.remaining ?? null,
+    minutes: settings.minutes,
+  });
+}
+
+function getEvaluatedRoutes(settings = getTimeSettings()) {
+  if (!state.trainingData || !state.dailySummary || !state.bucket) return [];
+
+  const cacheKey = evaluatedRoutesCacheKey(settings);
+  if (evaluatedRoutesCache.key === cacheKey) {
+    return evaluatedRoutesCache.routes;
+  }
+
+  const eligibleRoutes = state.todayOnly ? filterRoutesToWorlds(routes, activeWorldContext().worlds) : routes;
   const optimized = optimizeRoutes(eligibleRoutes, {
     bucket: state.bucket,
     deficits: state.dailySummary.remaining,
     availableMinutes: settings.minutes,
     estimateMinutes: route => estimateRouteMinutes(route, settings, state.trainingData),
     getRouteSegments: route => getSegmentsForRoute(route),
+    getRouteSupport: route => getRouteSupportForScenario(route, settings.minutes),
     wotdStructure: state.wotdStructure,
     recoveryMode: state.bucket === 'recovery',
     favorites: loadFavorites(),
+    limit: eligibleRoutes.length,
   });
+  const enriched = enrichRoutes(optimized, state.bucket, state.wotdStructure, settings.minutes);
 
-  state.ranked = enrichRoutes(optimized, state.bucket, state.wotdStructure);
+  evaluatedRoutesCache = { key: cacheKey, routes: enriched };
+  return enriched;
+}
+
+function recommendationAvailability(settings = getTimeSettings()) {
+  const { minutes: timeMin } = settings;
+  const visible = getEvaluatedRoutes(settings);
+  const withinBudget = visible.filter(route => (route.estimatedMinutes ?? estimateRouteMinutes(route, settings, state.trainingData)) <= timeMin);
+  const overBudget = visible.filter(route => (route.estimatedMinutes ?? estimateRouteMinutes(route, settings, state.trainingData)) > timeMin);
+  const viableWithinBudget = withinBudget.filter(routeRecommendationViable);
+  const viableOverBudget = overBudget
+    .filter(routeRecommendationViable)
+    .sort((a, b) => {
+      const aOver = (a.estimatedMinutes ?? estimateRouteMinutes(a, settings, state.trainingData)) - timeMin;
+      const bOver = (b.estimatedMinutes ?? estimateRouteMinutes(b, settings, state.trainingData)) - timeMin;
+      if (aOver !== bOver) return aOver - bOver;
+      if ((b.utility ?? 0) !== (a.utility ?? 0)) return (b.utility ?? 0) - (a.utility ?? 0);
+      if ((b.score ?? 0) !== (a.score ?? 0)) return (b.score ?? 0) - (a.score ?? 0);
+      return String(a.slug || a.name).localeCompare(String(b.slug || b.name));
+    });
+  const approximateWithinBudget = withinBudget.filter(route => !routeRecommendationViable(route));
+  return {
+    visible,
+    withinBudget,
+    overBudget,
+    viableWithinBudget,
+    viableOverBudget,
+    approximateWithinBudget,
+  };
 }
 
 function renderRoutes() {
   const settings = getTimeSettings();
-  const { minutes: timeMin } = settings;
   const favorites = loadFavorites();
-
-  const withinBudget = state.ranked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) <= timeMin);
-  const overBudget   = state.ranked.filter(r => estimateRouteMinutes(r, settings, state.trainingData) > timeMin);
+  const {
+    viableWithinBudget,
+    viableOverBudget,
+    approximateWithinBudget,
+  } = recommendationAvailability(settings);
 
   // Primary grid: top 5 within budget
-  document.getElementById('route-grid').innerHTML =
-    withinBudget.slice(0, 5).map(r => routeCardHTML(r, false, favorites)).join('') ||
-    '<p class="no-routes">No routes fit your time budget — check the "If you had more time" section below.</p>';
+  document.getElementById('route-grid').innerHTML = viableWithinBudget.length
+    ? viableWithinBudget.slice(0, 5).map(route => routeCardHTML(route, false, favorites)).join('')
+    : `<p class="no-routes">${noRouteMessage(approximateWithinBudget.length, viableOverBudget.length)}</p>`;
 
-  // Other options: within-budget overflow
+  // Other options: viable within-budget overflow, or approximation-only fallback if nothing viable fits.
   const otherList = document.getElementById('other-list');
-  otherList.innerHTML = withinBudget.slice(5).map(r => routeCardHTML(r, true, favorites)).join('');
-  document.getElementById('other-toggle').textContent =
-    `▼ Other options (${withinBudget.slice(5).length} more)`;
-  document.getElementById('other-options').style.display =
-    withinBudget.length > 5 ? 'block' : 'none';
+  const overflowRoutes = viableWithinBudget.length ? viableWithinBudget.slice(5) : approximateWithinBudget;
+  const otherLabel = viableWithinBudget.length
+    ? `▼ Other options (${overflowRoutes.length} more)`
+    : `▼ Best approximate options (${overflowRoutes.length} routes)`;
+  otherList.innerHTML = groupedByWorldHTML(overflowRoutes, favorites);
+  document.getElementById('other-toggle').textContent = otherLabel;
+  document.getElementById('other-options').style.display = overflowRoutes.length ? 'block' : 'none';
 
   // "If you had more time": over-budget routes
   const moreSection = document.getElementById('more-time-options');
   const moreList    = document.getElementById('more-time-list');
-  moreList.innerHTML = overBudget.map(r => routeCardHTML(r, true, favorites)).join('');
-  moreSection.style.display = overBudget.length ? 'block' : 'none';
+  moreList.innerHTML = groupedByWorldHTML(viableOverBudget, favorites);
+  moreSection.style.display = viableOverBudget.length ? 'block' : 'none';
   document.getElementById('more-time-toggle').textContent =
-    `▼ If you had more time (${overBudget.length} routes)`;
+    `▼ If you had more time (${viableOverBudget.length} routes)`;
+}
+
+function setToggleOpen(toggleId, listId, label) {
+  const list = document.getElementById(listId);
+  const toggle = document.getElementById(toggleId);
+  if (!list || !toggle) return;
+  list.classList.add('open');
+  const count = list.querySelectorAll('.route-card').length;
+  toggle.textContent = `▲ ${label} (${count} ${label === 'Other options' ? 'more' : 'routes'})`;
+}
+
+function groupedByWorldHTML(routes, favorites) {
+  const groups = new Map();
+  for (const route of routes) {
+    const w = route.world ?? '';
+    if (!groups.has(w)) groups.set(w, []);
+    groups.get(w).push(route);
+  }
+  return [...groups.entries()].map(([world, worldRoutes]) => {
+    const label = worldName(world);
+    const cards = worldRoutes.map(r => routeCardHTML(r, true, favorites)).join('');
+    return `<div class="world-group">
+      <div class="world-group-header"><span class="world-group-label route-world" data-world="${world}">${label}</span></div>
+      <div class="world-group-cards">${cards}</div>
+    </div>`;
+  }).join('');
+}
+
+function openSectionForRouteCard(routeKey) {
+  const escapedKey = CSS.escape(routeKey);
+  if (document.querySelector(`#other-list .route-card[data-route-key="${escapedKey}"]`)) {
+    setToggleOpen('other-toggle', 'other-list', 'Other options');
+  }
+  if (document.querySelector(`#more-time-list .route-card[data-route-key="${escapedKey}"]`)) {
+    setToggleOpen('more-time-toggle', 'more-time-list', 'If you had more time');
+  }
+}
+
+function jumpToInspector(routeKey) {
+  if (!routeKey) return;
+  state.selectedRouteKey = routeKey;
+  localStorage.setItem(ROUTE_PICKER_KEY, state.selectedRouteKey);
+  renderRouteInspector();
+  document.getElementById('route-inspector')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function jumpToRecommendationCard(routeKey) {
+  if (!routeKey) return;
+  openSectionForRouteCard(routeKey);
+  const card = document.querySelector(`#routes-section > .route-grid .route-card[data-route-key="${CSS.escape(routeKey)}"]`)
+    || document.querySelector(`#other-list .route-card[data-route-key="${CSS.escape(routeKey)}"]`)
+    || document.querySelector(`#more-time-list .route-card[data-route-key="${CSS.escape(routeKey)}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('route-card-focused');
+  setTimeout(() => card.classList.remove('route-card-focused'), 1600);
+}
+
+function noRouteMessage(approximateCount, overBudgetCount) {
+  const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
+  const targetLabel = displayTarget.mode === 'mixed'
+    ? 'today\'s mixed workout'
+    : `today's ${String(displayTarget.bucket ?? state.bucket ?? 'workout').toUpperCase()} work`;
+  const guidance = getRecommendedTimeGuidance();
+  const viableText = Number.isFinite(guidance?.firstViableMinutes)
+    ? ` The first honest route fit starts around ${formatClockMinutes(guidance.firstViableMinutes)}.`
+    : '';
+
+  if (approximateCount > 0) {
+    return `No routes honestly support ${targetLabel} inside this time budget.${viableText} The approximation section below shows the least-wrong venues if you still want to ride now.`;
+  }
+  if (overBudgetCount > 0) {
+    return `No routes honestly support ${targetLabel} inside this time budget.${viableText} Check the "If you had more time" section below.`;
+  }
+  return `No routes currently support ${targetLabel} with today's world and time constraints.`;
+}
+
+function currentEligibleRouteKeys() {
+  return new Set(getEvaluatedRoutes(getTimeSettings()).map(route => route.slug || route.name));
+}
+
+function todaysAvailableRouteKeys() {
+  return new Set(filterRoutesToWorlds(routes, activeWorldContext().worlds).map(route => route.slug || route.name));
+}
+
+function routeCardStatus(route) {
+  const routeKey = route.slug || route.name;
+  const outsideTodayWorlds = !todaysAvailableRouteKeys().has(routeKey);
+  return {
+    outsideTodayWorlds,
+    eventOnly: Boolean(route.eventOnly),
+    inspectorOnly: Boolean(route.inspectorOnly),
+  };
+}
+
+function inspectableRoutes() {
+  return routes
+    .filter(route => Array.isArray(route.sports) && route.sports.includes('cycling'))
+    .slice()
+    .sort((a, b) =>
+      worldName(a.world).localeCompare(worldName(b.world)) ||
+      a.name.localeCompare(b.name)
+    );
+}
+
+function populateRoutePickerOptions() {
+  const picker = document.getElementById('route-picker');
+  if (!picker) return;
+
+  const currentValue = state.selectedRouteKey || '';
+  const options = inspectableRoutes().map(route => {
+    const key = route.slug || route.name;
+    const selected = key === currentValue ? ' selected' : '';
+    const eventTag = route.eventOnly ? ' · event only' : '';
+    return `<option value="${key}"${selected}>${worldName(route.world)} · ${route.name}${eventTag}</option>`;
+  }).join('');
+
+  picker.innerHTML = `<option value="">Choose a route…</option>${options}`;
+  picker.value = currentValue;
+}
+
+function selectedInspectableRoute() {
+  if (!state.selectedRouteKey) return null;
+  return routes.find(route => (route.slug || route.name) === state.selectedRouteKey) ?? null;
+}
+
+function renderRouteInspector() {
+  const picker = document.getElementById('route-picker');
+  const note = document.getElementById('route-picker-note');
+  const card = document.getElementById('route-picked-card');
+  if (!picker || !note || !card) return;
+
+  if (!picker.options.length || picker.options.length === 1) {
+    populateRoutePickerOptions();
+  }
+  picker.value = state.selectedRouteKey || '';
+
+  const route = selectedInspectableRoute();
+  if (!route || !state.trainingData || !state.dailySummary || !state.bucket) {
+    note.textContent = route ? 'Route inspector is ready after training data loads.' : 'Pick any route to see exactly what the app would say for the current scenario.';
+    card.innerHTML = '';
+    return;
+  }
+
+  const settings = getTimeSettings();
+  const eligibleRouteKeys = currentEligibleRouteKeys();
+  const todaysRouteKeys = todaysAvailableRouteKeys();
+  const rankedMatch = state.ranked.find(item => (item.slug || item.name) === (route.slug || route.name));
+  const baseRoute = rankedMatch ?? optimizeRoutes([route], {
+    bucket: state.bucket,
+    deficits: state.dailySummary.remaining,
+    availableMinutes: settings.minutes,
+    estimateMinutes: item => estimateRouteMinutes(item, settings, state.trainingData),
+    getRouteSegments: item => getSegmentsForRoute(item),
+    getRouteSupport: item => getRouteSupportForScenario(item, settings.minutes),
+    wotdStructure: state.wotdStructure,
+    recoveryMode: state.bucket === 'recovery',
+    favorites: loadFavorites(),
+  })[0] ?? {
+    ...route,
+    score: 0,
+    estimatedMinutes: estimateRouteMinutes(route, settings, state.trainingData),
+    optimizerBreakdown: { low: 0, high: 0, peak: 0 },
+    optimizerReason: 'Direct route inspection.',
+  };
+
+  const inspectedRoute = {
+    ...enrichRoute(baseRoute, state.bucket, state.wotdStructure, settings.minutes),
+    outsideTodayWorlds: !todaysRouteKeys.has(route.slug || route.name),
+    inspectorOnly: !rankedMatch,
+  };
+  card.innerHTML = routeCardHTML(inspectedRoute, false, loadFavorites(), {
+    profile: {
+      height: 78,
+      maxMarkers: 5,
+      showSummary: true,
+      showLabels: false,
+    },
+    inspectorMode: true,
+    allowJumpToRecommendation: eligibleRouteKeys.has(route.slug || route.name),
+  });
+
+  const noteParts = [];
+  if (inspectedRoute.outsideTodayWorlds) {
+    noteParts.push(state.todayOnly ? 'Outside today\'s current world filter.' : 'Not in today\'s worlds, but shown because world filtering is off.');
+  }
+  if (route.eventOnly) {
+    noteParts.push('This route is event only.');
+  }
+  if (inspectedRoute.inspectorOnly) {
+    noteParts.push('Shown via direct inspection instead of current ranked results.');
+  }
+  note.textContent = noteParts.join(' ') || 'Showing this route with the current scenario, time budget, and cue logic.';
 }
 
 function buildShareText(route, estMin, fillPct, bucket) {
@@ -761,7 +1286,112 @@ function buildShareText(route, estMin, fillPct, bucket) {
   return lines.join('\n');
 }
 
-function routeCardHTML(route, compact, favorites = new Set()) {
+function abbreviateProfileMarkerName(name = '', maxLength = 18) {
+  const trimmed = String(name).trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, Math.max(maxLength - 1, 1)).trimEnd()}…`;
+}
+
+function visibleProfileMarkers(route, maxMarkers = 3) {
+  const markers = Array.isArray(route?.profileMarkers) ? route.profileMarkers.slice() : [];
+  const selected = markers
+    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.routeStartKm ?? 0) - (b.routeStartKm ?? 0))
+    .slice(0, maxMarkers);
+
+  const hasSegment = selected.some(marker => marker?.type === 'segment');
+  const segmentCandidate = markers
+    .filter(marker => marker?.type === 'segment')
+    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.routeStartKm ?? 0) - (b.routeStartKm ?? 0))[0];
+
+  if (!hasSegment && segmentCandidate && selected.length && maxMarkers > 0) {
+    selected[selected.length - 1] = segmentCandidate;
+  }
+
+  return selected
+    .sort((a, b) => (a.routeStartKm ?? 0) - (b.routeStartKm ?? 0) || (b.priority ?? 0) - (a.priority ?? 0));
+}
+
+function routeProfileSummaryHTML(markers = []) {
+  if (!markers.length) return '';
+  const pills = markers
+    .map(marker => `<span class="route-profile-pill ${marker.type}">${abbreviateProfileMarkerName(marker.name, 24)}</span>`)
+    .join('');
+  const label = markers.some(marker => marker?.type === 'segment') ? 'Key route features' : 'Key efforts';
+  return `
+    <div class="route-profile-summary">
+      <span class="route-profile-summary-label">${label}</span>
+      <div class="route-profile-pill-row">${pills}</div>
+    </div>`;
+}
+
+function routeProfileContextHTML(route, scale) {
+  if (!scale || scale.scalingMode !== 'flat-conservative') return '';
+
+  let label = 'Minor rollers';
+  if ((route?.elevation ?? 0) <= 30) {
+    label = 'Mostly flat';
+  } else if ((route?.elevation ?? 0) >= 70) {
+    label = 'Gentle rollers';
+  }
+
+  return `<span class="route-profile-context">${label}</span>`;
+}
+
+function routeProfileSVG(route, { height = 56, maxMarkers = 3, showSummary = false, showLabels = false } = {}) {
+  const geometry = scaleProfilePoints(route, { width: 240, height, inset: 4 });
+  if (!geometry) return '';
+
+  const { scaled, width, inset } = geometry;
+  const {
+    minDistance,
+    maxDistance,
+  } = geometry.scale;
+  const selectedMarkers = visibleProfileMarkers(route, maxMarkers);
+
+  const linePath = scaled
+    .map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x} ${y}`)
+    .join(' ');
+  const areaPath = `${linePath} L ${width} ${height} L 0 ${height} Z`;
+  const markerElements = selectedMarkers.map((marker, index) => {
+    const startX = maxDistance > minDistance
+      ? ((Number(marker.profileStartKm ?? 0) - minDistance) / (maxDistance - minDistance)) * width
+      : 0;
+    const endX = maxDistance > minDistance
+      ? ((Number(marker.profileEndKm ?? marker.profileStartKm ?? 0) - minDistance) / (maxDistance - minDistance)) * width
+      : startX;
+    const clampedStartX = Math.max(2, Math.min(width - 2, startX));
+    const clampedEndX = Math.max(clampedStartX + 2, Math.min(width - 2, endX));
+    const midX = Number((((clampedStartX + clampedEndX) / 2)).toFixed(2));
+    const labelY = index % 2 === 0 ? 12 : 24;
+    const label = showLabels ? `<text class="route-profile-marker-text ${marker.type}" x="${midX}" y="${labelY}">${abbreviateProfileMarkerName(marker.name, 14)}</text>` : '';
+
+    return `
+      <g class="route-profile-marker ${marker.type}">
+        <rect class="route-profile-marker-band ${marker.type}" x="${Number(clampedStartX.toFixed(2))}" y="${inset}" width="${Number((clampedEndX - clampedStartX).toFixed(2))}" height="${Number((height - (inset * 2)).toFixed(2))}"></rect>
+        <line class="route-profile-marker-tick ${marker.type}" x1="${midX}" y1="${inset}" x2="${midX}" y2="${height - inset}"></line>
+        ${label}
+      </g>`;
+  }).join('');
+  const detailedClass = showSummary || showLabels ? ' detailed' : '';
+  const contextMarkup = routeProfileContextHTML(route, geometry.scale);
+  const summaryMarkup = showSummary ? routeProfileSummaryHTML(selectedMarkers) : '';
+
+  return `
+    <div class="route-profile${detailedClass}" aria-label="Route elevation profile">
+      <div class="route-profile-header">
+        <span class="route-profile-label">Profile ${contextMarkup}</span>
+        <span class="route-profile-caption">${displayDist(route.distance)} / ${displayElev(route.elevation)}</span>
+      </div>
+      <svg class="route-profile-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-hidden="true" style="height:${height}px">
+        <path class="route-profile-area" d="${areaPath}"></path>
+        ${markerElements}
+        <path class="route-profile-line" d="${linePath}"></path>
+      </svg>
+      ${summaryMarkup}
+    </div>`;
+}
+
+function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const gr    = route.distance > 0 ? (route.elevation / route.distance).toFixed(1) : '—';
   const world = worldName(route.world);
   const reason = routeReason(route, state.bucket);
@@ -789,70 +1419,119 @@ function routeCardHTML(route, compact, favorites = new Set()) {
     }
   }
 
-  const lapCount = estMin > 0 ? Math.floor(timeMin / estMin) : 1;
+  const lapCount = route.recommendedLapCount ?? (estMin > 0 ? Math.floor(timeMin / estMin) : 1);
   const lapTag = lapCount >= 2 && estMin <= timeMin * 0.6
     ? `<span class="lap-suggestion">Consider ${lapCount} laps (~${formatMinutes(estMin * lapCount)})</span>`
     : '';
 
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
-  let fillTag = '';
-  let impactTag = '';
-  let matchTag = '';
+  const executionFirstLowDay = (state.wotdStructure === 'aerobic_endurance' || state.wotdStructure === null) && displayTarget.mode === 'bucket' && displayTarget.bucket === 'low';
+  let bucketXssTag = '';
   let shareFillPct = null;
   let shareBucket = state.bucket;
 
+  // Per-bucket XSS estimates use the same weighted support model as ranking + honesty labels.
+  const bucketSupport = route.bucketSupport ?? { low: 1, high: 0, peak: 0, source: route.segmentSource ?? 'world' };
+  const perBucketOpportunityXss = {
+    low: Math.round(estimateBucketImpactXss(estMin, 'low') * Math.max(bucketSupport.low ?? 0, 0.15)),
+    high: Math.round(estimateBucketImpactXss(estMin, 'high') * Math.max(bucketSupport.high ?? 0, 0)),
+    peak: Math.round(estimateBucketImpactXss(estMin, 'peak') * Math.max(bucketSupport.peak ?? 0, 0)),
+  };
+  const perBucketXss = executionFirstLowDay
+    ? {
+      low: estimateBucketImpactXss(estMin, 'low'),
+      high: 0,
+      peak: 0,
+    }
+    : perBucketOpportunityXss;
+
   if (displayTarget.mode === 'mixed') {
-    const estimatedMixedXss = estimateMixedSupportXss(estMin, route);
-    const remainingTotal = state.dailySummary?.remaining?.total ?? null;
-    const fillPct = remainingTotal ? Math.min(Math.round(estimatedMixedXss / Math.max(remainingTotal, 1) * 100), 100) : null;
-    fillTag = fillPct !== null
-      ? '<span class="xss-fill mixed">covers ~' + fillPct + '% of today\'s <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> gap</span>'
-      : '';
-    impactTag = '<span class="route-impact mixed">Est. ' + estimatedMixedXss + ' mixed-workout XSS</span>';
-    matchTag = '<span class="route-match mixed">Top fit for today\'s mixed workout</span>';
+    const parts = ['low', 'high', 'peak'].map(b => {
+      const xss = perBucketXss[b];
+      if (xss === null) return '';
+      const rem = state.dailySummary?.remaining?.[b] ?? null;
+      const target = rem !== null ? `<span class="xss-target">/${Math.round(rem)}</span>` : '';
+      return `<span class="xss-fill ${b}"><span class="bucket-word ${b}">${b.toUpperCase()}</span> ~${xss}${target}</span>`;
+    }).filter(Boolean);
+    bucketXssTag = parts.join('');
   } else {
     const b = displayTarget.bucket;
-    const remainingXss = (state.dailySummary && b !== 'recovery') ? state.dailySummary.remaining[b] : null;
-    const estimatedBucketXss = estimateBucketImpactXss(estMin, b);
-    const fillPct = remainingXss ? Math.min(Math.round(estimatedBucketXss / Math.max(remainingXss, 1) * 100), 100) : null;
-    shareFillPct = fillPct;
     shareBucket = b;
-    fillTag = fillPct !== null
-      ? bucketBadgeHTML('xss-fill', b, `covers ~${fillPct}% of today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> gap`)
-      : '';
-    impactTag = b === 'recovery'
-      ? '<span class="route-impact recovery">Recovery-friendly</span>'
-      : bucketBadgeHTML('route-impact', b, `Est. ${estimatedBucketXss} <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> XSS`);
-    matchTag = b === 'recovery'
-      ? '<span class="route-match">Recovery day</span>'
-      : bucketBadgeHTML('route-match', b, `Top fit for today's <span class="bucket-word ${bucketColorClass(b)}">${b.toUpperCase()}</span> need`);
+    if (b === 'recovery') {
+      bucketXssTag = `<span class="xss-fill">${perBucketXss.low} LOW XSS est.</span>`;
+    } else {
+      const parts = ['low', 'high', 'peak'].map(bkt => {
+        const xss = perBucketXss[bkt];
+        if (xss === null || (executionFirstLowDay && bkt !== 'low')) return '';
+        const rem = state.dailySummary?.remaining?.[bkt] ?? null;
+        if (rem !== null && rem <= 0 && bkt !== b) return '';
+        const target = rem !== null ? `<span class="xss-target">/${Math.round(rem)}</span>` : '';
+        return `<span class="xss-fill ${bkt}"><span class="bucket-word ${bkt}">${bkt.toUpperCase()}</span> ~${xss}${target}</span>`;
+      }).filter(Boolean);
+      bucketXssTag = parts.join('');
+      const bXss = estimateBucketImpactXss(estMin, b);
+      const remainingForBucket = state.dailySummary?.remaining?.[b] ?? null;
+      shareFillPct = remainingForBucket
+        ? Math.min(Math.round(bXss / Math.max(remainingForBucket, 1) * 100), 100)
+        : null;
+      console.log(`[coverage-debug] ${route.name} (${b})`, {
+        estMin,
+        bXss,
+        remaining: remainingForBucket,
+        pct: shareFillPct,
+        executionFirstLowDay,
+        bucketSupport_low: bucketSupport.low,
+      });
+    }
   }
 
   const routeKey = route.slug || route.name;
   const isFavorited = favorites.has(routeKey);
   const favoriteBtn = `<button class="favorite-btn${isFavorited ? ' favorited' : ''}" data-route-key="${routeKey}" aria-label="Favorite">★</button>`;
   const shareText = buildShareText(route, estMin, shareFillPct, shareBucket);
-  const shareBtn = !compact
-    ? `<button class="share-btn" data-share-text="${shareText.replace(/"/g, '&quot;')}" aria-label="Copy to clipboard">Copy</button>`
-    : '';
-
+  const escapedShareText = shareText.replace(/"/g, '&quot;');
+  const shareBtn = `<button class="share-btn" data-share-mode="image" data-share-text="${escapedShareText}" aria-label="Copy route card image">Image</button><button class="share-btn share-text-btn" data-share-mode="text" data-share-text="${escapedShareText}" aria-label="Copy route card text">Text</button>`;
   const cls = compact ? 'route-card compact' : 'route-card';
   const favCls = isFavorited ? ` favorited` : '';
+  const inspectorMode = Boolean(options.inspectorMode);
 
   const links = [
     route.zwiftInsiderUrl ? `<a href="${route.zwiftInsiderUrl}" target="_blank" rel="noopener">ZwiftInsider</a>` : '',
     route.whatsOnZwiftUrl ? `<a href="${route.whatsOnZwiftUrl}" target="_blank" rel="noopener">What's on Zwift</a>` : '',
+    !inspectorMode ? `<button class="route-nav-link" type="button" data-route-key="${routeKey}" data-nav-action="inspect">Inspect in Route Picker</button>` : '',
+    !compact && inspectorMode && options.allowJumpToRecommendation ? `<button class="route-nav-link" type="button" data-route-key="${routeKey}" data-nav-action="recommendation">Jump to recommendation card</button>` : '',
+  ].filter(Boolean).join('');
+  const status = routeCardStatus(route);
+  const honestyFlagText = { 'true-mixed': 'TRUE mixed', 'low-high': 'LOW+HIGH route' };
+  const routeFlags = [
+    route.leadInDistance > 0.1 ? `<span class="route-flag">+${displayDist(route.leadInDistance)} lead-in</span>` : '',
+    route.supportedLaps ? '<span class="route-flag">Lap route</span>' : '',
+    route.honestyLabel ? `<span class="route-flag honesty ${route.honestyLabel}">${honestyFlagText[route.honestyLabel]}</span>` : '',
+    status.outsideTodayWorlds ? '<span class="route-flag warning">Not in today\'s worlds</span>' : '',
+    status.eventOnly ? '<span class="route-flag warning">Event only</span>' : '',
+    status.inspectorOnly ? '<span class="route-flag">Direct inspection</span>' : '',
+    route.levelLocked ? '<span class="route-flag warning">Level locked</span>' : '',
   ].filter(Boolean).join('');
   const showSegmentRow = route.segmentSource !== 'world';
-  const segmentItems = [
-    ...(route.relevantClimbs ?? []).map(segment => segmentChipHTML(segment, 'climb')),
-    ...(route.relevantSprints ?? []).map(segment => segmentChipHTML(segment, 'sprint')),
+  const segmentRow = showSegmentRow ? segmentRowHTML(route) : '';
+  const routeFacts = [
+    `<span class="route-stat">${displayDist(route.distance)}</span>`,
+    `<span class="route-stat">${displayElev(route.elevation)}</span>`,
+    `<span class="gradient-badge">${displayGrad(parseFloat(gr))}</span>`,
+    timeTag,
   ].join('');
+  const routeFit = [
+    bucketXssTag,
+    difficultyBadge,
+    lapTag,
+  ].filter(Boolean).join('');
+  const profileMarkup = !compact ? routeProfileSVG(route, options.profile ?? {}) : '';
+
 
   return `
     <div class="${cls}${favCls}" data-route-key="${routeKey}">
       <div class="route-card-header">
-        <span class="route-world">${world}</span>
+        <span class="route-world" data-world="${route.world ?? ''}">${world}</span>
         <div class="route-card-actions">
           ${shareBtn}
           ${favoriteBtn}
@@ -860,23 +1539,18 @@ function routeCardHTML(route, compact, favorites = new Set()) {
         </div>
       </div>
       <div class="route-name">${route.name}</div>
-      <div class="route-stats">
-        <span class="route-stat">${displayDist(route.distance)}</span>
-        <span class="route-stat">${displayElev(route.elevation)}</span>
-        <span class="gradient-badge">${displayGrad(parseFloat(gr))}</span>
-        ${difficultyBadge}
-        ${timeTag}
-        ${lapTag}
-        ${fillTag}
-        ${impactTag}
-        ${matchTag}
+      <div class="route-card-meta">
+        <div class="route-stats route-stats-primary">
+          ${routeFacts}
+        </div>
+        <div class="route-stats route-stats-secondary">
+          ${routeFit}
+        </div>
       </div>
       ${route.rideCue ? `<div class="ride-cue"><span class="ride-cue-icon">🎯</span><span>${route.rideCue}</span></div>` : ''}
-      ${showSegmentRow && segmentItems ? `
-        <div class="segment-row">
-          <span class="segment-label">Segments on this route:</span>
-          <div class="segment-chips">${segmentItems}</div>
-        </div>` : ''}
+      ${routeFlags ? `<div class="route-flags">${routeFlags}</div>` : ''}
+      ${profileMarkup}
+      ${segmentRow}
       ${reason ? `<div class="route-reason">${reason}</div>` : ''}
       ${links ? `<div class="route-links">${links}</div>` : ''}
     </div>`;
@@ -891,7 +1565,21 @@ function segmentChipHTML(segment, kind) {
 }
 
 function routeReason(route, bucket) {
+  if (state.wotdStructure === 'aerobic_endurance' && bucket === 'low') {
+    const timeFitTag = route.estimatedMinutes > getTimeSettings().minutes
+      ? 'over-time'
+      : route.estimatedMinutes < (getTimeSettings().minutes * 0.9)
+        ? 'under-time'
+        : 'near-time';
+    if (timeFitTag === 'near-time') return 'Strong venue for steady Z2 work at your target time.';
+    if (timeFitTag === 'under-time') return 'Strong low match that fits comfortably inside your time budget.';
+    return 'Reasonable venue for steady Z2 work if you can go a little longer today.';
+  }
+
   const baseReason = route.optimizerReason || defaultRouteReason(route, bucket);
+  if (!routeRecommendationViable(route) && bucket !== 'recovery') {
+    return `Compromise venue only. ${baseReason}`;
+  }
   const label = wotdDisplayLabel(state.wotdStructure);
   if (!label || state.bucket === 'recovery') return baseReason;
 
@@ -937,10 +1625,14 @@ function getTimeSettings() {
   return { minutes, mode: state.timingMode, speed };
 }
 
+// Gradient penalty factor: effective speed degrades as gradient ratio (m/km) increases.
+// Calibrated against real ride data: Flat Out Fast (2.15 m/km) and Sugar Cookie (7.45 m/km).
+const GRADIENT_PENALTY_K = 0.065;
+
 function estimateRouteMinutesManual(route, speedKmh) {
-  const baseMin  = (route.distance / Math.max(speedKmh, 1)) * 60;
-  const climbMin = (route.elevation / 600) * 60; // rough: 600m elevation added per hour
-  return Math.round(baseMin + climbMin);
+  const gradRatio = route.distance > 0 ? (route.elevation ?? 0) / route.distance : 0;
+  const effectiveSpeed = speedKmh / (1 + gradRatio * GRADIENT_PENALTY_K);
+  return Math.round((route.distance / Math.max(effectiveSpeed, 1)) * 60);
 }
 
 function estimateRouteMinutesAuto(route, trainingData) {
@@ -948,10 +1640,9 @@ function estimateRouteMinutesAuto(route, trainingData) {
   if (!riderWkg) return estimateRouteMinutesManual(route, DEFAULT_SPEED_KMH);
 
   const flatSpeed = estimateFlatSpeedKmh(riderWkg);
-  const gradientRatio = route.distance > 0 ? route.elevation / route.distance : 0;
-  const slowdown = clamp(1 - gradientRatio / (58 + riderWkg * 10), 0.42, 1);
-  const effectiveSpeed = flatSpeed * slowdown;
-  return Math.round((route.distance / effectiveSpeed) * 60);
+  const gradRatio = route.distance > 0 ? (route.elevation ?? 0) / route.distance : 0;
+  const effectiveSpeed = flatSpeed / (1 + gradRatio * GRADIENT_PENALTY_K);
+  return Math.round((route.distance / Math.max(effectiveSpeed, 1)) * 60);
 }
 
 function estimateRouteMinutes(route, settings, trainingData) {
@@ -968,6 +1659,117 @@ function formatMinutes(min) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+function theoreticalRecommendedTimeMinutes() {
+  const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
+  if (displayTarget.mode === 'mixed') {
+    const remainingTotal = state.dailySummary?.remaining?.total ?? 0;
+    if (remainingTotal <= 0) return TIME_SLIDER_MIN;
+
+    const workoutTotalXss = Number(
+      state.rawWotd?.xss ??
+      state.rawWotd?.totalXSS ??
+      state.rawWotd?.total_xss ??
+      state.rawWotd?.workoutXss ??
+      state.rawWotd?.plannedXSS
+    );
+    const workoutDurationMin = wotdDurationMinutes(state.rawWotd);
+
+    if (Number.isFinite(workoutTotalXss) && workoutTotalXss > 0 && Number.isFinite(workoutDurationMin) && workoutDurationMin > 0) {
+      return snapMinutes((remainingTotal / workoutTotalXss) * workoutDurationMin);
+    }
+
+    const blendedRate = ((XSS_RATE.low ?? 0) + (XSS_RATE.high ?? 0) + (XSS_RATE.peak ?? 0)) / 3;
+    return snapMinutes((remainingTotal / Math.max(blendedRate, 1)) * 60);
+  }
+
+  if (displayTarget.bucket === 'recovery') {
+    return snapMinutes(45);
+  }
+
+  const remainingXss = state.dailySummary?.remaining?.[displayTarget.bucket] ?? 0;
+  const xssRate = XSS_RATE[displayTarget.bucket] ?? 65;
+  return snapMinutes((remainingXss / Math.max(xssRate, 1)) * 60);
+}
+
+function firstViableRouteMinutes(theoreticalMinutes) {
+  for (let minutes = theoreticalMinutes; minutes <= TIME_SLIDER_MAX; minutes += TIME_SLIDER_STEP) {
+    if (hasViableRouteAtMinutes(minutes)) return minutes;
+  }
+  return null;
+}
+
+function recommendedTimeScenarioKey() {
+  const riderWkg = getRiderWkg(state.trainingData);
+  const timingSettings = getTimeSettings();
+  const context = activeWorldContext();
+  return JSON.stringify({
+    bucket: state.bucket,
+    wotdStructure: state.wotdStructure,
+    dataSourceId: state.dataSourceId,
+    todayOnly: state.todayOnly,
+    worlds: context.worlds,
+    source: context.source,
+    timingMode: state.timingMode,
+    manualSpeed: state.timingMode === 'manual' ? timingSettings.speed : null,
+    riderWkg: Number.isFinite(riderWkg) ? riderWkg.toFixed(3) : null,
+    remaining: state.dailySummary?.remaining ?? null,
+    rawWotdXss: state.rawWotd?.xss ?? state.rawWotd?.totalXSS ?? state.rawWotd?.plannedXSS ?? null,
+    rawWotdDuration: wotdDurationMinutes(state.rawWotd),
+  });
+}
+
+function hasViableRouteAtMinutes(minutes) {
+  const candidateSettings = recommendationSettingsForMinutes(minutes);
+  const evaluated = getEvaluatedRoutes(candidateSettings);
+  return evaluated.some(route => routeRecommendationViable(route) && (route.estimatedMinutes ?? Infinity) <= minutes);
+}
+
+function getRecommendedTimeGuidance() {
+  if (!state.trainingData || !state.dailySummary) return null;
+  const cacheKey = recommendedTimeScenarioKey();
+  if (recommendedTimeCache.key === cacheKey) {
+    return recommendedTimeCache.value;
+  }
+
+  const theoreticalMinutes = theoreticalRecommendedTimeMinutes();
+  const firstViableMinutes = firstViableRouteMinutes(theoreticalMinutes);
+  const recommendedMinutes = Number.isFinite(firstViableMinutes)
+    ? Math.max(theoreticalMinutes, firstViableMinutes)
+    : null;
+  const guidance = {
+    theoreticalMinutes,
+    firstViableMinutes,
+    recommendedMinutes,
+  };
+
+  recommendedTimeCache = { key: cacheKey, value: guidance };
+  return guidance;
+}
+
+function getRecommendedTimeMinutes() {
+  return getRecommendedTimeGuidance()?.recommendedMinutes ?? null;
+}
+
+function updateTimeLabel() {
+  const slider = document.getElementById('time-available');
+  const label = document.getElementById('time-label');
+  if (!slider || !label) return;
+  label.textContent = formatClockMinutes(parseInt(slider.value || '60', 10));
+}
+
+function applyTimeAvailable(minutes) {
+  const slider = document.getElementById('time-available');
+  if (!slider) return;
+  slider.value = String(snapMinutes(minutes));
+  updateTimeLabel();
+  if (state.trainingData) {
+    recomputeRankedRoutes();
+    renderTimeSummary();
+    renderRoutes();
+    renderRouteInspector();
+  }
+}
+
 function renderTimeSummary() {
   if (!state.trainingData) return;
   const d = state.trainingData;
@@ -982,6 +1784,17 @@ function renderTimeSummary() {
 
   const el = document.getElementById('time-summary');
   if (!el) return;
+  const availability = recommendationAvailability(getTimeSettings());
+  const noViableWithinBudget = availability.viableWithinBudget.length === 0;
+  const guidance = getRecommendedTimeGuidance();
+  const firstViableMinutes = guidance?.firstViableMinutes ?? null;
+  const theoreticalMinutes = guidance?.theoreticalMinutes ?? null;
+  const theoreticalMismatch = (
+    Number.isFinite(theoreticalMinutes) &&
+    Number.isFinite(firstViableMinutes) &&
+    firstViableMinutes > theoreticalMinutes
+  );
+  const noViableAnywhere = !Number.isFinite(firstViableMinutes);
 
   if (displayTarget.mode === 'mixed') {
     const remainingTotal = state.dailySummary?.remaining?.total ?? 0;
@@ -991,12 +1804,21 @@ function renderTimeSummary() {
         ? Math.min(Math.round(estimatedXss / Math.max(remainingTotal, 1) * 100), 100)
         : 100;
       el.innerHTML =
-        `${timingLead}${timeMin} min should support roughly ${estimatedXss} XSS of today's mixed workout` +
+        `${timingLead}${formatDurationText(timeMin)} should support roughly ${estimatedXss} XSS of today's mixed workout` +
         ` — about ${fillPct}% of today's remaining <span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> gap.`;
     } else {
       el.innerHTML =
-        `${timingLead}${timeMin} min should support today's mixed workout across your remaining ` +
+        `${timingLead}${formatDurationText(timeMin)} should support today's mixed workout across your remaining ` +
         `<span class="bucket-word low">low</span> + <span class="bucket-word high">high</span> + <span class="bucket-word peak">peak</span> load.`;
+    }
+    if (noViableWithinBudget) {
+      if (theoreticalMismatch) {
+        el.innerHTML += ` Bucket math says about ${formatClockMinutes(theoreticalMinutes)}, but the first honest route fit starts around ${formatClockMinutes(firstViableMinutes)}, so the best options below are longer or compromise venues.`;
+      } else if (noViableAnywhere) {
+        el.innerHTML += ' No route currently fits that workload honestly anywhere in the current slider range, so the best options below are compromise venues only.';
+      } else {
+        el.innerHTML += ` No route currently fits that workload honestly inside this time budget, so the best options below are longer or compromise venues.`;
+      }
     }
     return;
   }
@@ -1007,12 +1829,21 @@ function renderTimeSummary() {
   const remainingXss = (b !== 'recovery') ? state.dailySummary.remaining[b] : null;
 
   if (b === 'recovery' || !remainingXss) {
-    el.textContent = `${timingLead}with ${timeMin} min available, an easy spin is plenty today.`;
+    el.textContent = `${timingLead}with ${formatDurationText(timeMin)} available, an easy spin is plenty today.`;
   } else {
     const fillPct = Math.min(Math.round(estimatedXss / Math.max(remainingXss, 1) * 100), 100);
     el.textContent =
-      `${timingLead}${timeMin} min should generate roughly ${estimatedXss} XSS` +
+      `${timingLead}${formatDurationText(timeMin)} should generate roughly ${estimatedXss} XSS` +
       ` — about ${fillPct}% of today's remaining ${b.toUpperCase()} gap (${remainingXss.toFixed(0)} XSS).`;
+  }
+  if (noViableWithinBudget && b !== 'recovery' && remainingXss > 0) {
+    if (theoreticalMismatch) {
+      el.textContent += ` Bucket math says about ${formatClockMinutes(theoreticalMinutes)}, but the first honest route fit starts around ${formatClockMinutes(firstViableMinutes)}.`;
+    } else if (noViableAnywhere) {
+      el.textContent += ' No current route actually fits that budget honestly anywhere in the current slider range, so only approximation venues remain.';
+    } else {
+      el.textContent += ' No current route actually fits that budget honestly, so you will need more time or an approximation.';
+    }
   }
 }
 
@@ -1189,6 +2020,7 @@ function applyUnits(unit) {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 }
 
@@ -1218,17 +2050,28 @@ function setTimingMode(mode) {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 }
 
 function updateGuestWorldsLabel() {
-  const worlds = [...todaysWorlds(state.guestWorlds)].map(worldName).join(' · ');
-  document.getElementById('today-worlds-label').textContent = worlds;
+  const context = activeWorldContext();
+  const label = document.getElementById('today-worlds-label');
+  label.textContent = formatWorldContextLabel(context, worldName);
+  label.title = formatWorldContextSourceDetail(context);
+
+  const hint = document.querySelector('.world-cb-hint');
+  if (hint) {
+    hint.textContent = context.source === 'manual fallback'
+      ? 'Fallback mode: select up to 2 guest worlds alongside Watopia.'
+      : `Current worlds are coming from ${context.source}. Manual picks stay hidden unless all live and fallback sources fail.`;
+  }
 }
 
 function updateGuestWorldsPickerVisibility() {
+  const context = activeWorldContext();
   document.getElementById('guest-worlds-picker').style.display =
-    state.todayOnly ? '' : 'none';
+    state.todayOnly && context.source === 'manual fallback' ? '' : 'none';
 }
 
 function updateGuestWorldCheckboxes() {
@@ -1244,6 +2087,7 @@ function renderTimingControls() {
   const manualBtn = document.getElementById('timing-manual');
   const manualRow = document.getElementById('manual-speed-row');
   const hintEl = document.getElementById('timing-hint');
+  const recommendedBtn = document.getElementById('time-recommended');
   const auto = state.timingMode === 'auto';
 
   autoBtn.classList.toggle('active', auto);
@@ -1260,6 +2104,14 @@ function renderTimingControls() {
   } else {
     hintEl.textContent = 'Manual pace override for route time estimates.';
   }
+
+  if (recommendedBtn) {
+    const recommended = getRecommendedTimeMinutes();
+    recommendedBtn.disabled = !recommended;
+    recommendedBtn.textContent = recommended
+      ? `Use recommended time (${formatClockMinutes(recommended)})`
+      : 'Use recommended time';
+  }
 }
 
 function getRiderWkg(trainingData) {
@@ -1270,7 +2122,7 @@ function getRiderWkg(trainingData) {
 }
 
 function estimateFlatSpeedKmh(riderWkg) {
-  return clamp(18 + riderWkg * 4.5, 18, 40);
+  return clamp(20 + riderWkg * 5, 20, 42);
 }
 
 function estimateBucketImpactXss(minutes, bucket) {
@@ -1492,6 +2344,25 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     total: targetXSS?.total ?? 0,
   };
 
+  const remaining = {
+    low: Math.max(targets.low - completed.low, 0),
+    high: Math.max(targets.high - completed.high, 0),
+    peak: Math.max(targets.peak - completed.peak, 0),
+    total: Math.max(targets.total - completed.total, 0),
+  };
+  console.log('[coverage-debug] daily summary', {
+    targetXSS_low: targets.low,
+    targetXSS_high: targets.high,
+    targetXSS_peak: targets.peak,
+    completed_low: completed.low,
+    completed_high: completed.high,
+    completed_peak: completed.peak,
+    remaining_low: remaining.low,
+    remaining_high: remaining.high,
+    remaining_peak: remaining.peak,
+    activityCount: countedActivities,
+  });
+
   return {
     count: countedActivities,
     totalActivities: activities.length,
@@ -1500,12 +2371,7 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     failedCount,
     completed,
     targets,
-    remaining: {
-      low: Math.max(targets.low - completed.low, 0),
-      high: Math.max(targets.high - completed.high, 0),
-      peak: Math.max(targets.peak - completed.peak, 0),
-      total: Math.max(targets.total - completed.total, 0),
-    },
+    remaining,
   };
 }
 
@@ -1516,12 +2382,12 @@ document.getElementById('refresh-btn').addEventListener('click', handleRefresh);
 document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
 document.getElementById('time-available').addEventListener('input', () => {
-  const val = document.getElementById('time-available').value;
-  document.getElementById('time-label').textContent = `${val} min`;
+  updateTimeLabel();
   if (state.trainingData) {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 });
 
@@ -1530,6 +2396,7 @@ document.getElementById('avg-speed').addEventListener('change', () => {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
   }
 });
 
@@ -1538,6 +2405,14 @@ document.getElementById('avg-speed').addEventListener('input', () => {
     recomputeRankedRoutes();
     renderTimeSummary();
     renderRoutes();
+    renderRouteInspector();
+  }
+});
+
+document.getElementById('time-recommended').addEventListener('click', () => {
+  const recommended = getRecommendedTimeMinutes();
+  if (recommended) {
+    applyTimeAvailable(recommended);
   }
 });
 
@@ -1548,6 +2423,7 @@ document.getElementById('today-only-toggle').addEventListener('change', (e) => {
   if (state.trainingData) {
     recomputeRankedRoutes();
     renderRoutes();
+    renderRouteInspector();
   }
 });
 
@@ -1555,19 +2431,29 @@ document.getElementById('guest-worlds-picker').addEventListener('change', () => 
   const checked = [...document.querySelectorAll('.guest-world-cb:checked')].map(el => el.value);
   state.guestWorlds = checked.slice(0, 2);
   saveGuestWorlds(state.guestWorlds);
+  state.worldContext = getWorldScheduleContext(state.guestWorlds);
   updateGuestWorldsLabel();
+  updateGuestWorldsPickerVisibility();
   updateGuestWorldCheckboxes();
   if (state.trainingData) {
     recomputeRankedRoutes();
     renderRoutes();
+    renderRouteInspector();
   }
+  void refreshWorldContext();
+});
+
+document.getElementById('route-picker').addEventListener('change', (e) => {
+  state.selectedRouteKey = e.target.value;
+  localStorage.setItem(ROUTE_PICKER_KEY, state.selectedRouteKey);
+  renderRouteInspector();
 });
 
 document.getElementById('other-toggle').addEventListener('click', () => {
   const list   = document.getElementById('other-list');
   const toggle = document.getElementById('other-toggle');
   const open   = list.classList.toggle('open');
-  const count  = list.children.length;
+  const count  = countRouteCards(list);
   toggle.textContent = `${open ? '▲' : '▼'} Other options (${count} more)`;
 });
 
@@ -1575,7 +2461,7 @@ document.getElementById('more-time-toggle').addEventListener('click', () => {
   const list   = document.getElementById('more-time-list');
   const toggle = document.getElementById('more-time-toggle');
   const open   = list.classList.toggle('open');
-  const count  = list.children.length;
+  const count  = countRouteCards(list);
   toggle.textContent = `${open ? '▲' : '▼'} If you had more time (${count} routes)`;
 });
 
@@ -1617,35 +2503,96 @@ document.getElementById('settings-data-source').addEventListener('change', async
 
 // ── Delegated: Share button ───────────────────────
 
+function canvasToPngBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas produced no PNG blob')), 'image/png');
+  });
+}
+
+function fullSequenceCount(details) {
+  const summaryText = details?.querySelector('summary')?.textContent ?? '';
+  const match = summaryText.match(/\((\d+)\s+efforts?\)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function prepareRouteCardCloneForShare(clonedCard) {
+  if (!clonedCard) return;
+
+  clonedCard.querySelectorAll('.segment-row').forEach(row => {
+    const details = row.querySelector('.segment-details');
+    const totalCount = fullSequenceCount(details);
+    details?.remove();
+
+    const chips = Array.from(row.querySelectorAll('.segment-chips:not(.segment-chips-full) .segment-chip'));
+    const shareLimit = 4;
+    chips.slice(shareLimit).forEach(chip => chip.remove());
+
+    if (totalCount > shareLimit && chips.length > shareLimit) {
+      const moreChip = row.ownerDocument.createElement('span');
+      moreChip.className = 'segment-chip segment';
+      moreChip.textContent = `+${totalCount - shareLimit} more`;
+      row.querySelector('.segment-chips')?.appendChild(moreChip);
+    }
+  });
+}
+
+async function renderRouteCardPng(card) {
+  if (!card || !window.html2canvas) return null;
+  const canvas = await window.html2canvas(card, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: null,
+    onclone: (_document, clonedCard) => prepareRouteCardCloneForShare(clonedCard),
+  });
+  return canvasToPngBlob(canvas);
+}
+
+async function writeClipboardItem(items) {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    throw new Error('Rich clipboard unavailable');
+  }
+  await navigator.clipboard.write([new ClipboardItem(items)]);
+}
+
+async function copyRouteCardToClipboard(card, text) {
+  const pngBlob = await renderRouteCardPng(card).catch(() => null);
+
+  if (pngBlob) {
+    await writeClipboardItem({ 'image/png': pngBlob });
+    return 'image';
+  }
+
+  await navigator.clipboard.writeText(text);
+  return 'text';
+}
+
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('.share-btn');
   if (!btn) return;
   const text = btn.getAttribute('data-share-text') || '';
   const card = btn.closest('.route-card');
+  const mode = btn.getAttribute('data-share-mode') || 'image';
+  const idleLabel = btn.textContent;
 
   const finish = (label, success) => {
     btn.textContent = label;
     btn.classList.toggle('copied', success);
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+    setTimeout(() => { btn.textContent = idleLabel; btn.classList.remove('copied'); }, 1500);
   };
 
   try {
-    const items = { 'text/plain': new Blob([text], { type: 'text/plain' }) };
-
-    if (card && window.html2canvas) {
-      const canvas = await window.html2canvas(card, { scale: 2, useCORS: true, backgroundColor: null });
-      await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(), 'image/png'));
-      const pngBlob = await new Promise((resolve, reject) =>
-        canvas.toBlob(b => b ? resolve(b) : reject(), 'image/png'));
-      items['image/png'] = pngBlob;
+    if (mode === 'text') {
+      await navigator.clipboard.writeText(text);
+      finish('Text copied', true);
+      return;
     }
 
-    await navigator.clipboard.write([new ClipboardItem(items)]);
-    finish('Copied!', true);
+    const copied = await copyRouteCardToClipboard(card, text);
+    finish(copied === 'image' ? 'Image copied!' : 'Text copied', true);
   } catch {
     // Fall back to plain text
     navigator.clipboard.writeText(text)
-      .then(() => finish('Copied!', true))
+      .then(() => finish('Text copied', true))
       .catch(() => finish('Error', false));
   }
 });
@@ -1672,4 +2619,22 @@ document.addEventListener('click', (e) => {
   });
 });
 
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.route-nav-link');
+  if (!btn) return;
+  const routeKey = btn.getAttribute('data-route-key');
+  const action = btn.getAttribute('data-nav-action');
+  if (!routeKey || !action) return;
+
+  if (action === 'inspect') {
+    jumpToInspector(routeKey);
+    return;
+  }
+
+  if (action === 'recommendation') {
+    jumpToRecommendationCard(routeKey);
+  }
+});
+
 init();
+

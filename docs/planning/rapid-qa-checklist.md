@@ -16,6 +16,13 @@ Use this when you want a fast pass/fail sweep instead of the full test plan.
 - [ ] Bucket bars show completed/target/remaining values
 - [ ] Route cards render with score, stats, reason, cue, and links
 
+## Zwift Snapshot
+- [ ] `npm run build-routes` completes successfully
+- [ ] Generated files include routes, segments, and `zwift-metadata.js`
+- [ ] `Today's worlds only` reflects Zwift schedule data when present
+- [ ] Manual guest-world picker only appears as fallback when schedule data is unavailable
+- [ ] Route-linked segment chips still render for known routes like `Road to Sky`
+
 ## Recovery Override
 - [ ] Tired / Very Tired / Detraining status forces recovery recommendations
 - [ ] Recovery note appears when override is active
