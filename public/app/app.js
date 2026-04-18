@@ -1425,7 +1425,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
     : '';
 
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
-  const executionFirstLowDay = state.wotdStructure === 'aerobic_endurance' && displayTarget.mode === 'bucket' && displayTarget.bucket === 'low';
+  const executionFirstLowDay = (state.wotdStructure === 'aerobic_endurance' || state.wotdStructure === null) && displayTarget.mode === 'bucket' && displayTarget.bucket === 'low';
   let bucketXssTag = '';
   let shareFillPct = null;
   let shareBucket = state.bucket;
@@ -1464,6 +1464,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
         const xss = perBucketXss[bkt];
         if (xss === null || (executionFirstLowDay && bkt !== 'low')) return '';
         const rem = state.dailySummary?.remaining?.[bkt] ?? null;
+        if (rem !== null && rem <= 0 && bkt !== b) return '';
         const target = rem !== null ? `<span class="xss-target">/${Math.round(rem)}</span>` : '';
         return `<span class="xss-fill ${bkt}"><span class="bucket-word ${bkt}">${bkt.toUpperCase()}</span> ~${xss}${target}</span>`;
       }).filter(Boolean);
