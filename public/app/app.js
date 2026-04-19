@@ -1065,23 +1065,34 @@ function renderRoutes() {
     ? viableWithinBudget.slice(0, 5).map(route => routeCardHTML(route, false, favorites)).join('')
     : `<p class="no-routes">${noRouteMessage(approximateWithinBudget.length, viableOverBudget.length)}</p>`;
 
-  // Other options: viable within-budget overflow, or approximation-only fallback if nothing viable fits.
+  // Other options: viable within-budget overflow, or approximation-only fallback if nothing viable fits. Capped at 5.
+  const OTHER_CAP = 5;
   const otherList = document.getElementById('other-list');
-  const overflowRoutes = viableWithinBudget.length ? viableWithinBudget.slice(5) : approximateWithinBudget;
+  const otherToggle = document.getElementById('other-toggle');
+  const allOverflow = viableWithinBudget.length ? viableWithinBudget.slice(5) : approximateWithinBudget;
+  const overflowRoutes = allOverflow.slice(0, OTHER_CAP);
+  const overflowHidden = allOverflow.length - overflowRoutes.length;
+  const overflowHiddenNote = overflowHidden > 0 ? ` · ${overflowHidden} not shown` : '';
   const otherLabel = viableWithinBudget.length
-    ? `▼ Other options (${overflowRoutes.length} more)`
-    : `▼ Best approximate options (${overflowRoutes.length} routes)`;
+    ? `▼ Other options (${overflowRoutes.length} more${overflowHiddenNote})`
+    : `▼ Best approximate options (${overflowRoutes.length} routes${overflowHiddenNote})`;
   otherList.innerHTML = groupedByWorldHTML(overflowRoutes, favorites);
-  document.getElementById('other-toggle').textContent = otherLabel;
+  otherToggle.textContent = otherLabel;
+  otherToggle.dataset.hiddenCount = overflowHidden;
   document.getElementById('other-options').style.display = overflowRoutes.length ? 'block' : 'none';
 
-  // "If you had more time": over-budget routes
+  // "If you had more time": over-budget routes, sorted by nearest overrun, capped at 8
+  const MORE_TIME_CAP = 8;
   const moreSection = document.getElementById('more-time-options');
   const moreList    = document.getElementById('more-time-list');
-  moreList.innerHTML = groupedByWorldHTML(viableOverBudget, favorites);
-  moreSection.style.display = viableOverBudget.length ? 'block' : 'none';
-  document.getElementById('more-time-toggle').textContent =
-    `▼ If you had more time (${viableOverBudget.length} routes)`;
+  const moreTimeToggle = document.getElementById('more-time-toggle');
+  const cappedOverBudget = viableOverBudget.slice(0, MORE_TIME_CAP);
+  const overBudgetHidden = viableOverBudget.length - cappedOverBudget.length;
+  const overBudgetHiddenNote = overBudgetHidden > 0 ? ` · ${overBudgetHidden} not shown` : '';
+  moreList.innerHTML = groupedByWorldHTML(cappedOverBudget, favorites, { profile: { height: 42 } });
+  moreSection.style.display = cappedOverBudget.length ? 'block' : 'none';
+  moreTimeToggle.textContent = `▼ If you had more time (${cappedOverBudget.length} routes${overBudgetHiddenNote})`;
+  moreTimeToggle.dataset.hiddenCount = overBudgetHidden;
 }
 
 function setToggleOpen(toggleId, listId, label) {
@@ -1093,7 +1104,7 @@ function setToggleOpen(toggleId, listId, label) {
   toggle.textContent = `▲ ${label} (${count} ${label === 'Other options' ? 'more' : 'routes'})`;
 }
 
-function groupedByWorldHTML(routes, favorites) {
+function groupedByWorldHTML(routes, favorites, cardOptions = {}) {
   const groups = new Map();
   for (const route of routes) {
     const w = route.world ?? '';
@@ -1102,7 +1113,7 @@ function groupedByWorldHTML(routes, favorites) {
   }
   return [...groups.entries()].map(([world, worldRoutes]) => {
     const label = worldName(world);
-    const cards = worldRoutes.map(r => routeCardHTML(r, true, favorites)).join('');
+    const cards = worldRoutes.map(r => routeCardHTML(r, true, favorites, cardOptions)).join('');
     return `<div class="world-group">
       <div class="world-group-header"><span class="world-group-label route-world" data-world="${world}">${label}</span></div>
       <div class="world-group-cards">${cards}</div>
@@ -1187,12 +1198,44 @@ function inspectableRoutes() {
     );
 }
 
+function routeSupportsBucket(route, bucket) {
+  const gr = route.distance > 0 ? route.elevation / route.distance : 0;
+  if (bucket === 'low') return gr < 12;
+  if (bucket === 'high') return gr >= 8 && gr <= 35;
+  if (bucket === 'peak') return gr >= 20 && route.distance <= 25;
+  return true;
+}
+
 function populateRoutePickerOptions() {
   const picker = document.getElementById('route-picker');
   if (!picker) return;
 
+  const worldFilter = document.getElementById('inspector-world-filter');
+  if (worldFilter && worldFilter.options.length <= 1) {
+    const worlds = [...new Set(inspectableRoutes().map(r => r.world).filter(Boolean))]
+      .sort((a, b) => worldName(a).localeCompare(worldName(b)));
+    worlds.forEach(w => {
+      const opt = document.createElement('option');
+      opt.value = w;
+      opt.textContent = worldName(w);
+      worldFilter.appendChild(opt);
+    });
+  }
+
+  const searchVal = (document.getElementById('inspector-search')?.value ?? '').toLowerCase().trim();
+  const worldVal = worldFilter?.value ?? '';
+  const bucketVal = document.getElementById('inspector-bucket-filter')?.value ?? '';
+
   const currentValue = state.selectedRouteKey || '';
-  const options = inspectableRoutes().map(route => {
+  const allRoutes = inspectableRoutes();
+  const filtered = allRoutes.filter(route => {
+    if (searchVal && !route.name.toLowerCase().includes(searchVal)) return false;
+    if (worldVal && route.world !== worldVal) return false;
+    if (bucketVal && !routeSupportsBucket(route, bucketVal)) return false;
+    return true;
+  });
+
+  const options = filtered.map(route => {
     const key = route.slug || route.name;
     const selected = key === currentValue ? ' selected' : '';
     const eventTag = route.eventOnly ? ' · event only' : '';
@@ -1201,6 +1244,13 @@ function populateRoutePickerOptions() {
 
   picker.innerHTML = `<option value="">Choose a route…</option>${options}`;
   picker.value = currentValue;
+
+  const countEl = document.getElementById('inspector-route-count');
+  if (countEl) {
+    countEl.textContent = filtered.length < allRoutes.length
+      ? `${filtered.length} of ${allRoutes.length} routes`
+      : `${allRoutes.length} routes`;
+  }
 }
 
 function selectedInspectableRoute() {
@@ -1257,7 +1307,7 @@ function renderRouteInspector() {
     profile: {
       height: 78,
       maxMarkers: 5,
-      showSummary: true,
+      showSummary: false,
       showLabels: false,
     },
     inspectorMode: true,
@@ -1525,7 +1575,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
     difficultyBadge,
     lapTag,
   ].filter(Boolean).join('');
-  const profileMarkup = !compact ? routeProfileSVG(route, options.profile ?? {}) : '';
+  const profileMarkup = (!compact || options.profile) ? routeProfileSVG(route, options.profile ?? {}) : '';
 
 
   return `
@@ -2443,6 +2493,18 @@ document.getElementById('guest-worlds-picker').addEventListener('change', () => 
   void refreshWorldContext();
 });
 
+document.getElementById('inspector-search').addEventListener('input', () => {
+  populateRoutePickerOptions();
+});
+
+document.getElementById('inspector-world-filter').addEventListener('change', () => {
+  populateRoutePickerOptions();
+});
+
+document.getElementById('inspector-bucket-filter').addEventListener('change', () => {
+  populateRoutePickerOptions();
+});
+
 document.getElementById('route-picker').addEventListener('change', (e) => {
   state.selectedRouteKey = e.target.value;
   localStorage.setItem(ROUTE_PICKER_KEY, state.selectedRouteKey);
@@ -2454,7 +2516,9 @@ document.getElementById('other-toggle').addEventListener('click', () => {
   const toggle = document.getElementById('other-toggle');
   const open   = list.classList.toggle('open');
   const count  = countRouteCards(list);
-  toggle.textContent = `${open ? '▲' : '▼'} Other options (${count} more)`;
+  const hidden = parseInt(toggle.dataset.hiddenCount ?? '0', 10);
+  const hiddenNote = hidden > 0 ? ` · ${hidden} not shown` : '';
+  toggle.textContent = `${open ? '▲' : '▼'} Other options (${count} more${hiddenNote})`;
 });
 
 document.getElementById('more-time-toggle').addEventListener('click', () => {
@@ -2462,7 +2526,9 @@ document.getElementById('more-time-toggle').addEventListener('click', () => {
   const toggle = document.getElementById('more-time-toggle');
   const open   = list.classList.toggle('open');
   const count  = countRouteCards(list);
-  toggle.textContent = `${open ? '▲' : '▼'} If you had more time (${count} routes)`;
+  const hidden = parseInt(toggle.dataset.hiddenCount ?? '0', 10);
+  const hiddenNote = hidden > 0 ? ` · ${hidden} not shown` : '';
+  toggle.textContent = `${open ? '▲' : '▼'} If you had more time (${count} routes${hiddenNote})`;
 });
 
 document.getElementById('units-metric').addEventListener('click', () => applyUnits('metric'));
