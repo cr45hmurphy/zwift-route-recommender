@@ -133,6 +133,14 @@ Share image/text controls work and were manually confirmed.
 - Later: Strava OAuth for live PRs and post-ride verification.
 - Later: static equipment recommendations based on route characteristics and published Zwift Insider testing.
 
+### Route Database Browser
+A scenario-independent route browser for planning purposes. Distinct from Route Inspector, which evaluates routes against today's training state.
+
+- Browse all routes by world, distance, elevation, gradient, bucket support (LOW/HIGH/PEAK), and honesty label
+- No training data required — useful for planning future rides or exploring unfamiliar worlds
+- Could surface "on a HIGH day, these are the best Watopia climbs" without being locked to today
+- Consider as a separate tab or expandable panel rather than replacing Route Inspector
+
 ### Workout And Event Matching
 - Pair Xert workout structure to route shape more directly.
 - Surface Zwift events that match training needs: LOW group rides, HIGH climbing events, PEAK crits/sprints.
