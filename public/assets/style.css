@@ -1166,11 +1166,28 @@ a.segment-chip:hover {
   gap: 6px;
 }
 
-.route-inspector-controls label {
+.inspector-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.inspector-filters input[type="text"],
+.inspector-filters select {
+  flex: 1;
+  min-width: 120px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.inspector-route-count {
   font-size: 0.76rem;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  margin-top: 4px;
 }
 
 #route-picker {

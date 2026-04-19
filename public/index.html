@@ -202,10 +202,22 @@
         <div id="route-inspector">
           <div class="route-inspector-header">Route Inspector</div>
           <div class="route-inspector-controls">
-            <label for="route-picker">Check a specific route</label>
+            <div class="inspector-filters">
+              <input type="text" id="inspector-search" placeholder="Search routes…" autocomplete="off" spellcheck="false">
+              <select id="inspector-world-filter">
+                <option value="">All worlds</option>
+              </select>
+              <select id="inspector-bucket-filter">
+                <option value="">Any bucket</option>
+                <option value="low">LOW support</option>
+                <option value="high">HIGH support</option>
+                <option value="peak">PEAK support</option>
+              </select>
+            </div>
             <select id="route-picker">
               <option value="">Choose a route…</option>
             </select>
+            <div id="inspector-route-count" class="inspector-route-count"></div>
           </div>
           <div id="route-picker-note" class="route-inspector-note"></div>
           <div id="route-picked-card"></div>
