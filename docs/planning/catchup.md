@@ -67,6 +67,7 @@ The active future-work list is now `docs/planning/parkinglot.md`. The former Rou
 - LOW-day execution display fix.
 - World-schedule UI polish: complete-source preference, fallback source labeling, source tooltip, route-card count fix, and world title color readability pass.
 - Parking-lot consolidation and Route Recommender design doc archival.
+- LOW day XSS badge fix: `executionFirstLowDay` now triggers for no-WOTD low days (`wotdStructure === null`), so the LOW badge shows unweighted XSS matching the timing text; zero-gap HIGH/PEAK badges suppressed in single-bucket mode.
 
 ---
 
