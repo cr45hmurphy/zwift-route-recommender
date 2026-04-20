@@ -690,7 +690,7 @@ section { margin-bottom: 32px; }
   letter-spacing: 0.07em;
   color: var(--text-muted);
 }
-.route-world[data-world="watopia"]          { color: #EE4000; }
+.route-world[data-world="watopia"]          { color: #F5784A; }
 .route-world[data-world="richmond"]         { color: #F2F2F2; }
 .route-world[data-world="london"]           { color: #62C0EB; }
 .route-world[data-world="new-york"]         { color: #D92592; }
