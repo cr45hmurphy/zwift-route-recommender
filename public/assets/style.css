@@ -101,8 +101,18 @@ details.auth-about[open] .about-summary::before {
 .about-intro {
   font-size: 0.85rem;
   color: var(--text-muted);
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   line-height: 1.55;
+}
+
+.about-disclaimer {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  opacity: 0.7;
 }
 
 .about-section {
