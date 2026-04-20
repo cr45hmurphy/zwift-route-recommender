@@ -798,9 +798,8 @@ function smoothProfilePass(rawProfile, windowKm) {
 function smoothProfile(rawProfile, totalRouteKm) {
   if (!Array.isArray(rawProfile) || rawProfile.length < 5) return rawProfile ?? [];
 
-  const windowKm = Math.min(Math.max((Number(totalRouteKm) || 0) * 0.006, 0.18), 0.40);
-  const firstPass = smoothProfilePass(rawProfile, windowKm);
-  return smoothProfilePass(firstPass, Math.max(windowKm * 0.50, 0.14));
+  const windowKm = Math.min(Math.max((Number(totalRouteKm) || 0) * 0.006, 0.15), 0.28);
+  return smoothProfilePass(rawProfile, windowKm);
 }
 
 function buildRouteProfile(sauceRoute, worldRoadGeometry, totalRouteKm, maxPoints = 120) {
