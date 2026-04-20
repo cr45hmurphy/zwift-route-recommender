@@ -1,0 +1,40 @@
+<svg width="100%" viewBox="0 0 680 400" role="img" xmlns="http://www.w3.org/2000/svg"><defs><mask id="imagine-text-gaps-zzhm8c" maskUnits="userSpaceOnUse"><rect x="0" y="0" width="680" height="400" fill="white"/><rect x="18" y="-3" width="43.83097839355469" height="20" fill="black" rx="2"/><rect x="18" y="27" width="41.51698303222656" height="20" fill="black" rx="2"/><rect x="18" y="57" width="38.82197570800781" height="20" fill="black" rx="2"/></mask></defs>
+  <title>ZwiftBuckets favicon v3 — solid Z in front of bucket</title>
+  <desc>A bucket shape filled with Xert bucket colors with a solid bold Z overlaid in front</desc>
+
+  <g transform="translate(190, 30)">
+
+    <rect x="0" y="0" width="300" height="340" rx="32" fill="rgb(38, 38, 36)" stroke="rgba(222, 220, 209, 0.15)" stroke-width="1"/>
+
+    <g transform="translate(40, 30)">
+
+      <clipPath id="bucketclip">
+        <path d="M20,10 L200,10 L185,260 Q110,285 35,260 Z"/>
+      </clipPath>
+
+      <rect x="20" y="175" width="180" height="95" fill="#3b82f6" clip-path="url(#bucketclip)"/>
+      <rect x="20" y="105" width="180" height="70" fill="#f97316" clip-path="url(#bucketclip)"/>
+      <rect x="20" y="10" width="180" height="95" fill="#ef4444" clip-path="url(#bucketclip)"/>
+
+      <path d="M20,10 L200,10 L185,260 Q110,285 35,260 Z" fill="none" stroke="rgba(222, 220, 209, 0.4)" stroke-width="3" mask="url(#imagine-text-gaps-zzhm8c)"/>
+      <rect x="10" y="5" width="200" height="14" rx="7" fill="rgba(222, 220, 209, 0.4)"/>
+      <path d="M70,5 Q110,-20 150,5" fill="none" stroke="rgba(222, 220, 209, 0.4)" stroke-width="6" stroke-linecap="round"/>
+
+    </g>
+
+    <g transform="translate(58, 55)">
+      <polygon points="0,0 184,0 184,48 68,162 184,162 184,210 0,210 0,162 116,48 0,48" fill="white" stroke="white" stroke-width="6" stroke-linejoin="round"/>
+    </g>
+
+  </g>
+
+  <g transform="translate(515, 120)">
+    <rect x="0" y="0" width="14" height="14" rx="3" fill="#ef4444"/>
+    <text x="22" y="12" fill="rgb(194, 192, 182)" font-family="sans-serif" font-size="13">PEAK</text>
+    <rect x="0" y="30" width="14" height="14" rx="3" fill="#f97316"/>
+    <text x="22" y="42" fill="rgb(194, 192, 182)" font-family="sans-serif" font-size="13">HIGH</text>
+    <rect x="0" y="60" width="14" height="14" rx="3" fill="#3b82f6"/>
+    <text x="22" y="72" fill="rgb(194, 192, 182)" font-family="sans-serif" font-size="13">LOW</text>
+  </g>
+
+</svg>
