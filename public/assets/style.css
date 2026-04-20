@@ -1479,6 +1479,22 @@ a.segment-chip:hover {
   #status-card { padding: 16px; }
   main { padding: 16px; }
   header { padding: 12px 16px; }
+
+  #time-available {
+    touch-action: pan-x;
+    height: 36px;
+    width: 100%;
+  }
+
+  #time-available::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+  }
+
+  #time-available::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 /* ── Today's Plan section ───────────────────────── */
