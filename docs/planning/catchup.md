@@ -4,9 +4,8 @@
 
 The core Zwift route recommender / cue-generator overhaul is complete enough to move from buildout into polish, validation, and calibration. The app runs as a browser-based Xert-aware recommender with live or mock data, Zwift world filtering, route cards, time guidance, route profiles, route inspector, share/favorite controls, and Sauce-derived route/timeline data.
 
-- Active branch: `feature/zwift-cdn-overhaul`
-- Merge target: `master`
-- Draft PR: https://github.com/cr45hmurphy/zwift-route-recommender/pull/9
+- Active branch: `master` (clean)
+- Last merged PRs: #13 inspector filters + browsing caps, #14 visual polish
 
 The active future-work list is now `docs/planning/parkinglot.md`. The former Route Recommender design brief has been archived under `docs/planning/archive/`.
 
@@ -68,6 +67,8 @@ The active future-work list is now `docs/planning/parkinglot.md`. The former Rou
 - World-schedule UI polish: complete-source preference, fallback source labeling, source tooltip, route-card count fix, and world title color readability pass.
 - Parking-lot consolidation and Route Recommender design doc archival.
 - LOW day XSS badge fix: `executionFirstLowDay` now triggers for no-WOTD low days (`wotdStructure === null`), so the LOW badge shows unweighted XSS matching the timing text; zero-gap HIGH/PEAK badges suppressed in single-bucket mode.
+- Route Inspector UX overhaul: replaced flat dropdown with search + world filter + bucket-support filter; browsing caps (Other options ≤5, If you had more time ≤8); profiles on over-budget compact cards (PR #13).
+- Visual polish: Watopia title color lightened (#EE4000 → #F5784A); profile smoothing reduced to single-pass near-raw for more terrain character; mobile time slider fix (touch-action: pan-x, larger touch target) (PR #14).
 
 ---
 
@@ -75,11 +76,11 @@ The active future-work list is now `docs/planning/parkinglot.md`. The former Rou
 
 Use `docs/planning/parkinglot.md` as the source of truth. The highest-value next items are:
 
-1. Route browsing cleanup: cap `If you had more time`, reconsider `Other options`, add profiles to over-budget cards.
-2. Route Inspector UX: better route finding/filtering, remove `Key efforts`, support bucket-based discovery.
-3. Visual polish: lighten Watopia title color slightly, reduce profile smoothing a bit, mobile pass.
-4. Manual QA round across mock scenarios, source labels, toggles, and scorer harness.
-5. Live WOTD validation against a real or simulated `#MIXEDMODE` day.
+1. Manual QA round across mock scenarios, source labels, toggles, and scorer harness.
+2. Live WOTD validation against a real or simulated `#MIXEDMODE` day.
+3. Scoring/optimizer tuning: bucket weights, punch caps, LOW over-favor check.
+4. Time guidance calibration: recommended-time picks first route-feasible time.
+5. Cue copy editorial pass: truncation rules, repeat language, mixed-route narration.
 
 ---
 
