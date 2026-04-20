@@ -151,6 +151,13 @@ A scenario-independent route browser for planning purposes. Distinct from Route 
 - Explore Sauce4Zwift live WebSocket integration for real-time Magic Buckets during a ride.
 - Long term: generate custom S4Z routes tailored to the WOTD instead of only recommending existing Zwift routes.
 
+### Dev Panel Access Control
+The data-source selector currently sits inline in the Settings section, visible to all users.
+
+- Move dev controls to a footer link that opens a small modal.
+- Add access control so dev/mock mode is only available to specific users (self + approved testers), not visible to casual users.
+- Preferred approach: footer link modal (option 3 from brainstorm), keeps core app experience clean.
+
 ---
 
 ## Known Data Gaps / Intentional Non-Bugs
@@ -163,6 +170,9 @@ Where Sauce's projected XML misses known segments, `ROUTE_SEGMENT_OVERRIDES` in 
 
 ### Portal Routes Are Not First-Class Recommendations Yet
 Climb Portal support is surfaced as a side note. Portal road geometry is not yet pulled into the same recommendation path as normal Zwift routes.
+
+### Route Profile Includes Lead-In Terrain
+Some routes (e.g. Canopies and Coastlines) have a lead-in section that starts at a higher elevation than the route start. The profile SVG renders from the beginning of the lead-in, so the chart opens on a hilltop descent that the rider never climbs. Fix would trim profile display to start at route km 0, skipping the lead-in portion. Requires changes to `scaleProfilePoints` and profile rendering in `app.js`.
 
 ---
 

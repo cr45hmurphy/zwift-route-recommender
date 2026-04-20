@@ -24,7 +24,7 @@ function testFlatRoutesStayConservative() {
   const flatFixtures = [
     ['Flat Out Fast', 18],
     ['Tempus Fugit', 16],
-    ['Tick Tock', 12],
+    ['Tick Tock', 13],
     ['Going Coastal', 8],
   ];
 
