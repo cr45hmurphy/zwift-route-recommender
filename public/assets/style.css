@@ -37,16 +37,15 @@ a:hover { text-decoration: underline; }
 
 #auth-screen {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
   padding: 24px;
+  gap: 20px;
 }
 
 .auth-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   width: 100%;
   max-width: 400px;
 }
@@ -59,19 +58,44 @@ a:hover { text-decoration: underline; }
 }
 
 .auth-about {
+  width: 100%;
+  max-width: 640px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  padding: 24px 28px;
-  width: 100%;
 }
 
-.about-heading {
+.about-summary {
   font-size: 0.78rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
-  margin-bottom: 10px;
+  padding: 14px 20px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.about-summary::-webkit-details-marker { display: none; }
+
+.about-summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  color: var(--accent);
+  transition: transform 0.15s;
+}
+
+details.auth-about[open] .about-summary::before {
+  transform: rotate(90deg);
+}
+
+.about-summary:hover { color: var(--text); }
+
+.about-body {
+  padding: 0 20px 20px;
 }
 
 .about-intro {
@@ -118,11 +142,10 @@ a:hover { text-decoration: underline; }
 }
 
 .about-list li::before {
-  content: '—';
+  content: '›';
   position: absolute;
   left: 0;
   color: var(--accent);
-  font-size: 0.72rem;
 }
 
 .auth-card h1 {

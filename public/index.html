@@ -33,14 +33,17 @@
           <div id="auth-source-note" class="dev-note"></div>
         </div>
       </div>
+    </div>
 
-      <div class="auth-about">
-        <h2 class="about-heading">What is ZwiftBuckets?</h2>
-        <p class="about-intro">A pre-ride decision tool for Zwift riders who train with Xert. It reads your current fitness data — training loads, bucket deficits, and Workout of the Day — and recommends Zwift routes with specific riding cues for where and how hard to push.</p>
+    <details class="auth-about">
+      <summary class="about-summary">What is ZwiftBuckets?</summary>
+
+      <div class="about-body">
+        <p class="about-intro">A pre-ride decision tool for Zwift riders who train with Xert. It reads your current fitness data including training loads, bucket deficits, and Workout of the Day and recommends Zwift routes with specific riding cues for where and how hard to push.</p>
 
         <div class="about-section">
           <div class="about-section-title">The three buckets</div>
-          <p>Xert tracks your training strain across three energy systems: <span class="bucket-word low">LOW</span> (aerobic base), <span class="bucket-word high">HIGH</span> (high intensity), and <span class="bucket-word peak">PEAK</span> (neuromuscular). Each needs different terrain to fill — LOW fills from any riding, but HIGH and PEAK require specific segment types.</p>
+          <p>Xert tracks your training strain across three energy systems: <span class="bucket-word low">LOW</span> (aerobic base), <span class="bucket-word high">HIGH</span> (high intensity), and <span class="bucket-word peak">PEAK</span> (neuromuscular). Each needs different terrain to fill. LOW fills from any riding, but HIGH and PEAK require specific segment types.</p>
         </div>
 
         <div class="about-section">
@@ -49,7 +52,7 @@
             <li>Reads your Xert WOTD and bucket deficits</li>
             <li>Filters routes by your available time</li>
             <li>Identifies which routes have the right segment density for your target buckets</li>
-            <li>Generates ride cues — specific segments to attack and how to pace them</li>
+            <li>Generates ride cues with specific segments to attack and how to pace them</li>
           </ul>
         </div>
 
@@ -60,15 +63,15 @@
 
         <div class="about-section">
           <div class="about-section-title">Requirements</div>
-          <p>An active Xert account. No Zwift login required — route data is built in.</p>
+          <p>An active Xert account. No Zwift login required. Route data is built in.</p>
         </div>
 
         <div class="about-section">
           <div class="about-section-title">Your credentials</div>
-          <p>Your password is sent directly to Xert's servers to obtain a temporary access token — the same way any Xert third-party app works. Your password is never stored anywhere. Only the short-lived token (expires in 1 hour) is kept in your browser's local storage, and only to avoid asking you to log in again mid-session.</p>
+          <p>Your password is sent directly to Xert's servers to obtain a temporary access token, the same way any Xert third-party app works. Your password is never stored anywhere. Only the short-lived token (expires in 1 hour) is kept in your browser's local storage, and only to avoid asking you to log in again mid-session.</p>
         </div>
       </div>
-    </div>
+    </details>
   </div>
 
   <!-- ── App ── -->
