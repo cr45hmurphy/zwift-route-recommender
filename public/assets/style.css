@@ -37,10 +37,17 @@ a:hover { text-decoration: underline; }
 
 #auth-screen {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
   padding: 24px;
+  gap: 20px;
+}
+
+.auth-stack {
+  width: 100%;
+  max-width: 400px;
 }
 
 .auth-card {
@@ -48,7 +55,107 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--border);
   padding: 40px;
   width: 100%;
-  max-width: 400px;
+}
+
+.auth-about {
+  width: 100%;
+  max-width: 640px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+.about-summary {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 14px 20px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.about-summary::-webkit-details-marker { display: none; }
+
+.about-summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  color: var(--accent);
+  transition: transform 0.15s;
+}
+
+details.auth-about[open] .about-summary::before {
+  transform: rotate(90deg);
+}
+
+.about-summary:hover { color: var(--text); }
+
+.about-body {
+  padding: 0 20px 20px;
+}
+
+.about-intro {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  line-height: 1.55;
+}
+
+.about-disclaimer {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  opacity: 0.7;
+}
+
+.about-section {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-top: 14px;
+}
+
+.about-section-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.about-section p {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.about-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.about-list li {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  padding-left: 14px;
+  position: relative;
+}
+
+.about-list li::before {
+  content: '›';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
 }
 
 .auth-card h1 {

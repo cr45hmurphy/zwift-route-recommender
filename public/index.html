@@ -11,27 +11,69 @@
 
   <!-- ── Auth Screen ── -->
   <div id="auth-screen">
-    <div class="auth-card">
-      <h1>Zwift Route Recommender</h1>
-      <p>Sign in with your Xert account to get route recommendations based on your current fitness.</p>
-      <div id="auth-error" class="auth-error"></div>
-      <form id="auth-form">
-        <label for="auth-username">Xert Username</label>
-        <input type="email" id="auth-username" placeholder="your@email.com" required autocomplete="username">
+    <div class="auth-stack">
+      <div class="auth-card">
+        <h1>ZwiftBuckets</h1>
+        <p>Sign in with your Xert account to get route recommendations based on your current fitness.</p>
+        <div id="auth-error" class="auth-error"></div>
+        <form id="auth-form">
+          <label for="auth-username">Xert Username</label>
+          <input type="email" id="auth-username" placeholder="your@email.com" required autocomplete="username">
 
-        <label for="auth-password">Password</label>
-        <input type="password" id="auth-password" required autocomplete="current-password">
+          <label for="auth-password">Password</label>
+          <input type="password" id="auth-password" required autocomplete="current-password">
 
-        <button type="submit" id="auth-btn" class="btn-primary">Sign in</button>
-      </form>
-      <div class="dev-panel">
-        <div class="dev-panel-title">Testing / Dev</div>
-        <label for="auth-data-source">Data source</label>
-        <select id="auth-data-source"></select>
-        <button type="button" id="auth-scenario-btn" class="btn-secondary">Open test scenario</button>
-        <div id="auth-source-note" class="dev-note"></div>
+          <button type="submit" id="auth-btn" class="btn-primary">Sign in</button>
+        </form>
+        <div class="dev-panel">
+          <div class="dev-panel-title">Testing / Dev</div>
+          <label for="auth-data-source">Data source</label>
+          <select id="auth-data-source"></select>
+          <button type="button" id="auth-scenario-btn" class="btn-secondary">Open test scenario</button>
+          <div id="auth-source-note" class="dev-note"></div>
+        </div>
       </div>
     </div>
+
+    <details class="auth-about">
+      <summary class="about-summary">What is ZwiftBuckets?</summary>
+
+      <div class="about-body">
+        <p class="about-intro">A pre-ride decision tool for Zwift riders who train with Xert. It reads your current fitness data including training loads, bucket deficits, and Workout of the Day and recommends Zwift routes with specific riding cues for where and how hard to push.</p>
+
+        <p class="about-disclaimer">ZwiftBuckets is an independent hobby project and is not affiliated with, endorsed by, or associated with Xert or Zwift in any way. It is not Xert EBC and does not replicate or replace any Xert functionality. It simply reads your data via Xert's public API and uses it to suggest routes. All product names are trademarks of their respective owners.</p>
+
+        <div class="about-section">
+          <div class="about-section-title">The three buckets</div>
+          <p>Xert tracks your training strain across three energy systems: <span class="bucket-word low">LOW</span> (aerobic base), <span class="bucket-word high">HIGH</span> (high intensity), and <span class="bucket-word peak">PEAK</span> (neuromuscular). Each needs different terrain to fill. LOW fills from any riding, but HIGH and PEAK require specific segment types.</p>
+        </div>
+
+        <div class="about-section">
+          <div class="about-section-title">What ZwiftBuckets does</div>
+          <ul class="about-list">
+            <li>Reads your Xert WOTD and bucket deficits</li>
+            <li>Filters routes by your available time</li>
+            <li>Identifies which routes have the right segment density for your target buckets</li>
+            <li>Generates ride cues with specific segments to attack and how to pace them</li>
+          </ul>
+        </div>
+
+        <div class="about-section">
+          <div class="about-section-title">What it doesn't do</div>
+          <p>It's not a real-time coach. Open it before you clip in, pick a route, then ride with your normal tools (Garmin, Zwift Companion, etc.).</p>
+        </div>
+
+        <div class="about-section">
+          <div class="about-section-title">Requirements</div>
+          <p>An active Xert account. No Zwift login required. Route data is built in.</p>
+        </div>
+
+        <div class="about-section">
+          <div class="about-section-title">Your credentials</div>
+          <p>Your password is sent directly to Xert's servers to obtain a temporary access token, the same way any Xert third-party app works. Your password is never stored anywhere. Only the short-lived token (expires in 1 hour) is kept in your browser's local storage, and only to avoid asking you to log in again mid-session.</p>
+        </div>
+      </div>
+    </details>
   </div>
 
   <!-- ── App ── -->
