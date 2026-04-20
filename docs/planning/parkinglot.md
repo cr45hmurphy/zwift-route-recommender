@@ -151,6 +151,12 @@ A scenario-independent route browser for planning purposes. Distinct from Route 
 - Explore Sauce4Zwift live WebSocket integration for real-time Magic Buckets during a ride.
 - Long term: generate custom S4Z routes tailored to the WOTD instead of only recommending existing Zwift routes.
 
+### App Naming Consistency
+The auth screen h1 and page title were updated to "ZwiftBuckets" but the main app header and several other references still read "Zwift Route Recommender".
+
+- Audit all user-facing strings (page title, app header, share text, plan history labels) and align on "ZwiftBuckets".
+- Decide whether the share card or plain-text output should carry the full name or the short form.
+
 ### Dev Panel Access Control
 The data-source selector currently sits inline in the Settings section, visible to all users.
 

@@ -4,8 +4,8 @@
 
 The core Zwift route recommender / cue-generator overhaul is complete enough to move from buildout into polish, validation, and calibration. The app runs as a browser-based Xert-aware recommender with live or mock data, Zwift world filtering, route cards, time guidance, route profiles, route inspector, share/favorite controls, and Sauce-derived route/timeline data.
 
-- Active branch: `master` (clean)
-- Last merged PRs: #13 inspector filters + browsing caps, #14 visual polish
+- Active branch: `claude/add-zwiftbuckets-info-login-IJqi2` (login screen about section)
+- Last merged PRs: #13 inspector filters + browsing caps, #14 visual polish, #15 and #16 favicon
 
 The active future-work list is now `docs/planning/parkinglot.md`. The former Route Recommender design brief has been archived under `docs/planning/archive/`.
 
@@ -55,6 +55,8 @@ The active future-work list is now `docs/planning/parkinglot.md`. The former Rou
 
 ## Recently Completed
 
+- Login screen about section: collapsible "What is ZwiftBuckets?" details element, wider than the login column (640px), collapsed by default. Covers what the app does, the three Xert energy buckets, what it does and does not do, requirements, credentials/privacy explanation, and a legal disclaimer (not affiliated with or endorsed by Xert or Zwift, not Xert EBC, hobby project on public APIs).
+- Auth screen app title changed from "Zwift Route Recommender" to "ZwiftBuckets".
 - Sauce-derived CDN route/timeline/profile overhaul.
 - Native route profiles with flat-route phantom profile fixes.
 - Time estimation overhaul and recommended-time groundwork.
