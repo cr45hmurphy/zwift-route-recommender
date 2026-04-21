@@ -128,8 +128,8 @@ function spacingNote(occurrences, shortGapKm = 2) {
     .length;
 
   if (!shortRecoveries) return 'Recovery gaps are workable between efforts.';
-  if (shortRecoveries === 1) return 'One recovery gap is short, so expect one effort to be slightly compromised.';
-  return `${shortRecoveries} recovery gaps are short, so later efforts will be somewhat degraded.`;
+  if (shortRecoveries === 1) return 'One gap is tight, so the effort after it will be a bit compromised.';
+  return 'Several gaps are tight - later efforts will be progressively more compromised.';
 }
 
 function orderedTimelineOccurrences(routeTimeline, type = null) {
@@ -877,7 +877,11 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
   const trueMixed = peakSupport >= PEAK_SUPPORT_THRESHOLD;
 
   if (bucket === 'recovery') {
-    return 'Easy spin only. Roll through any sprint banners with no efforts today.';
+    const hasSprints = timelineSprints.length > 0 || namedSprints.length > 0;
+    if (hasSprints) {
+      return 'Easy spin only. Roll through any sprint banners without accelerating - no efforts today.';
+    }
+    return 'Easy spin only. Keep it light and let your legs recover.';
   }
 
   if (wotdStructure === 'sustained_climb') {
@@ -975,6 +979,9 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
   if (wotdStructure === 'aerobic_endurance' || wotdStructure === null || wotdStructure === undefined) {
     if (gradientRatio > 30) {
       return 'Keep the climbs controlled and stay in Z2 the whole way. Today is aerobic base work, not efforts.';
+    }
+    if (gradientRatio > 15 && namedClimbs.length) {
+      return `Ride ${formatSegmentList(namedClimbs.slice(0, 2))} in Z2 and resist the urge to push them. Today is aerobic volume, not threshold work.`;
     }
     if (gradientRatio > 15 && climbs.length) {
       return 'Ride the climbs in Z2 and resist the urge to push them. Today is about aerobic volume, not threshold work.';

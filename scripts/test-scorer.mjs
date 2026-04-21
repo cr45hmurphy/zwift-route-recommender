@@ -322,6 +322,22 @@ function testMixedModeCueRewrites() {
   );
 }
 
+function testAerobicRecoveryAndSpacingCues() {
+  const tickTockCue = cueForRouteName('Tick Tock', 'recovery', null, 60);
+  assert.match(
+    tickTockCue,
+    /sprint banner|no efforts/i,
+    'C7: recovery cue on a route with sprints should mention sprint banners'
+  );
+
+  const roadToSkyCue = cueForRouteName('Road to Sky', 'high', 'aerobic_endurance', 90);
+  assert.match(
+    roadToSkyCue,
+    /Alpe du Zwift|climb|Z2/i,
+    'C6: aerobic_endurance cue on climb route should reference named segment or Z2 guidance'
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
@@ -335,6 +351,7 @@ function main() {
   testTimeFitCalibration();
   testSprintPowerCueRewrites();
   testMixedModeCueRewrites();
+  testAerobicRecoveryAndSpacingCues();
   console.log('PASS scripts/test-scorer.mjs');
 }
 
