@@ -32,6 +32,11 @@ const PEAK_SUPPORT_TARGET       = 1.2;  // summed segment support needed for "fu
 const PEAK_ROUTE_MIN_SUPPORT    = 0.28; // below this, a route should not contend on PEAK days
 const PEAK_ROUTE_STRONG_SUPPORT = 0.5;  // clear PEAK-day contender threshold
 const MIXED_COPY_PEAK_THRESHOLD = PEAK_SUPPORT_THRESHOLD; // mixed copy must match the route-truth threshold
+const TERRAIN_FIT_THRESHOLDS = {
+  peak: { partial: PEAK_ROUTE_MIN_SUPPORT, good: PEAK_ROUTE_STRONG_SUPPORT },
+  high: { partial: 0.25, good: 0.5 },
+  low:  { partial: 0.4, good: 0.65 },
+};
 
 /**
  * DEFAULTS — exported snapshot of every tunable constant.
@@ -791,6 +796,8 @@ export function optimizeRoutes(routes, options = {}) {
           optimizerBreakdown: contributions,
           wotdTerrainScore: terrainScoreForStructure(route, wotdStructure, routeSegments, contributions),
           optimizerReason: optimizerReason(contributions, {}, 'recovery', describeTimeFit(estimatedMinutes, availableMinutes), wotdStructure),
+          noFit: timeFit < 0.4,
+          terrainFit: 'good',
           utility,
         };
       })
@@ -809,6 +816,8 @@ export function optimizeRoutes(routes, options = {}) {
       const deficitScore = bucketDeficitScore(contributions, bucket, deficits, tuning);
       const timeFit = timeFitScore(estimatedMinutes, availableMinutes);
       const weights = optimizerWeights(wotdStructure);
+      const fitThresholds = TERRAIN_FIT_THRESHOLDS[bucket] ?? TERRAIN_FIT_THRESHOLDS.low;
+      const bucketContribution = contributions[bucket] ?? 0;
       let utility = (terrainScore * weights.terrain) + (deficitScore * weights.deficit) + (timeFit * weights.time);
 
       if (bucket === 'peak' && wotdStructure === 'sprint_power') {
@@ -834,6 +843,10 @@ export function optimizeRoutes(routes, options = {}) {
         optimizerBreakdown: contributions,
         wotdTerrainScore: terrainScore,
         optimizerReason: optimizerReason(contributions, normalizeDeficits(deficits).weights, bucket, describeTimeFit(estimatedMinutes, availableMinutes), wotdStructure),
+        noFit: timeFit < 0.4,
+        terrainFit: bucketContribution < fitThresholds.partial ? 'low'
+                  : bucketContribution < fitThresholds.good ? 'partial'
+                  : 'good',
         utility,
       };
     })

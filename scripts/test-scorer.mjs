@@ -204,6 +204,47 @@ function testFitQualityField() {
   );
 }
 
+function testTerrainFitAndNoFitFlags() {
+  const flatSubset = [
+    routeByName['Flat Out Fast'],
+    routeByName['Tempus Fugit'],
+    routeByName['Tick Tock'],
+  ].filter(Boolean);
+
+  const peakResults = optimizeRoutes(flatSubset, {
+    bucket: 'peak',
+    deficits: { low: 5, high: 5, peak: 30 },
+    availableMinutes: 60,
+    estimateMinutes,
+    getRouteSegments: route => getSegmentsForRoute(route),
+    limit: flatSubset.length,
+  });
+
+  peakResults.forEach(route => {
+    assert.equal(
+      route.terrainFit,
+      'low',
+      `flat route ${route.name} on a PEAK day should have terrainFit 'low' (got '${route.terrainFit}')`
+    );
+  });
+
+  const longRoute = flatSubset[0];
+  const shortBudgetResults = optimizeRoutes([longRoute], {
+    bucket: 'low',
+    deficits: { low: 30, high: 0, peak: 0 },
+    availableMinutes: 20,
+    estimateMinutes,
+    getRouteSegments: route => getSegmentsForRoute(route),
+    limit: 1,
+  });
+
+  assert.equal(
+    shortBudgetResults[0]?.noFit,
+    true,
+    'route with time estimate far over available minutes should have noFit: true'
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
@@ -212,6 +253,7 @@ function main() {
   testSteepLongSegmentRetainsPeakSupport();
   testDetectBucketWotdBoost();
   testFitQualityField();
+  testTerrainFitAndNoFitFlags();
   console.log('PASS scripts/test-scorer.mjs');
 }
 
