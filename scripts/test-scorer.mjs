@@ -265,6 +265,26 @@ function testTimeHardCutoff() {
   );
 }
 
+function testTimeFitCalibration() {
+  const tickTock = routeByName['Tick Tock'];
+  assert.ok(tickTock, 'expected Tick Tock fixture for B2 test');
+
+  const results = optimizeRoutes([tickTock], {
+    bucket: 'low',
+    deficits: { low: 30, high: 0, peak: 0 },
+    availableMinutes: 90,
+    estimateMinutes,
+    getRouteSegments: route => getSegmentsForRoute(route),
+    limit: 1,
+  });
+
+  const timeFit = results[0]?.optimizerTimeFit ?? 0;
+  assert.ok(
+    timeFit >= 0.75,
+    `a short route on a much longer budget should have higher time fit under B2 (got ${timeFit.toFixed(3)}, expected >= 0.75)`
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
@@ -275,6 +295,7 @@ function main() {
   testFitQualityField();
   testTerrainFitAndNoFitFlags();
   testTimeHardCutoff();
+  testTimeFitCalibration();
   console.log('PASS scripts/test-scorer.mjs');
 }
 

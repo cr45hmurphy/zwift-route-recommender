@@ -545,7 +545,7 @@ function timeFitScore(estimatedMinutes, availableMinutes) {
 
   if (diff < 0) {
     const underRatio = Math.abs(diff) / availableMinutes;
-    return clamp(1 - underRatio * 0.55, 0.5, 1);
+    return clamp(1 - underRatio * 0.3, 0.65, 1);
   }
 
   const overRatio = diff / availableMinutes;
@@ -555,9 +555,10 @@ function timeFitScore(estimatedMinutes, availableMinutes) {
 function describeTimeFit(estimatedMinutes, availableMinutes) {
   if (!Number.isFinite(estimatedMinutes) || !Number.isFinite(availableMinutes)) return 'time-unknown';
   const diff = estimatedMinutes - availableMinutes;
+  const threshold = Math.max(10, availableMinutes * 0.12);
   const absDiff = Math.abs(diff);
 
-  if (absDiff <= 10) return 'near-time';
+  if (absDiff <= threshold) return 'near-time';
   if (diff < 0) return 'under-time';
   return 'over-time';
 }
