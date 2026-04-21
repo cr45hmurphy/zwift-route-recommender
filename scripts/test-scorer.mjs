@@ -125,10 +125,45 @@ function testCueCopyRegressions() {
   assert.match(worldsShortLapCue, /Leg Snapper KOM/, 'PEAK cue should use rider-facing climb name on 2018 Worlds Short Lap');
 }
 
+function testPeakDistanceFactorFloor() {
+  // A 45km route with a single punchy short segment.
+  // Before A1: peakDistanceFactor = clamp(1 - 45/60, 0.25, 1) = 0.25, which is too harsh.
+  // After A1:  peakDistanceFactor = clamp(1 - 45/90, 0.5,  1) = 0.5.
+  const route = routeByName['Cobbled Climbs'] ?? routeByName['Volcano Climb'];
+  assert.ok(route, 'expected a punchy route fixture for A1 test');
+  const routeSegments = getSegmentsForRoute(route);
+  const support = deriveRouteBucketSupport(route, routeSegments, null, 1);
+  assert.ok(
+    support.peak >= 0.08,
+    `${route.name} (${route.distance}km) PEAK support should not be gutted by distance (got ${support.peak.toFixed(3)})`
+  );
+}
+
+function testSteepLongSegmentRetainsPeakSupport() {
+  // Test through deriveRouteBucketSupport with a synthetic route+segments.
+  const syntheticRoute = { name: 'Synthetic Steep 3.5km', distance: 20, elevation: 420 };
+  const steepLongSegment = {
+    type: 'climb',
+    name: 'Long Steep KOM',
+    distanceKm: 3.5,
+    avgGradePct: 12,
+    elevationDeltaM: 420,
+    elevationGainM: 420,
+  };
+  const routeSegments = { source: 'route', climbs: [steepLongSegment], sprints: [] };
+  const support = deriveRouteBucketSupport(syntheticRoute, routeSegments, null, 1);
+  assert.ok(
+    support.peak >= 0.1,
+    `steep 3.5km segment should retain meaningful PEAK support after A2 fix (got ${support.peak.toFixed(3)})`
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
   testCueCopyRegressions();
+  testPeakDistanceFactorFloor();
+  testSteepLongSegmentRetainsPeakSupport();
   console.log('PASS scripts/test-scorer.mjs');
 }
 

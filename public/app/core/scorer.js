@@ -216,10 +216,12 @@ function segmentSupport(segment) {
     (steepness * 0.45) + (shortness * 0.35) + (compactRise * 0.3)
   );
 
+  const isSteep = avgGrade !== null && avgGrade >= 8;
+
   if (distance >= 3 || elevationGain >= 140) {
-    peak *= 0.12;
+    peak *= isSteep ? 0.35 : 0.12;
   } else if (distance >= 2 || elevationGain >= 90) {
-    peak *= 0.35;
+    peak *= isSteep ? 0.65 : 0.35;
   }
 
   return {
@@ -280,7 +282,7 @@ export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = n
   const aggregated = aggregateSegmentSupport(occurrenceSource);
   const peakThreshold = C.PEAK_SUPPORT_THRESHOLD ?? PEAK_SUPPORT_THRESHOLD;
   const routeDistance = route?.distance ?? 0;
-  const peakDistanceFactor = clamp(1 - (routeDistance / 60), 0.25, 1);
+  const peakDistanceFactor = clamp(1 - (routeDistance / 90), 0.5, 1);
   const peak = normalizeSupportValue(aggregated.peak * peakDistanceFactor);
   const peakMeaningful =
     peak >= peakThreshold &&
