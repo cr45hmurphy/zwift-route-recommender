@@ -184,6 +184,26 @@ function testDetectBucketWotdBoost() {
   );
 }
 
+function testFitQualityField() {
+  const tempus = routeByName['Tempus Fugit'];
+  assert.ok(tempus, 'expected Tempus Fugit fixture');
+  const tempusSegments = getSegmentsForRoute(tempus);
+  const tempusSupport = deriveRouteBucketSupport(tempus, tempusSegments, null, 1);
+  assert.ok(
+    ['low', 'partial'].includes(tempusSupport.fitQuality),
+    `Tempus Fugit should have low or partial fitQuality (got ${tempusSupport.fitQuality})`
+  );
+
+  const roadToSky = routeByName['Road to Sky'];
+  assert.ok(roadToSky, 'expected Road to Sky fixture');
+  const rtsSegments = getSegmentsForRoute(roadToSky);
+  const rtsSupport = deriveRouteBucketSupport(roadToSky, rtsSegments, null, 1);
+  assert.ok(
+    ['partial', 'good'].includes(rtsSupport.fitQuality),
+    `Road to Sky should have partial or good fitQuality (got ${rtsSupport.fitQuality})`
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
@@ -191,6 +211,7 @@ function main() {
   testPeakDistanceFactorFloor();
   testSteepLongSegmentRetainsPeakSupport();
   testDetectBucketWotdBoost();
+  testFitQualityField();
   console.log('PASS scripts/test-scorer.mjs');
 }
 

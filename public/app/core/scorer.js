@@ -274,7 +274,12 @@ export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = n
   };
 
   if (!routeSegments || routeSegments.source === 'world') {
-    return fallback;
+    const fPeak = fallback.peak;
+    const fHigh = fallback.high;
+    return {
+      ...fallback,
+      fitQuality: fPeak < 0.2 && fHigh < 0.2 ? 'low' : fPeak < PEAK_SUPPORT_THRESHOLD ? 'partial' : 'good',
+    };
   }
 
   const occurrenceSource = Array.isArray(routeTimeline?.occurrences) && routeTimeline.occurrences.length
@@ -285,6 +290,7 @@ export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = n
   const peakThreshold = C.PEAK_SUPPORT_THRESHOLD ?? PEAK_SUPPORT_THRESHOLD;
   const routeDistance = route?.distance ?? 0;
   const peakDistanceFactor = clamp(1 - (routeDistance / 90), 0.5, 1);
+  const high = normalizeSupportValue(aggregated.high);
   const peak = normalizeSupportValue(aggregated.peak * peakDistanceFactor);
   const peakMeaningful =
     peak >= peakThreshold &&
@@ -293,12 +299,13 @@ export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = n
 
   return {
     low,
-    high: normalizeSupportValue(aggregated.high),
+    high,
     peak,
     source: routeSegments.source,
     peakMeaningful,
     peakOccurrences: aggregated.peakOccurrences,
     lapCount,
+    fitQuality: peak < 0.2 && high < 0.2 ? 'low' : peak < PEAK_SUPPORT_THRESHOLD ? 'partial' : 'good',
   };
 }
 
