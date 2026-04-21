@@ -20,6 +20,7 @@ const ACTIVE_BUCKET_WEIGHT   = 0.65; // how strongly the active bucket's route c
 const OPTIMIZER_SORT_EPSILON = 0.001;
 const FAVORITE_BOOST         = 0.08; // utility multiplier for starred routes (self-limiting: only matters when close to top)
 const WOTD_SIGNAL_BOOST      = 1.6; // deficit multiplier when Xert has explicitly targeted HIGH or PEAK work today
+const TIME_HARD_CUTOFF_RATIO = 1.6; // routes estimated at more than this multiple of availableMinutes are excluded
 
 // Segment bucket classification thresholds
 const PUNCHY_GRADE_MIN    = 8;   // % — climbs at/above this grade are PEAK-capable when short
@@ -53,6 +54,7 @@ export const DEFAULTS = {
   ACTIVE_BUCKET_WEIGHT,
   FAVORITE_BOOST,
   WOTD_SIGNAL_BOOST,
+  TIME_HARD_CUTOFF_RATIO,
   PUNCHY_GRADE_MIN,
   PUNCHY_DISTANCE_MAX,
 };
@@ -770,11 +772,15 @@ export function optimizeRoutes(routes, options = {}) {
     favorites = null,
   } = options;
 
-  const eligible = routes.filter(r =>
-    !r.eventOnly &&
-    Array.isArray(r.sports) &&
-    r.sports.includes('cycling')
-  );
+  const eligible = routes.filter(r => {
+    if (r.eventOnly) return false;
+    if (!Array.isArray(r.sports) || !r.sports.includes('cycling')) return false;
+    const est = estimateMinutes(r);
+    if (Number.isFinite(est) && Number.isFinite(availableMinutes)) {
+      if (est > availableMinutes * TIME_HARD_CUTOFF_RATIO) return false;
+    }
+    return true;
+  });
 
   if (recoveryMode) {
     return eligible
@@ -796,7 +802,7 @@ export function optimizeRoutes(routes, options = {}) {
           optimizerBreakdown: contributions,
           wotdTerrainScore: terrainScoreForStructure(route, wotdStructure, routeSegments, contributions),
           optimizerReason: optimizerReason(contributions, {}, 'recovery', describeTimeFit(estimatedMinutes, availableMinutes), wotdStructure),
-          noFit: timeFit < 0.4,
+          noFit: timeFit < 0.4 || estimatedMinutes > availableMinutes * 1.5,
           terrainFit: 'good',
           utility,
         };
@@ -843,7 +849,7 @@ export function optimizeRoutes(routes, options = {}) {
         optimizerBreakdown: contributions,
         wotdTerrainScore: terrainScore,
         optimizerReason: optimizerReason(contributions, normalizeDeficits(deficits).weights, bucket, describeTimeFit(estimatedMinutes, availableMinutes), wotdStructure),
-        noFit: timeFit < 0.4,
+        noFit: timeFit < 0.4 || estimatedMinutes > availableMinutes * 1.5,
         terrainFit: bucketContribution < fitThresholds.partial ? 'low'
                   : bucketContribution < fitThresholds.good ? 'partial'
                   : 'good',

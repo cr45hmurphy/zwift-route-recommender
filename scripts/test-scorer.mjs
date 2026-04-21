@@ -232,7 +232,7 @@ function testTerrainFitAndNoFitFlags() {
   const shortBudgetResults = optimizeRoutes([longRoute], {
     bucket: 'low',
     deficits: { low: 30, high: 0, peak: 0 },
-    availableMinutes: 20,
+    availableMinutes: 35,
     estimateMinutes,
     getRouteSegments: route => getSegmentsForRoute(route),
     limit: 1,
@@ -245,6 +245,26 @@ function testTerrainFitAndNoFitFlags() {
   );
 }
 
+function testTimeHardCutoff() {
+  const uberPretzel = routeByName['The Uber Pretzel'] ?? routeByName['London PRL FULL'];
+  assert.ok(uberPretzel, 'expected a long-route fixture for hard cutoff test');
+
+  const results = optimizeRoutes([uberPretzel], {
+    bucket: 'low',
+    deficits: { low: 40, high: 0, peak: 0 },
+    availableMinutes: 60,
+    estimateMinutes,
+    getRouteSegments: route => getSegmentsForRoute(route),
+    limit: 5,
+  });
+
+  assert.equal(
+    results.length,
+    0,
+    `${uberPretzel.name} should be excluded from results on a 60-minute budget because it is too far over the hard cutoff`
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
@@ -254,6 +274,7 @@ function main() {
   testDetectBucketWotdBoost();
   testFitQualityField();
   testTerrainFitAndNoFitFlags();
+  testTimeHardCutoff();
   console.log('PASS scripts/test-scorer.mjs');
 }
 
