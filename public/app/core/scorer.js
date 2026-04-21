@@ -19,6 +19,7 @@ const WORLD_SEGMENT_FALLBACK_MULTIPLIER = 0.55;
 const ACTIVE_BUCKET_WEIGHT   = 0.65; // how strongly the active bucket's route contribution dominates deficit scoring (0–1)
 const OPTIMIZER_SORT_EPSILON = 0.001;
 const FAVORITE_BOOST         = 0.08; // utility multiplier for starred routes (self-limiting: only matters when close to top)
+const WOTD_SIGNAL_BOOST      = 1.6; // deficit multiplier when Xert has explicitly targeted HIGH or PEAK work today
 
 // Segment bucket classification thresholds
 const PUNCHY_GRADE_MIN    = 8;   // % — climbs at/above this grade are PEAK-capable when short
@@ -46,6 +47,7 @@ export const DEFAULTS = {
   PUNCH_GRADIENT_TARGET,
   ACTIVE_BUCKET_WEIGHT,
   FAVORITE_BOOST,
+  WOTD_SIGNAL_BOOST,
   PUNCHY_GRADE_MIN,
   PUNCHY_DISTANCE_MAX,
 };
@@ -408,6 +410,9 @@ export function detectBucket(tl, targetXSS) {
     high: targetXSS.high - tl.high,
     peak: targetXSS.peak - tl.peak,
   };
+
+  if (targetXSS.high > 0) deficits.high *= WOTD_SIGNAL_BOOST;
+  if (targetXSS.peak > 0) deficits.peak *= WOTD_SIGNAL_BOOST;
 
   const max = Math.max(deficits.low, deficits.high, deficits.peak);
 

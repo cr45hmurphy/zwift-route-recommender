@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { routes } from '../public/app/data/routes-data.js';
 import { getSegmentsForRoute } from '../public/app/core/segments.js';
 import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, withRecoveryGaps } from '../public/app/core/timelines.js';
-import { deriveRouteBucketSupport, generateRideCue, optimizeRoutes } from '../public/app/core/scorer.js';
+import { deriveRouteBucketSupport, detectBucket, generateRideCue, optimizeRoutes } from '../public/app/core/scorer.js';
 
 const routeByName = Object.fromEntries(routes.map(route => [route.name, route]));
 
@@ -158,12 +158,39 @@ function testSteepLongSegmentRetainsPeakSupport() {
   );
 }
 
+function testDetectBucketWotdBoost() {
+  // LOW deficit is largest by raw magnitude, but Xert targeted HIGH work today.
+  const tl        = { low: 50, high: 40, peak: 0 };
+  const targetXSS = { low: 65, high: 50, peak: 0 };
+
+  assert.equal(
+    detectBucket(tl, targetXSS),
+    'high',
+    'when Xert targets HIGH work and deficit is close, HIGH should win over larger raw LOW deficit'
+  );
+
+  const tlNoTarget = { low: 50, high: 42, peak: 0 };
+  const targetNoHigh = { low: 65, high: 0, peak: 0 };
+  assert.equal(
+    detectBucket(tlNoTarget, targetNoHigh),
+    'low',
+    'when HIGH target is zero, no boost; LOW deficit wins normally'
+  );
+
+  assert.equal(
+    detectBucket({ low: 70, high: 55, peak: 10 }, { low: 65, high: 50, peak: 5 }),
+    'recovery',
+    'recovery mode should still fire when all boosted deficits are <= 0'
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
   testCueCopyRegressions();
   testPeakDistanceFactorFloor();
   testSteepLongSegmentRetainsPeakSupport();
+  testDetectBucketWotdBoost();
   console.log('PASS scripts/test-scorer.mjs');
 }
 
