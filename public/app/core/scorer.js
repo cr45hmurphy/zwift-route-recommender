@@ -950,10 +950,10 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
     const timelineEfforts = orderedTimelineEfforts(routeTimeline);
     if (!trueMixed) {
       if (timelineClimbs.length) {
-        return `This is a LOW+HIGH venue, not a true mixed route. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2 and do not expect much PEAK work.`;
+        return `Ride Z2 between efforts, then hit climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. This is a LOW+HIGH venue - PEAK work will be limited.`;
       }
       if (timelineSprints.length) {
-        return `This is a LOW+HIGH venue, not a true mixed route. Ride flats in Z2, then hit sprints in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Expect little true PEAK work.`;
+        return `Ride flats in Z2, then hit sprints in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} LOW+HIGH work here, not true PEAK.`;
       }
     }
     if (timelineSprints.length) {
@@ -963,7 +963,7 @@ export function generateRideCue(route, bucket, wotdStructure, routeSegments, rou
       return `Ride the flats in Z2, then hit every viable sprint in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)}`;
     }
     if (timelineClimbs.length) {
-      return `This is mostly a climb route. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Keep everything else in Z2; expect LOW+HIGH more than true PEAK.`;
+      return `Hit climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Ride everything else in Z2. Mostly LOW+HIGH work here rather than true PEAK.`;
     }
     const namedSprints = sprints.slice(0, 2);
     if (namedSprints.length >= 1) {

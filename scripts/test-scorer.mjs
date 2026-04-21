@@ -109,7 +109,7 @@ function cueForRouteName(name, bucket, wotdStructure, availableMinutes = 60) {
 
 function testCueCopyRegressions() {
   const tempusMixedCue = cueForRouteName('Tempus Fugit', 'low', 'mixed_mode', 60);
-  assert.match(tempusMixedCue, /LOW\+HIGH venue|Expect little true PEAK work/, 'Tempus Fugit mixed cue should not overpromise true mixed work');
+  assert.match(tempusMixedCue, /LOW\+HIGH work here|not true PEAK/i, 'Tempus Fugit mixed cue should not overpromise true mixed work');
   assert.doesNotMatch(tempusMixedCue, /plus \d+ later efforts/, 'mixed cue should avoid awkward "plus N later efforts" wording');
 
   const roadToSkyCue = cueForRouteName('Road to Sky', 'high', 'sustained_climb', 90);
@@ -308,6 +308,20 @@ function testSprintPowerCueRewrites() {
   );
 }
 
+function testMixedModeCueRewrites() {
+  const tempusMixedCue = cueForRouteName('Tempus Fugit', 'low', 'mixed_mode', 60);
+  assert.doesNotMatch(
+    tempusMixedCue,
+    /This is a LOW\+HIGH venue, not a true mixed route/i,
+    'C4: mixed_mode not-true-mixed cue should not open with system-message disclaimer'
+  );
+  assert.match(
+    tempusMixedCue,
+    /Ride Z2 between efforts|Ride flats in Z2|LOW\+HIGH/i,
+    'C4: mixed_mode cue should lead with riding instruction'
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
@@ -320,6 +334,7 @@ function main() {
   testTimeHardCutoff();
   testTimeFitCalibration();
   testSprintPowerCueRewrites();
+  testMixedModeCueRewrites();
   console.log('PASS scripts/test-scorer.mjs');
 }
 
