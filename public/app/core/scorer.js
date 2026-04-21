@@ -386,11 +386,31 @@ export function classifyWOTD(wotd, ftp = null) {
   return 'aerobic_endurance';
 }
 
-export function analyzeTrainingDay(tl, targetXSS, wotd, ftp = null) {
-  return {
-    bucket: detectBucket(tl, targetXSS),
-    wotdStructure: classifyWOTD(wotd, ftp),
+function detectMixedDeficits(tl, targetXSS) {
+  const deficits = {
+    low:  Math.max((targetXSS.low  ?? 0) - (tl.low  ?? 0), 0),
+    high: Math.max((targetXSS.high ?? 0) - (tl.high ?? 0), 0),
+    peak: Math.max((targetXSS.peak ?? 0) - (tl.peak ?? 0), 0),
   };
+  const total = deficits.low + deficits.high + deficits.peak;
+  if (total <= 0) return false;
+  const significantBuckets = Object.values(deficits).filter(d => d >= 10).length;
+  const maxDeficit = Math.max(...Object.values(deficits));
+  return significantBuckets >= 2 && (maxDeficit / total) < 0.80;
+}
+
+export function analyzeTrainingDay(tl, targetXSS, wotd, ftp = null) {
+  const bucket = detectBucket(tl, targetXSS);
+  const wotdStructure = classifyWOTD(wotd, ftp);
+  // When no specific workout structure is detected but deficits span multiple energy
+  // systems meaningfully, treat the day as mixed_mode so the optimizer and ride cues
+  // reflect the true multi-bucket demand instead of defaulting to pure LOW bias.
+  const effectiveStructure = (
+    wotdStructure === null &&
+    bucket !== 'recovery' &&
+    detectMixedDeficits(tl, targetXSS)
+  ) ? 'mixed_mode' : wotdStructure;
+  return { bucket, wotdStructure: effectiveStructure };
 }
 
 /**

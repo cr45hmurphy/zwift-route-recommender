@@ -832,7 +832,10 @@ function renderRecommendation() {
     recSubtitleEl.textContent = 'Keep it easy — short, flat, no efforts.';
   } else if (state.wotdStructure === 'mixed_mode') {
     recTitleEl.textContent = 'Today calls for mixed efforts';
-    recSubtitleEl.textContent = 'Xert\'s workout builds aerobic base with explosive peak intervals — find routes with sprint segments and flat recovery between them.';
+    const hasWotd = !!state.trainingData?.wotd?.name;
+    recSubtitleEl.textContent = hasWotd
+      ? 'Xert\'s workout builds aerobic base with explosive peak intervals — find routes with sprint segments and flat recovery between them.'
+      : 'Your training targets span low, high, and peak — look for routes that blend aerobic distance with sprint or climbing segments.';
   } else if (state.wotdStructure === 'sustained_climb') {
     recTitleEl.innerHTML = emphasizedTitle('Today calls for sustained climbing', 'climbing', 'high');
     recSubtitleEl.textContent = `Xert's workout targets ${remaining.high.toFixed(1)} high XSS — one long threshold effort on a climb will do it.`;
@@ -1329,9 +1332,12 @@ function renderRouteInspector() {
 
 function buildShareText(route, estMin, fillPct, bucket) {
   const lines = [];
-  const bucketLabel = (bucket && bucket !== 'recovery') ? bucket.toUpperCase() : null;
-  const fillPart = (fillPct !== null && bucketLabel) ? ` · covers ~${fillPct}% of ${bucketLabel} gap` : '';
-  lines.push(`${route.name} · ${worldName(route.world)} · ${(bucket || 'RECOVERY').toUpperCase()} day · ~${formatMinutes(estMin)}${fillPart}`);
+  const isMixed = bucket === 'mixed';
+  const dayLabel = isMixed ? 'MIXED' : (bucket || 'RECOVERY').toUpperCase();
+  const fillPart = (!isMixed && fillPct !== null && bucket && bucket !== 'recovery')
+    ? ` · covers ~${fillPct}% of ${bucket.toUpperCase()} gap`
+    : '';
+  lines.push(`${route.name} · ${worldName(route.world)} · ${dayLabel} day · ~${formatMinutes(estMin)}${fillPart}`);
   if (route.rideCue) lines.push(`Ride cue: ${route.rideCue}`);
   return lines.join('\n');
 }
@@ -1478,7 +1484,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const executionFirstLowDay = (state.wotdStructure === 'aerobic_endurance' || state.wotdStructure === null) && displayTarget.mode === 'bucket' && displayTarget.bucket === 'low';
   let bucketXssTag = '';
   let shareFillPct = null;
-  let shareBucket = state.bucket;
+  let shareBucket = displayTarget.mode === 'mixed' ? 'mixed' : state.bucket;
 
   // Per-bucket XSS estimates use the same weighted support model as ranking + honesty labels.
   const bucketSupport = route.bucketSupport ?? { low: 1, high: 0, peak: 0, source: route.segmentSource ?? 'world' };
