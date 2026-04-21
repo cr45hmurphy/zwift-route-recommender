@@ -601,7 +601,12 @@ async function refresh(username, password) {
   try {
     const raw = await fetchTrainingInfo(username, password);
     state.trainingData = parseTrainingData(raw);
-    state.rawWotd = raw?.wotd ?? null;
+    // Mirror the same wotd-vs-workouts[0] fallback used in parseTrainingData so rawWotd
+    // is always populated when a workout exists, regardless of which field Xert used.
+    const wotdSrc = raw?.wotd ?? raw?.workouts?.[0] ?? null;
+    state.rawWotd = wotdSrc
+      ? { ...wotdSrc, workoutId: wotdSrc.workoutId ?? wotdSrc.path ?? wotdSrc._id ?? null }
+      : null;
     state.wotdDetailLoaded = false;
     if (state.rawWotd?.workoutId) {
       try {
