@@ -285,6 +285,29 @@ function testTimeFitCalibration() {
   );
 }
 
+function testSprintPowerCueRewrites() {
+  const tempus = routeByName['Tempus Fugit'];
+  assert.ok(tempus, 'expected Tempus Fugit fixture');
+  const tempusCue = cueForRouteName('Tempus Fugit', 'peak', 'sprint_power', 60);
+  assert.doesNotMatch(
+    tempusCue,
+    /only fake/i,
+    'C1: low PEAK support cue should not contain "only fake"'
+  );
+  assert.match(
+    tempusCue,
+    /No true sprint terrain/i,
+    'C1: low PEAK support cue should lead with "No true sprint terrain"'
+  );
+
+  const worldsShortCue = cueForRouteName('2018 Worlds Short Lap', 'peak', 'sprint_power', 60);
+  assert.doesNotMatch(
+    worldsShortCue,
+    /because these are your best PEAK opportunities/i,
+    'C3: strong PEAK cue should not have trailing justification clause'
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
@@ -296,6 +319,7 @@ function main() {
   testTerrainFitAndNoFitFlags();
   testTimeHardCutoff();
   testTimeFitCalibration();
+  testSprintPowerCueRewrites();
   console.log('PASS scripts/test-scorer.mjs');
 }
 
