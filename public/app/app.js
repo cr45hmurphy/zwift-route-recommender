@@ -1390,7 +1390,7 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const favoriteBtn = `<button class="favorite-btn${isFavorited ? ' favorited' : ''}" data-route-key="${routeKey}" aria-label="Favorite">★</button>`;
   const shareText = buildShareText(route, estMin, shareFillPct, shareBucket);
   const escapedShareText = shareText.replace(/"/g, '&quot;');
-  const shareBtn = `<button class="share-btn" data-share-mode="image" data-share-text="${escapedShareText}" aria-label="Copy route card">Share</button>`;
+  const shareBtn = `<button class="share-btn" data-share-mode="image" data-share-text="${escapedShareText}" aria-label="Copy route card image">Image</button><button class="share-btn share-text-btn" data-share-mode="text" data-share-text="${escapedShareText}" aria-label="Copy route card text">Text</button>`;
   const cls = compact ? 'route-card compact' : 'route-card';
   const favCls = isFavorited ? ` favorited` : '';
   const inspectorMode = Boolean(options.inspectorMode);
