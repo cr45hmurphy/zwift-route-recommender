@@ -784,10 +784,13 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
   const relevantClimbs = timelineClimbs.length ? timelineClimbs.slice(0, 4) : preferNamedSegments(routeSegments.climbs).slice(0, 4);
   const relevantSprints = timelineSprints.length ? timelineSprints : preferNamedSegments(routeSegments.sprints);
   const bucketSupport = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
+  const lapPrefix = lapCount >= 2 && bucket !== 'recovery'
+    ? `Plan ${lapCount} laps (~${formatMinutes(Math.round((route.estimatedMinutes ?? 0) * lapCount))}). `
+    : '';
 
   return {
     ...route,
-    rideCue: generateRideCue({ ...route, bucketSupport }, bucket, wotdStructure, routeSegments, routeTimeline),
+    rideCue: generateRideCue({ ...route, bucketSupport }, bucket, wotdStructure, routeSegments, routeTimeline, lapPrefix),
     wotdTerrainScore: route.wotdTerrainScore ?? wotdTerrainScore(route, wotdStructure, routeSegments),
     relevantClimbs,
     relevantSprints,
