@@ -854,7 +854,11 @@ export function optimizeRoutes(routes, options = {}) {
     .slice(0, limit);
 }
 
-export function generateRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline = null) {
+export function generateRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline = null, lapPrefix = '') {
+  return lapPrefix + buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline);
+}
+
+function buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline) {
   const namedSegmentsAvailable = routeSegments?.source !== 'world';
   const climbs = namedSegmentsAvailable ? (routeSegments?.climbs ?? []) : [];
   const sprints = namedSegmentsAvailable ? (routeSegments?.sprints ?? []) : [];
