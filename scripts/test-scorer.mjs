@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { routes } from '../public/app/data/routes-data.js';
 import { getSegmentsForRoute } from '../public/app/core/segments.js';
 import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, withRecoveryGaps } from '../public/app/core/timelines.js';
-import { deriveRouteBucketSupport, generateRideCue, optimizeRoutes } from '../public/app/core/scorer.js';
+import { deriveRouteBucketSupport, detectBucket, generateRideCue, optimizeRoutes } from '../public/app/core/scorer.js';
 
 const routeByName = Object.fromEntries(routes.map(route => [route.name, route]));
 
@@ -109,7 +109,7 @@ function cueForRouteName(name, bucket, wotdStructure, availableMinutes = 60) {
 
 function testCueCopyRegressions() {
   const tempusMixedCue = cueForRouteName('Tempus Fugit', 'low', 'mixed_mode', 60);
-  assert.match(tempusMixedCue, /LOW\+HIGH venue|Expect little true PEAK work/, 'Tempus Fugit mixed cue should not overpromise true mixed work');
+  assert.match(tempusMixedCue, /LOW\+HIGH work here|not true PEAK/i, 'Tempus Fugit mixed cue should not overpromise true mixed work');
   assert.doesNotMatch(tempusMixedCue, /plus \d+ later efforts/, 'mixed cue should avoid awkward "plus N later efforts" wording');
 
   const roadToSkyCue = cueForRouteName('Road to Sky', 'high', 'sustained_climb', 90);
@@ -125,10 +125,233 @@ function testCueCopyRegressions() {
   assert.match(worldsShortLapCue, /Leg Snapper KOM/, 'PEAK cue should use rider-facing climb name on 2018 Worlds Short Lap');
 }
 
+function testPeakDistanceFactorFloor() {
+  // A 45km route with a single punchy short segment.
+  // Before A1: peakDistanceFactor = clamp(1 - 45/60, 0.25, 1) = 0.25, which is too harsh.
+  // After A1:  peakDistanceFactor = clamp(1 - 45/90, 0.5,  1) = 0.5.
+  const route = routeByName['Cobbled Climbs'] ?? routeByName['Volcano Climb'];
+  assert.ok(route, 'expected a punchy route fixture for A1 test');
+  const routeSegments = getSegmentsForRoute(route);
+  const support = deriveRouteBucketSupport(route, routeSegments, null, 1);
+  assert.ok(
+    support.peak >= 0.08,
+    `${route.name} (${route.distance}km) PEAK support should not be gutted by distance (got ${support.peak.toFixed(3)})`
+  );
+}
+
+function testSteepLongSegmentRetainsPeakSupport() {
+  // Test through deriveRouteBucketSupport with a synthetic route+segments.
+  const syntheticRoute = { name: 'Synthetic Steep 3.5km', distance: 20, elevation: 420 };
+  const steepLongSegment = {
+    type: 'climb',
+    name: 'Long Steep KOM',
+    distanceKm: 3.5,
+    avgGradePct: 12,
+    elevationDeltaM: 420,
+    elevationGainM: 420,
+  };
+  const routeSegments = { source: 'route', climbs: [steepLongSegment], sprints: [] };
+  const support = deriveRouteBucketSupport(syntheticRoute, routeSegments, null, 1);
+  assert.ok(
+    support.peak >= 0.1,
+    `steep 3.5km segment should retain meaningful PEAK support after A2 fix (got ${support.peak.toFixed(3)})`
+  );
+}
+
+function testDetectBucketWotdBoost() {
+  // LOW deficit is largest by raw magnitude, but Xert targeted HIGH work today.
+  const tl        = { low: 50, high: 40, peak: 0 };
+  const targetXSS = { low: 65, high: 50, peak: 0 };
+
+  assert.equal(
+    detectBucket(tl, targetXSS),
+    'high',
+    'when Xert targets HIGH work and deficit is close, HIGH should win over larger raw LOW deficit'
+  );
+
+  const tlNoTarget = { low: 50, high: 42, peak: 0 };
+  const targetNoHigh = { low: 65, high: 0, peak: 0 };
+  assert.equal(
+    detectBucket(tlNoTarget, targetNoHigh),
+    'low',
+    'when HIGH target is zero, no boost; LOW deficit wins normally'
+  );
+
+  assert.equal(
+    detectBucket({ low: 70, high: 55, peak: 10 }, { low: 65, high: 50, peak: 5 }),
+    'recovery',
+    'recovery mode should still fire when all boosted deficits are <= 0'
+  );
+}
+
+function testFitQualityField() {
+  const tempus = routeByName['Tempus Fugit'];
+  assert.ok(tempus, 'expected Tempus Fugit fixture');
+  const tempusSegments = getSegmentsForRoute(tempus);
+  const tempusSupport = deriveRouteBucketSupport(tempus, tempusSegments, null, 1);
+  assert.ok(
+    ['low', 'partial'].includes(tempusSupport.fitQuality),
+    `Tempus Fugit should have low or partial fitQuality (got ${tempusSupport.fitQuality})`
+  );
+
+  const roadToSky = routeByName['Road to Sky'];
+  assert.ok(roadToSky, 'expected Road to Sky fixture');
+  const rtsSegments = getSegmentsForRoute(roadToSky);
+  const rtsSupport = deriveRouteBucketSupport(roadToSky, rtsSegments, null, 1);
+  assert.ok(
+    ['partial', 'good'].includes(rtsSupport.fitQuality),
+    `Road to Sky should have partial or good fitQuality (got ${rtsSupport.fitQuality})`
+  );
+}
+
+function testTerrainFitAndNoFitFlags() {
+  const flatSubset = [
+    routeByName['Flat Out Fast'],
+    routeByName['Tempus Fugit'],
+    routeByName['Tick Tock'],
+  ].filter(Boolean);
+
+  const peakResults = optimizeRoutes(flatSubset, {
+    bucket: 'peak',
+    deficits: { low: 5, high: 5, peak: 30 },
+    availableMinutes: 60,
+    estimateMinutes,
+    getRouteSegments: route => getSegmentsForRoute(route),
+    limit: flatSubset.length,
+  });
+
+  peakResults.forEach(route => {
+    assert.equal(
+      route.terrainFit,
+      'low',
+      `flat route ${route.name} on a PEAK day should have terrainFit 'low' (got '${route.terrainFit}')`
+    );
+  });
+
+  const longRoute = flatSubset[0];
+  const shortBudgetResults = optimizeRoutes([longRoute], {
+    bucket: 'low',
+    deficits: { low: 30, high: 0, peak: 0 },
+    availableMinutes: 35,
+    estimateMinutes,
+    getRouteSegments: route => getSegmentsForRoute(route),
+    limit: 1,
+  });
+
+  assert.equal(
+    shortBudgetResults[0]?.noFit,
+    true,
+    'route with time estimate far over available minutes should have noFit: true'
+  );
+}
+
+function testTimeHardCutoff() {
+  const uberPretzel = routeByName['The Uber Pretzel'] ?? routeByName['London PRL FULL'];
+  assert.ok(uberPretzel, 'expected a long-route fixture for hard cutoff test');
+
+  const results = optimizeRoutes([uberPretzel], {
+    bucket: 'low',
+    deficits: { low: 40, high: 0, peak: 0 },
+    availableMinutes: 60,
+    estimateMinutes,
+    getRouteSegments: route => getSegmentsForRoute(route),
+    limit: 5,
+  });
+
+  assert.equal(
+    results.length,
+    0,
+    `${uberPretzel.name} should be excluded from results on a 60-minute budget because it is too far over the hard cutoff`
+  );
+}
+
+function testTimeFitCalibration() {
+  const tickTock = routeByName['Tick Tock'];
+  assert.ok(tickTock, 'expected Tick Tock fixture for B2 test');
+
+  const results = optimizeRoutes([tickTock], {
+    bucket: 'low',
+    deficits: { low: 30, high: 0, peak: 0 },
+    availableMinutes: 90,
+    estimateMinutes,
+    getRouteSegments: route => getSegmentsForRoute(route),
+    limit: 1,
+  });
+
+  const timeFit = results[0]?.optimizerTimeFit ?? 0;
+  assert.ok(
+    timeFit >= 0.75,
+    `a short route on a much longer budget should have higher time fit under B2 (got ${timeFit.toFixed(3)}, expected >= 0.75)`
+  );
+}
+
+function testSprintPowerCueRewrites() {
+  const tempus = routeByName['Tempus Fugit'];
+  assert.ok(tempus, 'expected Tempus Fugit fixture');
+  const tempusCue = cueForRouteName('Tempus Fugit', 'peak', 'sprint_power', 60);
+  assert.doesNotMatch(
+    tempusCue,
+    /only fake/i,
+    'C1: low PEAK support cue should not contain "only fake"'
+  );
+  assert.match(
+    tempusCue,
+    /No true sprint terrain/i,
+    'C1: low PEAK support cue should lead with "No true sprint terrain"'
+  );
+
+  const worldsShortCue = cueForRouteName('2018 Worlds Short Lap', 'peak', 'sprint_power', 60);
+  assert.doesNotMatch(
+    worldsShortCue,
+    /because these are your best PEAK opportunities/i,
+    'C3: strong PEAK cue should not have trailing justification clause'
+  );
+}
+
+function testMixedModeCueRewrites() {
+  const tempusMixedCue = cueForRouteName('Tempus Fugit', 'low', 'mixed_mode', 60);
+  assert.doesNotMatch(
+    tempusMixedCue,
+    /This is a LOW\+HIGH venue, not a true mixed route/i,
+    'C4: mixed_mode not-true-mixed cue should not open with system-message disclaimer'
+  );
+  assert.match(
+    tempusMixedCue,
+    /Ride Z2 between efforts|Ride flats in Z2|LOW\+HIGH/i,
+    'C4: mixed_mode cue should lead with riding instruction'
+  );
+}
+
+function testAerobicRecoveryAndSpacingCues() {
+  const tickTockCue = cueForRouteName('Tick Tock', 'recovery', null, 60);
+  assert.match(
+    tickTockCue,
+    /sprint banner|no efforts/i,
+    'C7: recovery cue on a route with sprints should mention sprint banners'
+  );
+
+  const roadToSkyCue = cueForRouteName('Road to Sky', 'high', 'aerobic_endurance', 90);
+  assert.match(
+    roadToSkyCue,
+    /Alpe du Zwift|climb|Z2/i,
+    'C6: aerobic_endurance cue on climb route should reference named segment or Z2 guidance'
+  );
+}
+
 function main() {
   testRecoveryScoreMatchesDisplayedRanking();
   testGeneralLowModeStillUsesDisplayedRankingScore();
   testCueCopyRegressions();
+  testPeakDistanceFactorFloor();
+  testSteepLongSegmentRetainsPeakSupport();
+  testDetectBucketWotdBoost();
+  testFitQualityField();
+  testTerrainFitAndNoFitFlags();
+  testTimeHardCutoff();
+  testTimeFitCalibration();
+  testSprintPowerCueRewrites();
+  testMixedModeCueRewrites();
+  testAerobicRecoveryAndSpacingCues();
   console.log('PASS scripts/test-scorer.mjs');
 }
 
