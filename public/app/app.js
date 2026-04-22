@@ -2614,14 +2614,16 @@ function prepareRouteCardCloneForShare(clonedCard) {
 }
 
 async function renderRouteCardPng(card) {
-  if (!card || !window.html2canvas) return null;
+  if (!card) { console.error('[copy-image] card element not found'); return null; }
+  if (!window.html2canvas) { console.error('[copy-image] html2canvas not loaded (CDN blocked?)'); return null; }
   const canvas = await window.html2canvas(card, {
     scale: 2,
     useCORS: true,
-    backgroundColor: null,
+    backgroundColor: '#1a1a1a',
     onclone: (_document, clonedCard) => prepareRouteCardCloneForShare(clonedCard),
-  });
-  return canvasToPngBlob(canvas);
+  }).catch(err => { console.error('[copy-image] html2canvas render failed:', err); return null; });
+  if (!canvas) return null;
+  return canvasToPngBlob(canvas).catch(err => { console.error('[copy-image] toBlob failed:', err); return null; });
 }
 
 async function writeClipboardItem(items) {
@@ -2666,8 +2668,8 @@ document.addEventListener('click', async (e) => {
 
     const copied = await copyRouteCardToClipboard(card, text);
     finish(copied === 'image' ? 'Image copied!' : 'Text copied', true);
-  } catch {
-    // Fall back to plain text
+  } catch (err) {
+    console.error('[copy-image] clipboard write failed:', err);
     navigator.clipboard.writeText(text)
       .then(() => finish('Text copied', true))
       .catch(() => finish('Error', false));
