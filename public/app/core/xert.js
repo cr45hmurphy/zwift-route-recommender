@@ -179,6 +179,13 @@ export async function fetchActivityDetail(path, username, password) {
  * @returns {object}
  */
 export function parseTrainingData(raw) {
+  // Xert may return the WOTD as a dedicated `wotd` object or as the first entry in a
+  // `workouts` array — check both so the WOTD section always shows when one exists.
+  const wotdSrc = raw.wotd ?? raw.workouts?.[0] ?? null;
+  // `difficulty` in the workouts array is a raw numeric score; `rating` is the human-readable
+  // string (e.g. "Tough"). Prefer the string form for display.
+  const wotdDifficulty = wotdSrc?.rating ?? (wotdSrc?.difficulty != null ? String(wotdSrc.difficulty) : null);
+
   return {
     status: raw.status ?? 'Unknown',
     weight: raw.weight ?? null,
@@ -201,9 +208,9 @@ export function parseTrainingData(raw) {
       total: raw.targetXSS?.total ?? 0,
     },
     wotd: {
-      name:        raw.wotd?.name        ?? null,
-      difficulty:  raw.wotd?.difficulty  ?? null,
-      description: raw.wotd?.description ?? null,
+      name:        wotdSrc?.name        ?? null,
+      difficulty:  wotdDifficulty,
+      description: wotdSrc?.description ?? null,
     },
   };
 }

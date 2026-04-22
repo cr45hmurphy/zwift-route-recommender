@@ -14,14 +14,14 @@ import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
 // Rough XSS generation rate per bucket type (XSS per hour).
 // Used only for time-based planning estimates — not precise.
 const XSS_RATE = { low: 65, high: 90, peak: 50, recovery: 40 };
+// Multipliers applied to bucketSupport-weighted XSS to produce a low/high range.
+// Anchored to tuning log data; add a log entry before changing.
+const XSS_RANGE_FLOOR = { low: 0.75, high: 0.12, peak: 0.08, recovery: 0.8 };
+const XSS_RANGE_CEIL  = { low: 1.0,  high: 0.85, peak: 0.75, recovery: 1.0 };
 const FAVORITES_KEY = 'xert_favorites';
 const DEFAULT_SPEED_KMH = 28;
 const TIMING_MODE_KEY = 'timing-mode';
 const DATA_SOURCE_KEY = 'data-source';
-const HISTORY_KEY = 'xert_history';
-const HISTORY_LIMIT = 10;
-const PLAN_HISTORY_KEY = 'xert_plan_history';
-const PLAN_HISTORY_LIMIT = 30;
 const ROUTE_PICKER_KEY = 'route-picker';
 const MANUAL_SPEED_MIN_KMH = 15;
 const MANUAL_SPEED_MAX_KMH = 50;
@@ -75,23 +75,6 @@ function getMockScenario(dataSourceId = state.dataSourceId) {
   return MOCK_SCENARIOS[dataSourceId] ?? null;
 }
 
-function loadHistory() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-    if (!Array.isArray(parsed)) return [];
-
-    const normalized = normalizeHistory(parsed);
-    saveHistory(normalized);
-    return normalized;
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(history) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-HISTORY_LIMIT)));
-}
-
 function loadFavorites() {
   try { return new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || '[]')); }
   catch { return new Set(); }
@@ -99,81 +82,6 @@ function loadFavorites() {
 
 function saveFavorites(set) {
   localStorage.setItem(FAVORITES_KEY, JSON.stringify([...set]));
-}
-
-function loadPlanHistory() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PLAN_HISTORY_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function savePlanHistory(history) {
-  localStorage.setItem(PLAN_HISTORY_KEY, JSON.stringify(history.slice(-PLAN_HISTORY_LIMIT)));
-}
-
-function savePlan() {
-  if (!isLiveDataSource()) return;
-  if (!state.ranked || state.ranked.length === 0) return;
-
-  const now = new Date();
-  const record = {
-    date: getLocalDayKey(now.getTime()),
-    bucket: state.bucket,
-    wotdClassification: state.wotdStructure ?? null,
-    savedAt: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-    routes: state.ranked.slice(0, 5).map(r => ({
-      slug: r.slug,
-      name: r.name,
-      world: r.world,
-      distance: r.distance,
-      elevation: r.elevation,
-      rideCue: r.rideCue ?? null,
-    })),
-  };
-
-  const history = loadPlanHistory();
-  const existingIndex = history.findIndex(entry => entry.date === record.date);
-  if (existingIndex >= 0) {
-    history[existingIndex] = record;
-  } else {
-    history.push(record);
-  }
-  savePlanHistory(history);
-  showPlanSavedToast();
-}
-
-function loadTodaysPlan() {
-  const history = loadPlanHistory();
-  const todayKey = getLocalDayKey(Date.now());
-  return history.find(entry => entry.date === todayKey) ?? null;
-}
-
-function normalizeHistory(history) {
-  const byDay = new Map();
-
-  for (const entry of history) {
-    if (!entry || typeof entry !== 'object') continue;
-    const ts = Number(entry.ts);
-    if (!Number.isFinite(ts)) continue;
-
-    const normalized = {
-      ...entry,
-      ts,
-      dayKey: entry.dayKey || getLocalDayKey(ts),
-    };
-
-    const existing = byDay.get(normalized.dayKey);
-    if (!existing || normalized.ts >= existing.ts) {
-      byDay.set(normalized.dayKey, normalized);
-    }
-  }
-
-  return [...byDay.values()]
-    .sort((a, b) => a.ts - b.ts)
-    .slice(-HISTORY_LIMIT);
 }
 
 function displayDist(km) {
@@ -427,7 +335,6 @@ let state = {
   bucket:         null,
   bucketOverride: null,
   wotdStructure:  'recovery',
-  history:        [],
   ranked:         [],
   selectedRouteKey: '',
   lastUpdated:    null,
@@ -462,15 +369,21 @@ async function refreshWorldContext({ rerender = true } = {}) {
 // ── Init ──────────────────────────────────────────
 
 async function init() {
+  const params = new URLSearchParams(window.location.search);
+
   // Apply ?mock=<id> URL param before reading localStorage, so the param wins
-  const mockParam = new URLSearchParams(window.location.search).get('mock');
+  const mockParam = params.get('mock');
   if (mockParam && MOCK_SCENARIOS[mockParam]) {
     localStorage.setItem(DATA_SOURCE_KEY, mockParam);
   }
 
+  // Gate dev panel behind ?dev=1
+  if (params.has('dev')) {
+    document.body.classList.add('dev-mode');
+  }
+
   const ts = localStorage.getItem('xert_last_updated');
   if (ts) state.lastUpdated = new Date(parseInt(ts, 10));
-  state.history = loadHistory();
   state.timingMode = getTimingMode();
   state.dataSourceId = getDataSourceId();
   state.selectedRouteKey = getRoutePickerValue();
@@ -573,7 +486,6 @@ async function handleLogout() {
     bucket:         null,
     bucketOverride: null,
     wotdStructure:  'recovery',
-    history:        loadHistory(),
     ranked:         [],
     selectedRouteKey: getRoutePickerValue(),
     lastUpdated:    null,
@@ -601,7 +513,12 @@ async function refresh(username, password) {
   try {
     const raw = await fetchTrainingInfo(username, password);
     state.trainingData = parseTrainingData(raw);
-    state.rawWotd = raw?.wotd ?? null;
+    // Mirror the same wotd-vs-workouts[0] fallback used in parseTrainingData so rawWotd
+    // is always populated when a workout exists, regardless of which field Xert used.
+    const wotdSrc = raw?.wotd ?? raw?.workouts?.[0] ?? null;
+    state.rawWotd = wotdSrc
+      ? { ...wotdSrc, workoutId: wotdSrc.workoutId ?? wotdSrc.path ?? wotdSrc._id ?? null }
+      : null;
     state.wotdDetailLoaded = false;
     if (state.rawWotd?.workoutId) {
       try {
@@ -639,10 +556,8 @@ async function refresh(username, password) {
     state.bucket = bucket;
     state.bucketOverride = overrideNote;
     recomputeRankedRoutes();
-    savePlan();
     const now = Date.now();
     state.lastUpdated = new Date(now);
-    state.history = recordHistorySnapshot(state.trainingData, now);
     localStorage.setItem('xert_last_updated', now.toString());
     renderAll();
   } catch (err) {
@@ -680,7 +595,6 @@ function loadMockScenario() {
   state.bucketOverride = overrideNote;
   recomputeRankedRoutes();
   state.lastUpdated = new Date();
-  state.history = loadHistory();
   renderAll();
   showApp();
 }
@@ -690,7 +604,6 @@ function loadMockScenario() {
 function renderAll() {
   renderSourceNotes();
   renderStatus();
-  renderHistory();
   renderRecommendation();
   renderTimingControls();
   renderTimeSummary();
@@ -751,56 +664,6 @@ function renderStatus() {
   }
 }
 
-function renderHistory() {
-  const chartEl = document.getElementById('history-chart');
-  const captionEl = document.getElementById('history-caption');
-  const noteEl = document.getElementById('history-note');
-  const history = state.history ?? [];
-  noteEl.textContent = isLiveDataSource()
-    ? 'Recent Progress is stored in this browser only.'
-    : 'Recent Progress is stored in this browser only. Mock scenarios do not write new history snapshots.';
-
-  if (history.length < 2) {
-    captionEl.textContent = history.length === 1 ? '1 saved day' : 'No saved days';
-    chartEl.innerHTML = '<div class="history-empty">Recent Progress shows a trend once there are at least two saved days. Right now it is keeping one snapshot per day and updating today when you refresh again.</div>';
-    return;
-  }
-
-  captionEl.textContent = `Last ${history.length} days`;
-  chartEl.innerHTML = ['low', 'high', 'peak'].map(bucket => historyRowHTML(bucket, history)).join('');
-}
-
-function historyRowHTML(bucket, history) {
-  const values = history.map(snapshot => snapshot.completed?.[bucket] ?? 0);
-  const targets = history.map(snapshot => snapshot.targets?.[bucket] ?? 0);
-  const current = values.at(-1) ?? 0;
-  const first = values[0] ?? 0;
-  const target = targets.at(-1) ?? 0;
-  const delta = current - first;
-  const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
-  const columns = values.map((value, index) => {
-    const rawTarget = targets[index] ?? 0;
-    const fillHeight = rawTarget > 0
-      ? Math.max(8, Math.min((value / rawTarget) * 100, 100))
-      : value > 0
-        ? 100
-        : 0;
-    const currentClass = index === values.length - 1 ? ' is-current' : '';
-    return `
-      <span class="history-day${currentClass}">
-        <span class="history-target-track"></span>
-        <span class="history-fill ${bucket}" style="height:${fillHeight}%"></span>
-      </span>`;
-  }).join('');
-
-  return `
-    <div class="history-row">
-      <span class="history-label ${bucket}">${bucket}</span>
-      <div class="history-spark">${columns}</div>
-      <span class="history-trend">${current.toFixed(1)} / ${target.toFixed(1)} · ${arrow} ${Math.abs(delta).toFixed(1)}</span>
-    </div>`;
-}
-
 function renderBucketBar(name, completed, target, remaining, highlighted) {
   const current = completed;
   const pct    = target > 0 ? Math.min(current / target * 100, 100) : 100;
@@ -832,7 +695,10 @@ function renderRecommendation() {
     recSubtitleEl.textContent = 'Keep it easy — short, flat, no efforts.';
   } else if (state.wotdStructure === 'mixed_mode') {
     recTitleEl.textContent = 'Today calls for mixed efforts';
-    recSubtitleEl.textContent = 'Xert\'s workout builds aerobic base with explosive peak intervals — find routes with sprint segments and flat recovery between them.';
+    const hasWotd = !!state.trainingData?.wotd?.name;
+    recSubtitleEl.textContent = hasWotd
+      ? 'Xert\'s workout builds aerobic base with explosive peak intervals — find routes with sprint segments and flat recovery between them.'
+      : 'Your training targets span low, high, and peak — look for routes that blend aerobic distance with sprint or climbing segments.';
   } else if (state.wotdStructure === 'sustained_climb') {
     recTitleEl.innerHTML = emphasizedTitle('Today calls for sustained climbing', 'climbing', 'high');
     recSubtitleEl.textContent = `Xert's workout targets ${remaining.high.toFixed(1)} high XSS — one long threshold effort on a climb will do it.`;
@@ -918,10 +784,13 @@ function enrichRoute(route, bucket, wotdStructure, availableMinutes) {
   const relevantClimbs = timelineClimbs.length ? timelineClimbs.slice(0, 4) : preferNamedSegments(routeSegments.climbs).slice(0, 4);
   const relevantSprints = timelineSprints.length ? timelineSprints : preferNamedSegments(routeSegments.sprints);
   const bucketSupport = deriveRouteBucketSupport(route, routeSegments, routeTimeline, lapCount);
+  const lapPrefix = lapCount >= 2 && bucket !== 'recovery'
+    ? `Plan ${lapCount} laps (~${formatMinutes(Math.round((route.estimatedMinutes ?? 0) * lapCount))}). `
+    : '';
 
   return {
     ...route,
-    rideCue: generateRideCue({ ...route, bucketSupport }, bucket, wotdStructure, routeSegments, routeTimeline),
+    rideCue: generateRideCue({ ...route, bucketSupport }, bucket, wotdStructure, routeSegments, routeTimeline, lapPrefix),
     wotdTerrainScore: route.wotdTerrainScore ?? wotdTerrainScore(route, wotdStructure, routeSegments),
     relevantClimbs,
     relevantSprints,
@@ -1329,9 +1198,12 @@ function renderRouteInspector() {
 
 function buildShareText(route, estMin, fillPct, bucket) {
   const lines = [];
-  const bucketLabel = (bucket && bucket !== 'recovery') ? bucket.toUpperCase() : null;
-  const fillPart = (fillPct !== null && bucketLabel) ? ` · covers ~${fillPct}% of ${bucketLabel} gap` : '';
-  lines.push(`${route.name} · ${worldName(route.world)} · ${(bucket || 'RECOVERY').toUpperCase()} day · ~${formatMinutes(estMin)}${fillPart}`);
+  const isMixed = bucket === 'mixed';
+  const dayLabel = isMixed ? 'MIXED' : (bucket || 'RECOVERY').toUpperCase();
+  const fillPart = (!isMixed && fillPct !== null && bucket && bucket !== 'recovery')
+    ? ` · covers ~${fillPct}% of ${bucket.toUpperCase()} gap`
+    : '';
+  lines.push(`${route.name} · ${worldName(route.world)} · ${dayLabel} day · ~${formatMinutes(estMin)}${fillPart}`);
   if (route.rideCue) lines.push(`Ride cue: ${route.rideCue}`);
   return lines.join('\n');
 }
@@ -1444,7 +1316,6 @@ function routeProfileSVG(route, { height = 56, maxMarkers = 3, showSummary = fal
 function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const gr    = route.distance > 0 ? (route.elevation / route.distance).toFixed(1) : '—';
   const world = worldName(route.world);
-  const reason = routeReason(route, state.bucket);
 
   const settings = getTimeSettings();
   const { minutes: timeMin } = settings;
@@ -1456,67 +1327,54 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
     ? `<span class="time-tag over-time">~${formatMinutes(estMin)} · +${formatMinutes(overBy)} over</span>`
     : `<span class="time-tag fits-time">~${formatMinutes(estMin)}</span>`;
 
-  const riderWkg = getRiderWkg(state.trainingData);
-  const difficultyIndex = (riderWkg && gr !== '—' && settings.mode !== 'manual') ? parseFloat(gr) / riderWkg : null;
-  let difficultyBadge = '';
-  if (difficultyIndex !== null) {
-    if (difficultyIndex < 2.5) {
-      difficultyBadge = '<span class="difficulty-badge comfortable">Comfortable</span>';
-    } else if (difficultyIndex <= 5.0) {
-      difficultyBadge = '<span class="difficulty-badge moderate">Moderate</span>';
-    } else {
-      difficultyBadge = '<span class="difficulty-badge challenging">Challenging</span>';
-    }
-  }
-
-  const lapCount = route.recommendedLapCount ?? (estMin > 0 ? Math.floor(timeMin / estMin) : 1);
-  const lapTag = lapCount >= 2 && estMin <= timeMin * 0.6
-    ? `<span class="lap-suggestion">Consider ${lapCount} laps (~${formatMinutes(estMin * lapCount)})</span>`
-    : '';
-
   const displayTarget = getDisplayTarget(state.wotdStructure, state.bucket);
   const executionFirstLowDay = (state.wotdStructure === 'aerobic_endurance' || state.wotdStructure === null) && displayTarget.mode === 'bucket' && displayTarget.bucket === 'low';
   let bucketXssTag = '';
   let shareFillPct = null;
-  let shareBucket = state.bucket;
+  let shareBucket = displayTarget.mode === 'mixed' ? 'mixed' : state.bucket;
 
   // Per-bucket XSS estimates use the same weighted support model as ranking + honesty labels.
+  // Lo/hi bounds communicate that rider execution is the variable, not the route.
   const bucketSupport = route.bucketSupport ?? { low: 1, high: 0, peak: 0, source: route.segmentSource ?? 'world' };
-  const perBucketOpportunityXss = {
-    low: Math.round(estimateBucketImpactXss(estMin, 'low') * Math.max(bucketSupport.low ?? 0, 0.15)),
-    high: Math.round(estimateBucketImpactXss(estMin, 'high') * Math.max(bucketSupport.high ?? 0, 0)),
-    peak: Math.round(estimateBucketImpactXss(estMin, 'peak') * Math.max(bucketSupport.peak ?? 0, 0)),
-  };
-  const perBucketXss = executionFirstLowDay
-    ? {
-      low: estimateBucketImpactXss(estMin, 'low'),
-      high: 0,
-      peak: 0,
-    }
-    : perBucketOpportunityXss;
+  const perBucketXssLo = executionFirstLowDay
+    ? { low: Math.round(estimateBucketImpactXss(estMin, 'low') * XSS_RANGE_FLOOR.low), high: 0, peak: 0 }
+    : {
+      low:  Math.round(estimateBucketImpactXss(estMin, 'low')  * Math.max(bucketSupport.low  ?? 0, 0.15) * XSS_RANGE_FLOOR.low),
+      high: Math.round(estimateBucketImpactXss(estMin, 'high') * Math.max(bucketSupport.high ?? 0, 0)    * XSS_RANGE_FLOOR.high),
+      peak: Math.round(estimateBucketImpactXss(estMin, 'peak') * Math.max(bucketSupport.peak ?? 0, 0)    * XSS_RANGE_FLOOR.peak),
+    };
+  const perBucketXssHi = executionFirstLowDay
+    ? { low: Math.round(estimateBucketImpactXss(estMin, 'low') * XSS_RANGE_CEIL.low), high: 0, peak: 0 }
+    : {
+      low:  Math.round(estimateBucketImpactXss(estMin, 'low')  * Math.max(bucketSupport.low  ?? 0, 0.15) * XSS_RANGE_CEIL.low),
+      high: Math.round(estimateBucketImpactXss(estMin, 'high') * Math.max(bucketSupport.high ?? 0, 0)    * XSS_RANGE_CEIL.high),
+      peak: Math.round(estimateBucketImpactXss(estMin, 'peak') * Math.max(bucketSupport.peak ?? 0, 0)    * XSS_RANGE_CEIL.peak),
+    };
+
+  const xssRangeStr = (lo, hi) => lo === hi ? `${lo}` : `${lo}–${hi}`;
 
   if (displayTarget.mode === 'mixed') {
     const parts = ['low', 'high', 'peak'].map(b => {
-      const xss = perBucketXss[b];
-      if (xss === null) return '';
+      const lo = perBucketXssLo[b], hi = perBucketXssHi[b];
+      if (lo === null) return '';
       const rem = state.dailySummary?.remaining?.[b] ?? null;
       const target = rem !== null ? `<span class="xss-target">/${Math.round(rem)}</span>` : '';
-      return `<span class="xss-fill ${b}"><span class="bucket-word ${b}">${b.toUpperCase()}</span> ~${xss}${target}</span>`;
+      return `<span class="xss-fill ${b}"><span class="bucket-word ${b}">${b.toUpperCase()}</span> ${xssRangeStr(lo, hi)}${target}</span>`;
     }).filter(Boolean);
     bucketXssTag = parts.join('');
   } else {
     const b = displayTarget.bucket;
     shareBucket = b;
     if (b === 'recovery') {
-      bucketXssTag = `<span class="xss-fill">${perBucketXss.low} LOW XSS est.</span>`;
+      bucketXssTag = `<span class="xss-fill">${xssRangeStr(perBucketXssLo.low, perBucketXssHi.low)} LOW XSS est.</span>`;
     } else {
       const parts = ['low', 'high', 'peak'].map(bkt => {
-        const xss = perBucketXss[bkt];
-        if (xss === null || (executionFirstLowDay && bkt !== 'low')) return '';
+        const lo = perBucketXssLo[bkt], hi = perBucketXssHi[bkt];
+        if (lo === null || (executionFirstLowDay && bkt !== 'low')) return '';
         const rem = state.dailySummary?.remaining?.[bkt] ?? null;
         if (rem !== null && rem <= 0 && bkt !== b) return '';
         const target = rem !== null ? `<span class="xss-target">/${Math.round(rem)}</span>` : '';
-        return `<span class="xss-fill ${bkt}"><span class="bucket-word ${bkt}">${bkt.toUpperCase()}</span> ~${xss}${target}</span>`;
+        return `<span class="xss-fill ${bkt}"><span class="bucket-word ${bkt}">${bkt.toUpperCase()}</span> ${xssRangeStr(lo, hi)}${target}</span>`;
       }).filter(Boolean);
       bucketXssTag = parts.join('');
       const bXss = estimateBucketImpactXss(estMin, b);
@@ -1524,14 +1382,6 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
       shareFillPct = remainingForBucket
         ? Math.min(Math.round(bXss / Math.max(remainingForBucket, 1) * 100), 100)
         : null;
-      console.log(`[coverage-debug] ${route.name} (${b})`, {
-        estMin,
-        bXss,
-        remaining: remainingForBucket,
-        pct: shareFillPct,
-        executionFirstLowDay,
-        bucketSupport_low: bucketSupport.low,
-      });
     }
   }
 
@@ -1572,8 +1422,6 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   ].join('');
   const routeFit = [
     bucketXssTag,
-    difficultyBadge,
-    lapTag,
   ].filter(Boolean).join('');
   const profileMarkup = (!compact || options.profile) ? routeProfileSVG(route, options.profile ?? {}) : '';
 
@@ -1601,7 +1449,6 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
       ${routeFlags ? `<div class="route-flags">${routeFlags}</div>` : ''}
       ${profileMarkup}
       ${segmentRow}
-      ${reason ? `<div class="route-reason">${reason}</div>` : ''}
       ${links ? `<div class="route-links">${links}</div>` : ''}
     </div>`;
 }
@@ -1612,59 +1459,6 @@ function segmentChipHTML(segment, kind) {
     return `<a class="${cls}" href="${segment.stravaSegmentUrl}" target="_blank" rel="noopener">${segment.name}</a>`;
   }
   return `<span class="${cls}">${segment.name}</span>`;
-}
-
-function routeReason(route, bucket) {
-  if (state.wotdStructure === 'aerobic_endurance' && bucket === 'low') {
-    const timeFitTag = route.estimatedMinutes > getTimeSettings().minutes
-      ? 'over-time'
-      : route.estimatedMinutes < (getTimeSettings().minutes * 0.9)
-        ? 'under-time'
-        : 'near-time';
-    if (timeFitTag === 'near-time') return 'Strong venue for steady Z2 work at your target time.';
-    if (timeFitTag === 'under-time') return 'Strong low match that fits comfortably inside your time budget.';
-    return 'Reasonable venue for steady Z2 work if you can go a little longer today.';
-  }
-
-  const baseReason = route.optimizerReason || defaultRouteReason(route, bucket);
-  if (!routeRecommendationViable(route) && bucket !== 'recovery') {
-    return `Compromise venue only. ${baseReason}`;
-  }
-  const label = wotdDisplayLabel(state.wotdStructure);
-  if (!label || state.bucket === 'recovery') return baseReason;
-
-  const terrainScore = route.wotdTerrainScore ?? 0.5;
-  if (terrainScore >= 0.7) {
-    return `Strong terrain match for today's ${label}. ${baseReason}`;
-  }
-  if (terrainScore >= 0.4) {
-    return `Reasonable terrain for today's ${label}. ${baseReason}`;
-  }
-  return `Limited terrain match for today's workout. ${baseReason}`;
-}
-
-function defaultRouteReason(route, bucket) {
-  const gr = route.distance > 0 ? route.elevation / route.distance : 0;
-
-  if (bucket === 'recovery') {
-    return route.distance < 20 ? 'Short and easy — good recovery spin' : 'Gentle endurance — active recovery';
-  }
-  if (bucket === 'low') {
-    if (route.distance >= 40) return 'Long ride builds aerobic base';
-    if (gr < 5)               return 'Flat roads keep you in the endurance zone';
-    return 'Steady aerobic effort';
-  }
-  if (bucket === 'high') {
-    if (route.elevation >= 800) return 'Big climbing volume for sustained threshold work';
-    if (gr >= 8 && gr <= 25)    return 'Sustained gradients target your HIE system';
-    return 'Good mix of distance and climbing for threshold';
-  }
-  if (bucket === 'peak') {
-    if (gr >= 30)         return 'Steep, punchy gradients target peak power';
-    if (route.distance < 10) return 'Short explosive effort for neuromuscular work';
-    return 'High gradient ratio for PP development';
-  }
-  return '';
 }
 
 function getTimeSettings() {
@@ -1904,53 +1698,6 @@ function renderLastUpdated() {
   el.textContent = `${prefix} ${state.lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-function renderTodaysPlan(record) {
-  const section = document.getElementById('today-plan');
-  if (!section) return;
-
-  if (!record) {
-    section.style.display = 'none';
-    return;
-  }
-
-  const units = getUnits();
-  const isImperial = units === 'imperial';
-
-  const cardRows = (record.routes ?? []).map(r => {
-    const dist = r.distance ?? 0;
-    const elev = r.elevation ?? 0;
-    const displayDist = isImperial
-      ? `${(dist * KM_TO_MI).toFixed(1)} mi`
-      : `${dist.toFixed(1)} km`;
-    const displayElev = isImperial
-      ? `${Math.round(elev * M_TO_FT)} ft`
-      : `${Math.round(elev)} m`;
-    const cue = r.rideCue ? `<div class="plan-card-cue">${r.rideCue}</div>` : '';
-    return `
-      <div class="plan-card">
-        <div class="plan-card-name">${r.name}</div>
-        <div class="plan-card-meta">${worldName(r.world)} · ${displayDist} · ${displayElev}</div>
-        ${cue}
-      </div>`;
-  }).join('');
-
-  section.innerHTML = `
-    <div class="today-plan-header">
-      <span class="today-plan-title">Today's plan</span>
-      <span class="today-plan-saved-at">saved at ${record.savedAt}</span>
-    </div>
-    <div class="today-plan-cards">${cardRows}</div>
-    <button id="plan-refresh-btn" class="btn-secondary today-plan-refresh">↺ Refresh for today's recommendations</button>
-  `;
-
-  section.style.display = 'block';
-
-  document.getElementById('plan-refresh-btn').addEventListener('click', () => {
-    section.style.display = 'none';
-    refresh();
-  });
-}
-
 // ── UI helpers ────────────────────────────────────
 
 function showAuth(message) {
@@ -1984,12 +1731,6 @@ function hideError() {
   document.getElementById('app-error').style.display = 'none';
 }
 
-function showPlanSavedToast() {
-  const toast = document.getElementById('plan-saved-toast');
-  if (!toast) return;
-  toast.classList.add('visible');
-  setTimeout(() => toast.classList.remove('visible'), 2000);
-}
 
 function populateDataSourceOptions() {
   const authSelect = document.getElementById('auth-data-source');
@@ -2019,10 +1760,10 @@ function renderSourceNotes() {
   scenarioBtn.style.display = live ? 'none' : 'block';
   authNote.textContent = live
     ? 'Live Xert uses real account data. Mock scenarios are available below for testing only.'
-    : `${scenario?.title ?? 'Mock'} scenario loaded for testing. History remains browser-local and no new mock snapshots are saved.`;
+    : `${scenario?.title ?? 'Mock'} scenario loaded for testing.`;
   settingsNote.textContent = live
-    ? 'Live Xert is the default. Recent Progress is stored in this browser only.'
-    : `${scenario?.title ?? 'Mock'} scenario active for testing. Recent Progress remains browser-local and mock mode does not save new history.`;
+    ? 'Live Xert is the default.'
+    : `${scenario?.title ?? 'Mock'} scenario active for testing.`;
 }
 
 function getManualSpeedBounds() {
@@ -2179,55 +1920,12 @@ function estimateBucketImpactXss(minutes, bucket) {
   return Math.round((minutes / 60) * (XSS_RATE[bucket] ?? 0));
 }
 
-function buildHistorySnapshot(trainingData, ts) {
-  return {
-    ts,
-    dayKey: getLocalDayKey(ts),
-    status: trainingData.status,
-    ftp: trainingData.signature.ftp,
-    weight: trainingData.weight,
-    completed: state.dailySummary?.completed ?? null,
-    remaining: state.dailySummary?.remaining ?? null,
-    targets: state.dailySummary?.targets ?? null,
-  };
-}
-
 function getLocalDayKey(ts) {
   const d = new Date(ts);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
-}
-
-function snapshotSignature(snapshot) {
-  return JSON.stringify({
-    status: snapshot.status,
-    ftp: snapshot.ftp,
-    weight: snapshot.weight,
-    completed: snapshot.completed,
-    remaining: snapshot.remaining,
-    targets: snapshot.targets,
-  });
-}
-
-function recordHistorySnapshot(trainingData, ts) {
-  if (!isLiveDataSource()) {
-    return loadHistory();
-  }
-  const history = loadHistory();
-  const snapshot = buildHistorySnapshot(trainingData, ts);
-  const existingIndex = history.findIndex(entry => entry.dayKey === snapshot.dayKey);
-
-  if (existingIndex >= 0) {
-    history[existingIndex] = snapshot;
-  } else {
-    history.push(snapshot);
-  }
-
-  const trimmed = history.slice(-HISTORY_LIMIT);
-  saveHistory(trimmed);
-  return trimmed;
 }
 
 function clamp(value, min, max) {
@@ -2603,14 +2301,16 @@ function prepareRouteCardCloneForShare(clonedCard) {
 }
 
 async function renderRouteCardPng(card) {
-  if (!card || !window.html2canvas) return null;
+  if (!card) { console.error('[copy-image] card element not found'); return null; }
+  if (!window.html2canvas) { console.error('[copy-image] html2canvas not loaded (CDN blocked?)'); return null; }
   const canvas = await window.html2canvas(card, {
     scale: 2,
     useCORS: true,
-    backgroundColor: null,
+    backgroundColor: '#1a1a1a',
     onclone: (_document, clonedCard) => prepareRouteCardCloneForShare(clonedCard),
-  });
-  return canvasToPngBlob(canvas);
+  }).catch(err => { console.error('[copy-image] html2canvas render failed:', err); return null; });
+  if (!canvas) return null;
+  return canvasToPngBlob(canvas).catch(err => { console.error('[copy-image] toBlob failed:', err); return null; });
 }
 
 async function writeClipboardItem(items) {
@@ -2655,8 +2355,8 @@ document.addEventListener('click', async (e) => {
 
     const copied = await copyRouteCardToClipboard(card, text);
     finish(copied === 'image' ? 'Image copied!' : 'Text copied', true);
-  } catch {
-    // Fall back to plain text
+  } catch (err) {
+    console.error('[copy-image] clipboard write failed:', err);
     navigator.clipboard.writeText(text)
       .then(() => finish('Text copied', true))
       .catch(() => finish('Error', false));

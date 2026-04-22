@@ -182,9 +182,12 @@ function segmentSupport(segment) {
     const grade = segmentAverageGradePct(segment);
     const flatness = grade === null ? 0.7 : clamp(1 - (Math.abs(grade) / 5), 0.3, 1);
     const sprintLength = clamp(distance / 0.35, 0.45, 1);
+    // A7: flat sprint segments generate LOW + small PEAK, not HIGH.
+    // Ride data (Croissant, Wandering Flats, Flat Out Fast) consistently shows
+    // sprint banners produce minimal HIGH strain; PEAK is where the effort actually lands.
     return {
-      high: clamp(0.45 + (flatness * 0.3) + (sprintLength * 0.2), 0.45, 0.95),
-      peak: 0,
+      high: clamp(0.15 + (flatness * 0.15), 0.1, 0.3),
+      peak: clamp(0.3 + (sprintLength * 0.4), 0.2, 0.7),
     };
   }
 
@@ -225,9 +228,11 @@ function segmentSupport(segment) {
     (steepness * 0.45) + (shortness * 0.35) + (compactRise * 0.3)
   );
 
-  const isSteep = avgGrade !== null && avgGrade >= 8;
+  const isSteep = avgGrade !== null && avgGrade >= 10;
 
   if (distance >= 3 || elevationGain >= 140) {
+    // A2: steep long segments are genuinely punchy — don't penalize them as harshly.
+    // A 3.2km segment at 12% is a real climb, not a sustained grind.
     peak *= isSteep ? 0.35 : 0.12;
   } else if (distance >= 2 || elevationGain >= 90) {
     peak *= isSteep ? 0.65 : 0.35;
@@ -296,6 +301,8 @@ export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = n
   const aggregated = aggregateSegmentSupport(occurrenceSource);
   const peakThreshold = C.PEAK_SUPPORT_THRESHOLD ?? PEAK_SUPPORT_THRESHOLD;
   const routeDistance = route?.distance ?? 0;
+  // A1: original /60 factor cut a 30km route to 50% before any segment data.
+  // /90 with a higher floor is less punishing on mid-distance routes.
   const peakDistanceFactor = clamp(1 - (routeDistance / 90), 0.5, 1);
   const high = normalizeSupportValue(aggregated.high);
   const peak = normalizeSupportValue(aggregated.peak * peakDistanceFactor);
@@ -404,11 +411,31 @@ export function classifyWOTD(wotd, ftp = null) {
   return 'aerobic_endurance';
 }
 
-export function analyzeTrainingDay(tl, targetXSS, wotd, ftp = null) {
-  return {
-    bucket: detectBucket(tl, targetXSS),
-    wotdStructure: classifyWOTD(wotd, ftp),
+function detectMixedDeficits(tl, targetXSS) {
+  const deficits = {
+    low:  Math.max((targetXSS.low  ?? 0) - (tl.low  ?? 0), 0),
+    high: Math.max((targetXSS.high ?? 0) - (tl.high ?? 0), 0),
+    peak: Math.max((targetXSS.peak ?? 0) - (tl.peak ?? 0), 0),
   };
+  const total = deficits.low + deficits.high + deficits.peak;
+  if (total <= 0) return false;
+  const significantBuckets = Object.values(deficits).filter(d => d >= 10).length;
+  const maxDeficit = Math.max(...Object.values(deficits));
+  return significantBuckets >= 2 && (maxDeficit / total) < 0.80;
+}
+
+export function analyzeTrainingDay(tl, targetXSS, wotd, ftp = null) {
+  const bucket = detectBucket(tl, targetXSS);
+  const wotdStructure = classifyWOTD(wotd, ftp);
+  // When no specific workout structure is detected but deficits span multiple energy
+  // systems meaningfully, treat the day as mixed_mode so the optimizer and ride cues
+  // reflect the true multi-bucket demand instead of defaulting to pure LOW bias.
+  const effectiveStructure = (
+    wotdStructure === null &&
+    bucket !== 'recovery' &&
+    detectMixedDeficits(tl, targetXSS)
+  ) ? 'mixed_mode' : wotdStructure;
+  return { bucket, wotdStructure: effectiveStructure };
 }
 
 /**
@@ -861,7 +888,11 @@ export function optimizeRoutes(routes, options = {}) {
     .slice(0, limit);
 }
 
-export function generateRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline = null) {
+export function generateRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline = null, lapPrefix = '') {
+  return lapPrefix + buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline);
+}
+
+function buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline) {
   const namedSegmentsAvailable = routeSegments?.source !== 'world';
   const climbs = namedSegmentsAvailable ? (routeSegments?.climbs ?? []) : [];
   const sprints = namedSegmentsAvailable ? (routeSegments?.sprints ?? []) : [];
