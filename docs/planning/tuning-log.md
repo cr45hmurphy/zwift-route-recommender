@@ -221,14 +221,14 @@ ridden at moderate effort are primarily LOW venues with small incidental HIGH/PE
 
 ## Findings Summary
 
-|Finding                                                    |Confidence                                |Status          |Action                                                                  |
-|-----------------------------------------------------------|------------------------------------------|----------------|------------------------------------------------------------------------|
-|Flat sprint HIGH contribution is over-modeled              |High — confirmed by Croissant ride        |Open            |Need 2–3 more sprint-heavy rides to confirm before changing model       |
-|`peakDistanceFactor` penalizes 30km routes too aggressively|Medium — logic analysis                   |Pending fix (A1)|Fix drafted, needs live validation                                      |
-|3km PEAK dampener ignores grade                            |Medium — logic analysis                   |Pending fix (A2)|Fix drafted, needs punchy climb ride to validate                        |
-|`detectBucket()` LOW dominates when WOTD targets HIGH/PEAK |Medium — one confirmed case (Sugar Cookie)|Pending fix (A3)|Needs rides with non-zero HIGH/PEAK targets to validate boost multiplier|
-|HIGH and PEAK targets were 0 due to lifting in Xert        |Confirmed                                 |Resolved        |Lifting removed from Xert tracking late April 2026                      |
-|Even climbing routes produce mostly LOW at Z2 pace         |High — Road to Sky (178/180 LOW)          |Design note     |Route cue text must distinguish venue potential from execution intensity|
+|Finding                                                    |Confidence                                |Status                  |Action                                                                                         |
+|-----------------------------------------------------------|------------------------------------------|------------------------|-----------------------------------------------------------------------------------------------|
+|Flat sprint HIGH is over-modeled; PEAK is under-modeled    |High — 4 rides confirm pattern            |**Implemented (A7)**    |HIGH capped 0.1–0.3; PEAK raised 0.2–0.7 for non-climb segments. Flag for live validation.    |
+|`peakDistanceFactor` penalizes 30km routes too aggressively|Medium — logic analysis                   |**Implemented (A1)**    |Changed `/60 floor 0.25` to `/90 floor 0.5`. Validate on next punchy mid-distance route.      |
+|3km PEAK dampener ignores grade                            |Medium — logic analysis                   |**Implemented (A2)**    |Steep segments (≥10% grade) at 3km+ now get `0.35` multiplier instead of `0.12`.              |
+|`detectBucket()` LOW dominates when WOTD targets HIGH/PEAK |Medium — one confirmed case (Sugar Cookie)|Parked (A3)             |Needs rides with non-zero HIGH/PEAK targets post-lifting removal to validate `1.6` multiplier. |
+|HIGH and PEAK targets were 0 due to lifting in Xert        |Confirmed                                 |Resolved                |Lifting removed from Xert tracking late April 2026.                                            |
+|Even climbing routes produce mostly LOW at Z2 pace         |High — Road to Sky (178/180 LOW)          |Design note             |Route cue text must distinguish venue potential from execution intensity.                       |
 
 ### Open Calibration Questions
 
