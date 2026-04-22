@@ -173,9 +173,12 @@ function segmentSupport(segment) {
     const grade = segmentAverageGradePct(segment);
     const flatness = grade === null ? 0.7 : clamp(1 - (Math.abs(grade) / 5), 0.3, 1);
     const sprintLength = clamp(distance / 0.35, 0.45, 1);
+    // A7: flat sprint segments generate LOW + small PEAK, not HIGH.
+    // Ride data (Croissant, Wandering Flats, Flat Out Fast) consistently shows
+    // sprint banners produce minimal HIGH strain; PEAK is where the effort actually lands.
     return {
-      high: clamp(0.45 + (flatness * 0.3) + (sprintLength * 0.2), 0.45, 0.95),
-      peak: 0,
+      high: clamp(0.15 + (flatness * 0.15), 0.1, 0.3),
+      peak: clamp(0.3 + (sprintLength * 0.4), 0.2, 0.7),
     };
   }
 
@@ -217,7 +220,9 @@ function segmentSupport(segment) {
   );
 
   if (distance >= 3 || elevationGain >= 140) {
-    peak *= 0.12;
+    // A2: steep long segments are genuinely punchy — don't penalize them as harshly.
+    // A 3.2km segment at 12% is a real climb, not a sustained grind.
+    peak *= (avgGrade !== null && avgGrade >= 10) ? 0.35 : 0.12;
   } else if (distance >= 2 || elevationGain >= 90) {
     peak *= 0.35;
   }
@@ -280,7 +285,9 @@ export function deriveRouteBucketSupport(route, routeSegments, routeTimeline = n
   const aggregated = aggregateSegmentSupport(occurrenceSource);
   const peakThreshold = C.PEAK_SUPPORT_THRESHOLD ?? PEAK_SUPPORT_THRESHOLD;
   const routeDistance = route?.distance ?? 0;
-  const peakDistanceFactor = clamp(1 - (routeDistance / 60), 0.25, 1);
+  // A1: original /60 factor cut a 30km route to 50% before any segment data.
+  // /90 with a higher floor is less punishing on mid-distance routes.
+  const peakDistanceFactor = clamp(1 - (routeDistance / 90), 0.5, 1);
   const peak = normalizeSupportValue(aggregated.peak * peakDistanceFactor);
   const peakMeaningful =
     peak >= peakThreshold &&

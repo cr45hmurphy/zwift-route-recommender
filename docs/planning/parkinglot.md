@@ -82,7 +82,7 @@ Route honesty labels work, but they should eventually become more expressive and
 - Use road geometry more deeply for segment-to-bucket mapping, especially punchy-climb PEAK detection.
 - Start estimating proportional XSS per segment instead of treating a route as one blended bucket.
 - Add explicit no-good-fit messaging when no route can deliver the WOTD bucket mix inside the time budget.
-- Keep real-ride calibration notes in `docs/planning/data-calibration.md`.
+- Keep real-ride calibration notes in `docs/planning/tuning-log.md`.
 
 ### Route Segment Order And Duplicate Hits
 Sauce-derived timelines solved most route-position needs, but some route/segment display remains approximate.
