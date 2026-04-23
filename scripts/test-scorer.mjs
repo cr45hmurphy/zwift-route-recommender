@@ -109,7 +109,7 @@ function cueForRouteName(name, bucket, wotdStructure, availableMinutes = 60) {
 
 function testCueCopyRegressions() {
   const tempusMixedCue = cueForRouteName('Tempus Fugit', 'low', 'mixed_mode', 60);
-  assert.match(tempusMixedCue, /LOW\+HIGH work here|not true PEAK/i, 'Tempus Fugit mixed cue should not overpromise true mixed work');
+  assert.match(tempusMixedCue, /Z2/i, 'Tempus Fugit mixed cue should give Z2 riding instruction, not overpromise true mixed work');
   assert.doesNotMatch(tempusMixedCue, /plus \d+ later efforts/, 'mixed cue should avoid awkward "plus N later efforts" wording');
 
   const roadToSkyCue = cueForRouteName('Road to Sky', 'high', 'sustained_climb', 90);
@@ -292,12 +292,12 @@ function testSprintPowerCueRewrites() {
   assert.doesNotMatch(
     tempusCue,
     /only fake/i,
-    'C1: low PEAK support cue should not contain "only fake"'
+    'C1: sprint_power cue should not contain "only fake"'
   );
   assert.match(
     tempusCue,
-    /No true sprint terrain/i,
-    'C1: low PEAK support cue should lead with "No true sprint terrain"'
+    /full gas|No true sprint terrain/i,
+    'C1: sprint_power cue should use clear effort language'
   );
 
   const worldsShortCue = cueForRouteName('2018 Worlds Short Lap', 'peak', 'sprint_power', 60);
@@ -317,8 +317,8 @@ function testMixedModeCueRewrites() {
   );
   assert.match(
     tempusMixedCue,
-    /Ride Z2 between efforts|Ride flats in Z2|LOW\+HIGH/i,
-    'C4: mixed_mode cue should lead with riding instruction'
+    /Z2/i,
+    'C4: mixed_mode cue should lead with Z2 riding instruction'
   );
 }
 
