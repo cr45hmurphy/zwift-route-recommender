@@ -144,6 +144,7 @@ function orderedTimelineOccurrences(routeTimeline, type = null) {
 function orderedTimelineEfforts(routeTimeline) {
   return orderedTimelineOccurrences(routeTimeline)
     .filter(item => {
+      if (item.type === 'segment') return false;
       if (item.type !== 'sprint' && item.type !== 'climb') return false;
       // Skip climb occurrences that are net downhill (reverse traversal of a climb segment).
       // avgGradePct < 0 on a climb type means the route traverses it in the descent direction.
