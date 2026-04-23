@@ -918,23 +918,23 @@ function buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline
   if (wotdStructure === 'sustained_climb') {
     const [climb] = highestRatedClimbs(routeSegments, 1);
     if (climb) {
-      return `Ride ${climb.name} at threshold pace the whole way. One long sustained effort — don't sprint the top.`;
+      return `Ride ${climb.name} at steady threshold pace the whole way. One long sustained effort — don't sprint the top.`;
     }
     return 'Find your threshold pace on the climbs and hold it. One long sustained effort, not intervals and not sprints.';
   }
 
   if (wotdStructure === 'repeated_punchy') {
     if (timelineClimbs.length) {
-      return `Hit each climb at threshold pace in order: ${summarizeOccurrenceList(timelineClimbs)}. ${spacingNote(timelineClimbs)} Today is about repeated efforts, not a steady grind.`;
+      return `Hit each climb hard but controlled in order: ${summarizeOccurrenceList(timelineClimbs)}. ${spacingNote(timelineClimbs)} Today is about repeated efforts, not a steady grind.`;
     }
     const namedClimbs = highestRatedClimbs(routeSegments, 2);
     if (namedClimbs.length === 2) {
-      return `Hit ${formatSegmentList(namedClimbs)} at threshold pace, then recover fully between them. Today is about repeated efforts, not a steady grind.`;
+      return `Hit ${formatSegmentList(namedClimbs)} hard but controlled, then recover fully between them. Today is about repeated efforts, not a steady grind.`;
     }
     if (namedClimbs.length === 1) {
-      return `Hit ${namedClimbs[0].name} at threshold pace, recover, then repeat if the route loops. Full recovery between efforts.`;
+      return `Hit ${namedClimbs[0].name} hard but controlled, recover, then repeat if the route loops. Full recovery between efforts.`;
     }
-    return 'Hit every rise at threshold pace, then recover fully on the flats. Today is about repeated efforts, not a steady grind.';
+    return 'Hit every rise hard but controlled, then recover fully on the flats. Today is about repeated efforts, not a steady grind.';
   }
 
   if (wotdStructure === 'sprint_power') {
@@ -985,7 +985,7 @@ function buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline
     const timelineEfforts = orderedTimelineEfforts(routeTimeline);
     if (!trueMixed) {
       if (timelineClimbs.length) {
-        return `This route delivers aerobic base and threshold work, but no real neuromuscular efforts. Ride Z2 between climbs, then hit them at threshold pace in order: ${summarizeOccurrenceList(timelineClimbs, 3)}.`;
+        return `This route delivers aerobic base and threshold work, but no real neuromuscular efforts. Ride Z2 between climbs, then hit them hard but controlled in order: ${summarizeOccurrenceList(timelineClimbs, 3)}.`;
       }
       if (timelineSprints.length) {
         return `This route delivers aerobic base and some threshold work, not real neuromuscular efforts. Ride the flats in Z2 and hit the sprints at threshold pace, not full gas: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)}`;
@@ -993,12 +993,12 @@ function buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline
     }
     if (timelineSprints.length) {
       if (timelineClimbs.length && timelineEfforts.length) {
-        return `Ride Z2 between efforts, then follow the route order: ${summarizeOccurrenceList(timelineEfforts, 3)}. Sprints are full gas. Ride the climbs at threshold pace. ${spacingNote(timelineEfforts)}`;
+        return `Ride Z2 between efforts, then follow the route order: ${summarizeOccurrenceList(timelineEfforts, 3)}. Sprints are full gas. Ride the climbs hard but controlled. ${spacingNote(timelineEfforts)}`;
       }
       return `Ride the flats in Z2, then hit every viable sprint in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)}`;
     }
     if (timelineClimbs.length) {
-      return `Hit the climbs at threshold pace in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Ride everything else in Z2. This route is better for aerobic base and threshold work than neuromuscular efforts.`;
+      return `Hit the climbs hard but controlled in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Ride everything else in Z2. This route is better for aerobic base and threshold work than neuromuscular efforts.`;
     }
     const namedSprints = sprints.slice(0, 2);
     if (namedSprints.length >= 1) {
