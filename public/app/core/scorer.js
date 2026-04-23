@@ -112,14 +112,14 @@ function isGenericEffortName(name = '') {
   );
 }
 
-function summarizeOccurrenceList(occurrences, maxNames = 4) {
+function summarizeOccurrenceList(occurrences, maxNames = 3) {
   const filtered = occurrences.filter(segment => !isGenericEffortName(segment?.name));
   const source = filtered.length ? filtered : occurrences;
   if (!source.length) return '';
   const visible = source.slice(0, maxNames).map(segment => ({ name: segment.name }));
   const base = formatSegmentList(visible);
   const remaining = source.length - visible.length;
-  return remaining > 0 ? `${base}, then ${remaining} more later` : base;
+  return remaining > 0 ? `${base} — repeat that pattern for the remaining ${remaining}` : base;
 }
 
 function spacingNote(occurrences, shortGapKm = 2) {
@@ -127,9 +127,9 @@ function spacingNote(occurrences, shortGapKm = 2) {
     .filter(item => Number.isFinite(item?.recoveryGapKm) && item.recoveryGapKm < shortGapKm)
     .length;
 
-  if (!shortRecoveries) return 'Recovery gaps are workable between efforts.';
-  if (shortRecoveries === 1) return 'One gap is tight, so the effort after it will be a bit compromised.';
-  return 'Several gaps are tight - later efforts will be progressively more compromised.';
+  if (!shortRecoveries) return '';
+  if (shortRecoveries === 1) return 'One gap is short — ease up slightly on the effort that follows.';
+  return `${shortRecoveries} gaps are short — ease up on the later efforts to keep quality high.`;
 }
 
 function orderedTimelineOccurrences(routeTimeline, type = null) {
@@ -144,6 +144,7 @@ function orderedTimelineOccurrences(routeTimeline, type = null) {
 function orderedTimelineEfforts(routeTimeline) {
   return orderedTimelineOccurrences(routeTimeline)
     .filter(item => {
+      if (item.type === 'segment') return false;
       if (item.type !== 'sprint' && item.type !== 'climb') return false;
       // Skip climb occurrences that are net downhill (reverse traversal of a climb segment).
       // avgGradePct < 0 on a climb type means the route traverses it in the descent direction.
@@ -918,65 +919,65 @@ function buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline
   if (wotdStructure === 'sustained_climb') {
     const [climb] = highestRatedClimbs(routeSegments, 1);
     if (climb) {
-      return `Ride ${climb.name} at steady threshold pace. One long controlled effort is what today's workout calls for, so don't sprint the top.`;
+      return `Ride ${climb.name} at steady threshold pace the whole way. One long sustained effort — don't sprint the top.`;
     }
     return 'Find your threshold pace on the climbs and hold it. One long sustained effort, not intervals and not sprints.';
   }
 
   if (wotdStructure === 'repeated_punchy') {
     if (timelineClimbs.length) {
-      return `Hit every punchy climb in order: ${summarizeOccurrenceList(timelineClimbs)}. ${spacingNote(timelineClimbs)} Today calls for repeated surges, not one steady grind.`;
+      return `Hit each climb hard but controlled in order: ${summarizeOccurrenceList(timelineClimbs)}. ${spacingNote(timelineClimbs)} Today is about repeated efforts, not a steady grind.`;
     }
     const namedClimbs = highestRatedClimbs(routeSegments, 2);
     if (namedClimbs.length === 2) {
-      return `Hit ${formatSegmentList(namedClimbs)} hard, then fully recover between them. Today calls for repeated threshold surges, not a steady grind.`;
+      return `Hit ${formatSegmentList(namedClimbs)} hard but controlled, then recover fully between them. Today is about repeated efforts, not a steady grind.`;
     }
     if (namedClimbs.length === 1) {
-      return `Hit ${namedClimbs[0].name} hard, recover, then repeat if the route loops. Today calls for repeated efforts with full recovery between.`;
+      return `Hit ${namedClimbs[0].name} hard but controlled, recover, then repeat if the route loops. Full recovery between efforts.`;
     }
-    return 'Push every rise hard, then recover fully on the flats. Today calls for repeated threshold surges, not a steady grind.';
+    return 'Hit every rise hard but controlled, then recover fully on the flats. Today is about repeated efforts, not a steady grind.';
   }
 
   if (wotdStructure === 'sprint_power') {
     if (peakSupport < PEAK_ROUTE_MIN_SUPPORT) {
       if (timelineClimbs.length) {
-        return `No true sprint terrain here. Use climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)} for your best surge approximation on this route.`;
+        return `No true sprint terrain on this route — hit the climbs full gas in order: ${summarizeOccurrenceList(timelineClimbs, 3)}.`;
       }
       if (namedClimbs.length) {
-        return `No true sprint terrain here. Hit ${formatSegmentList(namedClimbs.slice(0, 2))} as hard as you can - best surge approximation this route offers.`;
+        return `No true sprint terrain on this route — hit ${formatSegmentList(namedClimbs.slice(0, 2))} full gas.`;
       }
-      return 'No true sprint terrain here. Push every rise as hard as you can for the best surge approximation this route offers.';
+      return 'No true sprint terrain on this route — hit every rise full gas.';
     }
     if (peakSupport < PEAK_SUPPORT_THRESHOLD) {
       if (timelineClimbs.length) {
-        return `Reasonable sprint approximation here. Hit climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)} - push each one hard and expect some genuine neuromuscular work mixed with the HIGH.`;
+        return `Not ideal for a sprint day, but the climbs give you real intensity. Hit them full gas in order: ${summarizeOccurrenceList(timelineClimbs, 3)} — recover completely between.`;
       }
       if (namedClimbs.length) {
-        return `Reasonable sprint approximation. Hit ${formatSegmentList(namedClimbs.slice(0, 2))} hard - punchy enough to earn some real neuromuscular work, even if repeatability is limited.`;
+        return `Not ideal for a sprint day, but punchy enough to get real work done. Hit ${formatSegmentList(namedClimbs.slice(0, 2))} full gas and recover completely.`;
       }
       if (namedSprints.length) {
-        return `Reasonable sprint approximation. Sprint ${formatSegmentList(namedSprints.slice(0, 2))} hard - punchy enough to earn some real neuromuscular work, even if repeatability is limited.`;
+        return `Not ideal for a sprint day, but the banners give you real intensity. Sprint ${formatSegmentList(namedSprints.slice(0, 2))} full gas and recover completely between.`;
       }
-      return 'Reasonable sprint approximation. Push the sharpest rises hard - punchy enough to earn some real neuromuscular work, even if repeatability is limited.';
+      return 'Not ideal for a sprint day, but punchy enough to get real work done. Hit the sharpest rises full gas and recover completely between.';
     }
     const timelineEfforts = orderedTimelineEfforts(routeTimeline);
     if (timelineSprints.length) {
       if (timelineClimbs.length && timelineEfforts.length) {
-        return `Sprint day: follow the route order: ${summarizeOccurrenceList(timelineEfforts, 6)}. ${spacingNote(timelineSprints)} Sprint banners are full gas; KOMs are controlled bridges, not extra max efforts.`;
+        return `Sprint day: follow the route order: ${summarizeOccurrenceList(timelineEfforts, 3)}. ${spacingNote(timelineSprints)} Sprint banners are full gas. Ride the KOMs at threshold pace and recover on the descents.`;
       }
       return `Sprint every viable banner in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} Go full gas, then recover completely.`;
     }
     if (namedClimbs.length) {
       if (namedClimbs.length === 1) {
-        return `Punch ${namedClimbs[0].name} at absolute max, then recover fully before the next hard effort. This route earns its PEAK support from short sharp climbs, not flat sprint runways.`;
+        return `Punch ${namedClimbs[0].name} full gas, then recover completely before the next effort. This route earns its PEAK support from short sharp climbs, not flat sprint runways.`;
       }
       return `Punch the climbs in order: ${formatSegmentList(namedClimbs.slice(0, 3))}. Full gas on each rise, recover completely.`;
     }
     if (namedSprints.length >= 2) {
-      return `Sprint ${formatSegmentList(namedSprints)} at absolute max effort. Full gas, then fully recover.`;
+      return `Sprint ${formatSegmentList(namedSprints.slice(0, 3))} full gas. Recover completely between.`;
     }
     if (namedSprints.length === 1) {
-      return `Sprint ${namedSprints[0].name} at absolute max effort. Recover completely, then repeat if the route allows with no half-efforts.`;
+      return `Sprint ${namedSprints[0].name} full gas. Recover completely, then repeat if the route loops — no half-efforts.`;
     }
     return 'Treat every rise or flat surge like a match strike. Full gas, then fully recover with no half-efforts today.';
   }
@@ -985,26 +986,26 @@ function buildRideCue(route, bucket, wotdStructure, routeSegments, routeTimeline
     const timelineEfforts = orderedTimelineEfforts(routeTimeline);
     if (!trueMixed) {
       if (timelineClimbs.length) {
-        return `Ride Z2 between efforts, then hit climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. This is a LOW+HIGH venue - PEAK work will be limited.`;
+        return `This route delivers aerobic base and threshold work, but no real neuromuscular efforts. Ride Z2 between climbs, then hit them hard but controlled in order: ${summarizeOccurrenceList(timelineClimbs, 3)}.`;
       }
       if (timelineSprints.length) {
-        return `Ride flats in Z2, then hit sprints in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)} LOW+HIGH work here, not true PEAK.`;
+        return `This route delivers aerobic base and some threshold work, not real neuromuscular efforts. Ride the flats in Z2 and hit the sprints at threshold pace, not full gas: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)}`;
       }
     }
     if (timelineSprints.length) {
       if (timelineClimbs.length && timelineEfforts.length) {
-        return `Ride Z2 between efforts, then follow the route order: ${summarizeOccurrenceList(timelineEfforts, 5)}. Sprints are max efforts; climbs are controlled hard efforts. ${spacingNote(timelineEfforts)}`;
+        return `Ride Z2 between efforts, then follow the route order: ${summarizeOccurrenceList(timelineEfforts, 3)}. Sprints are full gas. Ride the climbs hard but controlled. ${spacingNote(timelineEfforts)}`;
       }
       return `Ride the flats in Z2, then hit every viable sprint in order: ${summarizeOccurrenceList(timelineSprints)}. ${spacingNote(timelineSprints)}`;
     }
     if (timelineClimbs.length) {
-      return `Hit climbs in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Ride everything else in Z2. Mostly LOW+HIGH work here rather than true PEAK.`;
+      return `Hit the climbs hard but controlled in order: ${summarizeOccurrenceList(timelineClimbs, 3)}. Ride everything else in Z2. This route is better for aerobic base and threshold work than neuromuscular efforts.`;
     }
     const namedSprints = sprints.slice(0, 2);
     if (namedSprints.length >= 1) {
-      return `Ride the flats in Z2 to build aerobic base, sprint ${formatSegmentList(namedSprints)} at absolute max when you hit them. Full recovery between efforts, then back to Z2.`;
+      return `Ride the flats in Z2, sprint ${formatSegmentList(namedSprints)} full gas when you hit them. Full recovery between, then back to Z2.`;
     }
-    return 'Keep it Z2 between any rises, then punch every short climb or surge at max effort. This is a mixed day, aerobic base plus explosive efforts.';
+    return 'Keep it Z2 between rises, then punch every short climb or sprint full gas. Aerobic base plus explosive efforts.';
   }
 
   if (wotdStructure === 'aerobic_endurance' || wotdStructure === null || wotdStructure === undefined) {

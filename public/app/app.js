@@ -1628,6 +1628,11 @@ function renderTimeSummary() {
 
   const el = document.getElementById('time-summary');
   if (!el) return;
+
+  if (state.bucketOverride) {
+    el.textContent = 'With your current fatigue level, keep today\'s ride short and easy.';
+    return;
+  }
   const availability = recommendationAvailability(getTimeSettings());
   const noViableWithinBudget = availability.viableWithinBudget.length === 0;
   const guidance = getRecommendedTimeGuidance();
