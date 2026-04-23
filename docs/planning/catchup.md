@@ -4,7 +4,7 @@
 
 The core Zwift route recommender / cue-generator overhaul is complete enough to move from buildout into polish, validation, and calibration. The app runs as a browser-based Xert-aware recommender with live or mock data, Zwift world filtering, route cards, time guidance, route profiles, route inspector, share/favorite controls, and Sauce-derived route/timeline data.
 
-- Active branch: `claude/add-zwiftbuckets-info-login-IJqi2` (login screen about section)
+- Active branch: `claude/add-truncation-checks-6D1xi` (cue copy overhaul + display fixes)
 - Last merged PRs: #13 inspector filters + browsing caps, #14 visual polish, #15 and #16 favicon
 
 The active future-work list is now `docs/planning/parkinglot.md`. The former Route Recommender design brief has been archived under `docs/planning/archive/`.
@@ -55,6 +55,9 @@ The active future-work list is now `docs/planning/parkinglot.md`. The former Rou
 
 ## Recently Completed
 
+- Cue copy overhaul (Track C): established a four-level effort taxonomy (full gas / hard but controlled / steady threshold / Zone 2) and applied it consistently across all `generateRideCue()` branches. Segment lists capped at 3 named efforts with overflow rewritten as "repeat that pattern for the remaining N". `spacingNote()` rewritten as a rider instruction rather than a passive description. Mixed-route branches now give sprint intent and climb intent as two explicit sentences. LOW+HIGH honesty branches stripped of internal jargon. Recovery cue preserved unchanged.
+- `renderTimeSummary()` display fix: when `bucketOverride` is set (Tired / Very Tired / Detraining override), the XSS fill calculation is skipped and recovery language is shown instead. `applyFreshnessOverride()` and all override logic untouched.
+- `orderedTimelineEfforts()` defensive filter: explicit `type === 'segment'` guard added so named route-section segments (Hilly Loop Rev., London Loop, Crit City, etc.) cannot appear in effort cue lists regardless of future data changes.
 - Login screen about section: collapsible "What is ZwiftBuckets?" details element, wider than the login column (640px), collapsed by default. Covers what the app does, the three Xert energy buckets, what it does and does not do, requirements, credentials/privacy explanation, and a legal disclaimer (not affiliated with or endorsed by Xert or Zwift, not Xert EBC, hobby project on public APIs).
 - Auth screen app title changed from "Zwift Route Recommender" to "ZwiftBuckets".
 - Sauce-derived CDN route/timeline/profile overhaul.
@@ -82,7 +85,6 @@ Use `docs/planning/parkinglot.md` as the source of truth. The highest-value next
 2. Live WOTD validation against a real or simulated `#MIXEDMODE` day.
 3. Scoring/optimizer tuning: bucket weights, punch caps, LOW over-favor check.
 4. Time guidance calibration: recommended-time picks first route-feasible time.
-5. Cue copy editorial pass: truncation rules, repeat language, mixed-route narration.
 
 ---
 

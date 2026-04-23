@@ -66,14 +66,6 @@ The time model is substantially improved, but the guidance layer still needs cal
 - Sort `If you had more time` by nearest viable overrun first, then use score/utility as a tie-breaker.
 - Decide whether Zwift's own time estimates can be surfaced or approximated better.
 
-### Cue Copy Editorial Pass
-Timeline-aware cues are in place, but copy still gets awkward on busy routes.
-
-- Improve truncation rules for long route sequences.
-- Replace awkward repeat language such as `plus 8 later efforts`.
-- Clarify mixed-route narration when climbs and sprints interleave.
-- Better explain honest `LOW+HIGH` routes so riders know what to do today versus what the venue contains.
-
 ### Route Truth And Bucket Modeling
 Route honesty labels work, but they should eventually become more expressive and better grounded in terrain.
 
