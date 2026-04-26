@@ -16,6 +16,7 @@
     "zwift-data": "latest"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "netlify": "^24.11.1"
   }
 }
