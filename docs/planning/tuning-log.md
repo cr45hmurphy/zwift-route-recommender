@@ -114,6 +114,33 @@ Each entry follows this format:
 
 -----
 
+### Apr 26 2026 — Red Zone Repeats (Makuri Islands)
+
+**Laps:** 1
+**Duration:** 44 min  **Distance:** ~19.8 km  **Elevation:** ~87 m
+**XSS:** 55 ( 47 LOW | 5.1 HIGH | 2.1 PEAK )
+**Target XSS:** 77 LOW | 8.6 HIGH | 7.2 PEAK
+**WOTD:** SMART - Going Under - 60 / mixed (#MIXEDMODE)
+**App bucket detected:** MIXED (WOTD-first)
+**App score:** 87
+**App chips:** LOW 24–32/77 · HIGH 9–61/9 · PEAK 3–26/7
+
+**App showed:**
+- Route label: LOW+HIGH route
+- Cue: Ride flats in Z2, hit sprints in order (Tower Sprint Rev., Alley Sprint Rev. × 3)
+- Score: 87
+
+**Observations:**
+
+- **LOW was severely underestimated.** App estimated 24–32; actual was 47. The high end of the estimate (32) was 32% below actual despite the rider pushing hard through every effort.
+- **HIGH upper bound is broken.** App estimated 9–61 against a 9-unit target; actual was 5.1. The upper bound of 61 is 12× the actual and 7× the target. Confirms flat sprint HIGH is structurally over-modeled even after the A7 fix.
+- **PEAK slightly over-estimated.** App low estimate was 3; actual was 2.1 — close but still above actual.
+- **Route label "LOW+HIGH" overstates HIGH.** Actual split was 85% LOW / 9% HIGH / 4% PEAK. Route behaved almost identically to Croissant (94% LOW) despite different world.
+- **Time estimate was off.** App showed ~53m; actual was 44m (~20% over-estimate on a flat sprint route ridden at race pace).
+- **First clean-signal WOTD data point.** HIGH target was 8.6, PEAK was 7.2 — not zero. Actual delivery was 5.1 HIGH / 2.1 PEAK despite max effort on every sprint. Flat sprint routes cannot reliably deliver Xert-targeted HIGH/PEAK work even when ridden aggressively.
+
+-----
+
 ### Apr 21 2026 — Croissant (France)
 
 **Laps:** 3
@@ -229,6 +256,7 @@ ridden at moderate effort are primarily LOW venues with small incidental HIGH/PE
 |`detectBucket()` LOW dominates when WOTD targets HIGH/PEAK |Medium — one confirmed case (Sugar Cookie)|Parked (A3)             |Needs rides with non-zero HIGH/PEAK targets post-lifting removal to validate `1.6` multiplier. |
 |HIGH and PEAK targets were 0 due to lifting in Xert        |Confirmed                                 |Resolved                |Lifting removed from Xert tracking late April 2026.                                            |
 |Even climbing routes produce mostly LOW at Z2 pace         |High — Road to Sky (178/180 LOW)          |Design note             |Route cue text must distinguish venue potential from execution intensity.                       |
+|LOW XSS/hour is under-modeled on flat sprint routes        |High — Croissant + Red Zone Repeats both show actual LOW >> estimate|Open       |Needs investigation of XSS/min assumptions for flat routes; actual LOW consistently exceeds chip high-end estimate.|
 
 ### Open Calibration Questions
 
