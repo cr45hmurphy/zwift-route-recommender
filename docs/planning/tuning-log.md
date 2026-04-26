@@ -138,6 +138,10 @@ Each entry follows this format:
 - **Route label "LOW+HIGH" overstates HIGH.** Actual split was 85% LOW / 9% HIGH / 4% PEAK. Route behaved almost identically to Croissant (94% LOW) despite different world.
 - **Time estimate was off.** App showed ~53m; actual was 44m (~20% over-estimate on a flat sprint route ridden at race pace).
 - **First clean-signal WOTD data point.** HIGH target was 8.6, PEAK was 7.2 — not zero. Actual delivery was 5.1 HIGH / 2.1 PEAK despite max effort on every sprint. Flat sprint routes cannot reliably deliver Xert-targeted HIGH/PEAK work even when ridden aggressively.
+- **WOTD prescription vs actual.** The workout (SMART - Going Under - 60) prescribed 77 LOW / 5.3 HIGH / 5.8 PEAK. Actual ride was 47 LOW / 5.1 HIGH / 2.1 PEAK. HIGH delivery was nearly identical to the WOTD prescription (5.1 vs 5.3). PEAK fell short (2.1 vs 5.8) — the route's sprint structure couldn't replicate the structured peak intervals in the workout.
+- **Route selection was validated.** The WOTD's interval chart shows repeated short hard spikes on a flat aerobic base — structurally identical to a flat sprint route. The app surfaced the right type of route for the day. The goal is close approximation, not exact replication of the structured workout.
+- **HIGH chip lower bound still over-estimates, but directionally useful.** The floor of 9 was 76% above actual (5.1), but it correctly signaled "some HIGH possible" vs the Croissant-era floor. The ceiling of 61 remains the primary problem — it reflects the structural over-modeling not fully resolved by A7.
+- **PEAK chip floor was close.** Lower bound of 3 vs actual 2.1 — in the right ballpark. PEAK remains hit-or-miss but the direction is correct.
 
 -----
 
