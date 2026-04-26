@@ -2347,21 +2347,22 @@ async function renderRouteCardPng(card) {
   return canvasToPngBlob(canvas).catch(err => { console.error('[copy-image] toBlob failed:', err); return null; });
 }
 
-async function writeClipboardItem(items) {
-  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
-    throw new Error('Rich clipboard unavailable');
-  }
-  await navigator.clipboard.write([new ClipboardItem(items)]);
-}
-
 async function copyRouteCardToClipboard(card, text) {
-  const pngBlob = await renderRouteCardPng(card).catch(() => null);
-
-  if (pngBlob) {
-    await writeClipboardItem({ 'image/png': pngBlob });
-    return 'image';
+  // Pass a Promise to ClipboardItem so clipboard.write() is called synchronously
+  // within the user gesture, before html2canvas finishes. Without this, PWA
+  // standalone mode expires the gesture during the render and denies clipboard access.
+  if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+    const pngPromise = renderRouteCardPng(card).then(blob => {
+      if (!blob) throw new Error('render failed');
+      return blob;
+    });
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngPromise })]);
+      return 'image';
+    } catch {
+      // Image clipboard unavailable or render failed — fall through to text
+    }
   }
-
   await navigator.clipboard.writeText(text);
   return 'text';
 }
