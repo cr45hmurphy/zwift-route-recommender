@@ -1196,7 +1196,7 @@ function renderRouteInspector() {
   note.textContent = noteParts.join(' ') || 'Showing this route with the current scenario, time budget, and cue logic.';
 }
 
-function buildShareText(route, estMin, fillPct, bucket) {
+function buildShareText(route, estMin, fillPct, bucket, chipLine) {
   const lines = [];
   const isMixed = bucket === 'mixed';
   const dayLabel = isMixed ? 'MIXED' : (bucket || 'RECOVERY').toUpperCase();
@@ -1204,6 +1204,7 @@ function buildShareText(route, estMin, fillPct, bucket) {
     ? ` · covers ~${fillPct}% of ${bucket.toUpperCase()} gap`
     : '';
   lines.push(`${route.name} · ${worldName(route.world)} · ${dayLabel} day · ~${formatMinutes(estMin)}${fillPart}`);
+  if (chipLine) lines.push(chipLine);
   if (route.rideCue) lines.push(`Ride cue: ${route.rideCue}`);
   return lines.join('\n');
 }
@@ -1388,7 +1389,35 @@ function routeCardHTML(route, compact, favorites = new Set(), options = {}) {
   const routeKey = route.slug || route.name;
   const isFavorited = favorites.has(routeKey);
   const favoriteBtn = `<button class="favorite-btn${isFavorited ? ' favorited' : ''}" data-route-key="${routeKey}" aria-label="Favorite">★</button>`;
-  const shareText = buildShareText(route, estMin, shareFillPct, shareBucket);
+
+  const chipLine = (() => {
+    const parts = [];
+    if (displayTarget.mode === 'mixed') {
+      for (const b of ['low', 'high', 'peak']) {
+        const lo = perBucketXssLo[b], hi = perBucketXssHi[b];
+        if (lo === null) continue;
+        const rem = state.dailySummary?.remaining?.[b] ?? null;
+        const tgt = rem !== null ? `/${Math.round(rem)}` : '';
+        parts.push(`${b.toUpperCase()} ${xssRangeStr(lo, hi)}${tgt}`);
+      }
+    } else {
+      const b = displayTarget.bucket;
+      if (b === 'recovery') {
+        parts.push(`${xssRangeStr(perBucketXssLo.low, perBucketXssHi.low)} LOW XSS est.`);
+      } else {
+        for (const bkt of ['low', 'high', 'peak']) {
+          const lo = perBucketXssLo[bkt], hi = perBucketXssHi[bkt];
+          if (lo === null || (executionFirstLowDay && bkt !== 'low')) continue;
+          const rem = state.dailySummary?.remaining?.[bkt] ?? null;
+          if (rem !== null && rem <= 0 && bkt !== b) continue;
+          const tgt = rem !== null ? `/${Math.round(rem)}` : '';
+          parts.push(`${bkt.toUpperCase()} ${xssRangeStr(lo, hi)}${tgt}`);
+        }
+      }
+    }
+    return parts.length ? parts.join(' · ') : null;
+  })();
+  const shareText = buildShareText(route, estMin, shareFillPct, shareBucket, chipLine);
   const escapedShareText = shareText.replace(/"/g, '&quot;');
   const shareBtn = `<button class="share-btn" data-share-mode="image" data-share-text="${escapedShareText}" aria-label="Copy route card image">Image</button><button class="share-btn share-text-btn" data-share-mode="text" data-share-text="${escapedShareText}" aria-label="Copy route card text">Text</button>`;
   const cls = compact ? 'route-card compact' : 'route-card';

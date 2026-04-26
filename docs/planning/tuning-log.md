@@ -114,6 +114,37 @@ Each entry follows this format:
 
 -----
 
+### Apr 26 2026 — Red Zone Repeats (Makuri Islands)
+
+**Laps:** 1
+**Duration:** 44 min  **Distance:** ~19.8 km  **Elevation:** ~87 m
+**XSS:** 55 ( 47 LOW | 5.1 HIGH | 2.1 PEAK )
+**Target XSS:** 77 LOW | 8.6 HIGH | 7.2 PEAK
+**WOTD:** SMART - Going Under - 60 / mixed (#MIXEDMODE)
+**App bucket detected:** MIXED (WOTD-first)
+**App score:** 87
+**App chips:** LOW 24–32/77 · HIGH 9–61/9 · PEAK 3–26/7
+
+**App showed:**
+- Route label: LOW+HIGH route
+- Cue: Ride flats in Z2, hit sprints in order (Tower Sprint Rev., Alley Sprint Rev. × 3)
+- Score: 87
+
+**Observations:**
+
+- **LOW was severely underestimated.** App estimated 24–32; actual was 47. The high end of the estimate (32) was 32% below actual despite the rider pushing hard through every effort.
+- **HIGH upper bound is broken.** App estimated 9–61 against a 9-unit target; actual was 5.1. The upper bound of 61 is 12× the actual and 7× the target. Confirms flat sprint HIGH is structurally over-modeled even after the A7 fix.
+- **PEAK slightly over-estimated.** App low estimate was 3; actual was 2.1 — close but still above actual.
+- **Route label "LOW+HIGH" overstates HIGH.** Actual split was 85% LOW / 9% HIGH / 4% PEAK. Route behaved almost identically to Croissant (94% LOW) despite different world.
+- **Time estimate was off.** App showed ~53m; actual was 44m (~20% over-estimate on a flat sprint route ridden at race pace).
+- **First clean-signal WOTD data point.** HIGH target was 8.6, PEAK was 7.2 — not zero. Actual delivery was 5.1 HIGH / 2.1 PEAK despite max effort on every sprint. Flat sprint routes cannot reliably deliver Xert-targeted HIGH/PEAK work even when ridden aggressively.
+- **WOTD prescription vs actual.** The workout (SMART - Going Under - 60) prescribed 77 LOW / 5.3 HIGH / 5.8 PEAK. Actual ride was 47 LOW / 5.1 HIGH / 2.1 PEAK. HIGH delivery was nearly identical to the WOTD prescription (5.1 vs 5.3). PEAK fell short (2.1 vs 5.8) — the route's sprint structure couldn't replicate the structured peak intervals in the workout.
+- **Route selection was validated.** The WOTD's interval chart shows repeated short hard spikes on a flat aerobic base — structurally identical to a flat sprint route. The app surfaced the right type of route for the day. The goal is close approximation, not exact replication of the structured workout.
+- **HIGH chip lower bound still over-estimates, but directionally useful.** The floor of 9 was 76% above actual (5.1), but it correctly signaled "some HIGH possible" vs the Croissant-era floor. The ceiling of 61 remains the primary problem — it reflects the structural over-modeling not fully resolved by A7.
+- **PEAK chip floor was close.** Lower bound of 3 vs actual 2.1 — in the right ballpark. PEAK remains hit-or-miss but the direction is correct.
+
+-----
+
 ### Apr 21 2026 — Croissant (France)
 
 **Laps:** 3
@@ -229,6 +260,22 @@ ridden at moderate effort are primarily LOW venues with small incidental HIGH/PE
 |`detectBucket()` LOW dominates when WOTD targets HIGH/PEAK |Medium — one confirmed case (Sugar Cookie)|Parked (A3)             |Needs rides with non-zero HIGH/PEAK targets post-lifting removal to validate `1.6` multiplier. |
 |HIGH and PEAK targets were 0 due to lifting in Xert        |Confirmed                                 |Resolved                |Lifting removed from Xert tracking late April 2026.                                            |
 |Even climbing routes produce mostly LOW at Z2 pace         |High — Road to Sky (178/180 LOW)          |Design note             |Route cue text must distinguish venue potential from execution intensity.                       |
+|LOW XSS/hour is under-modeled on flat sprint routes        |High — Croissant + Red Zone Repeats both show actual LOW >> estimate|Open       |Needs investigation of XSS/min assumptions for flat routes; actual LOW consistently exceeds chip high-end estimate.|
+|LOW:HIGH delivery ratio tracks target ratio accurately     |High — Apr 26: target 9.0:1, actual 9.2:1 |Design note             |Bucket split logic is correct; issue is absolute scale of LOW base rate. Fix the base rate, not the split.        |
+
+### Cross-Ride Analysis
+
+**LOW XSS/hr by terrain type** — computed from all rides with usable duration data:
+
+| Terrain type | Rides | LOW XSS/hr range | Approx average |
+|---|---|---|---|
+| Flat / sprint routes | Flat Out Fast ×2, Wandering Flats, Croissant, Red Zone Repeats | 56–70 | ~63 |
+| Mixed terrain | Sand & Sequoias, Big Spin Stage 3, TTT Zone 28, Mayan San Remo, Neokyo All-Nighter | 59–71 | ~64 |
+| Climbing | Sugar Cookie, Road to Sky | 49–55 | ~52 |
+
+Key takeaway: LOW XSS/hr is remarkably stable across effort levels and route types. Flat and mixed routes cluster tightly at ~63–64/hr regardless of whether the rider is doing Z2 or race pace. Climbing routes are *lower* (~52/hr) — slower speed on grades means less aerobic output per unit time, even though gradient feels harder.
+
+The app's LOW chip for Red Zone Repeats implied **27–36 LOW XSS/hr**. Observed was **64/hr**. The model is producing roughly **45–55% of actual LOW XSS/hr** on flat routes. This is a consistent multiplier gap, not scatter — pointing at the base rate in `estimateBucketImpactXss()` or the `bucketSupport.low` floor for flat sprint routes.
 
 ### Open Calibration Questions
 
@@ -239,8 +286,13 @@ ridden at moderate effort are primarily LOW venues with small incidental HIGH/PE
   the venue *contains* if attacked?
 - Do current HIGH/PEAK XSS-per-hour assumptions overstate non-LOW contribution on flat
   routes?
-- Is `WOTD_SIGNAL_BOOST = 1.6` the right multiplier? Needs rides where
-  `targetXSS.high > 0` or `targetXSS.peak > 0` to validate.
+- Is `WOTD_SIGNAL_BOOST = 1.6` the right multiplier? Apr 26 confirms WOTD-first detection
+  fired correctly on a real HIGH/PEAK-target day — directional validation passed.
+- Does the W/kg-based speed model systematically over-estimate time for low W/kg riders
+  on flat terrain? At 1.7 W/kg (213W / 126kg), app predicted 22 km/h, actual was 27 km/h
+  (~20% gap). Flat speed is primarily absolute watts vs aerodynamic drag — W/kg is most
+  accurate for climbing. Consider whether the time model needs an absolute-watt path for
+  near-flat routes.
 
 -----
 
