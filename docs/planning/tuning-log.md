@@ -261,6 +261,21 @@ ridden at moderate effort are primarily LOW venues with small incidental HIGH/PE
 |HIGH and PEAK targets were 0 due to lifting in Xert        |Confirmed                                 |Resolved                |Lifting removed from Xert tracking late April 2026.                                            |
 |Even climbing routes produce mostly LOW at Z2 pace         |High — Road to Sky (178/180 LOW)          |Design note             |Route cue text must distinguish venue potential from execution intensity.                       |
 |LOW XSS/hour is under-modeled on flat sprint routes        |High — Croissant + Red Zone Repeats both show actual LOW >> estimate|Open       |Needs investigation of XSS/min assumptions for flat routes; actual LOW consistently exceeds chip high-end estimate.|
+|LOW:HIGH delivery ratio tracks target ratio accurately     |High — Apr 26: target 9.0:1, actual 9.2:1 |Design note             |Bucket split logic is correct; issue is absolute scale of LOW base rate. Fix the base rate, not the split.        |
+
+### Cross-Ride Analysis
+
+**LOW XSS/hr by terrain type** — computed from all rides with usable duration data:
+
+| Terrain type | Rides | LOW XSS/hr range | Approx average |
+|---|---|---|---|
+| Flat / sprint routes | Flat Out Fast ×2, Wandering Flats, Croissant, Red Zone Repeats | 56–70 | ~63 |
+| Mixed terrain | Sand & Sequoias, Big Spin Stage 3, TTT Zone 28, Mayan San Remo, Neokyo All-Nighter | 59–71 | ~64 |
+| Climbing | Sugar Cookie, Road to Sky | 49–55 | ~52 |
+
+Key takeaway: LOW XSS/hr is remarkably stable across effort levels and route types. Flat and mixed routes cluster tightly at ~63–64/hr regardless of whether the rider is doing Z2 or race pace. Climbing routes are *lower* (~52/hr) — slower speed on grades means less aerobic output per unit time, even though gradient feels harder.
+
+The app's LOW chip for Red Zone Repeats implied **27–36 LOW XSS/hr**. Observed was **64/hr**. The model is producing roughly **45–55% of actual LOW XSS/hr** on flat routes. This is a consistent multiplier gap, not scatter — pointing at the base rate in `estimateBucketImpactXss()` or the `bucketSupport.low` floor for flat sprint routes.
 
 ### Open Calibration Questions
 
@@ -271,8 +286,13 @@ ridden at moderate effort are primarily LOW venues with small incidental HIGH/PE
   the venue *contains* if attacked?
 - Do current HIGH/PEAK XSS-per-hour assumptions overstate non-LOW contribution on flat
   routes?
-- Is `WOTD_SIGNAL_BOOST = 1.6` the right multiplier? Needs rides where
-  `targetXSS.high > 0` or `targetXSS.peak > 0` to validate.
+- Is `WOTD_SIGNAL_BOOST = 1.6` the right multiplier? Apr 26 confirms WOTD-first detection
+  fired correctly on a real HIGH/PEAK-target day — directional validation passed.
+- Does the W/kg-based speed model systematically over-estimate time for low W/kg riders
+  on flat terrain? At 1.7 W/kg (213W / 126kg), app predicted 22 km/h, actual was 27 km/h
+  (~20% gap). Flat speed is primarily absolute watts vs aerodynamic drag — W/kg is most
+  accurate for climbing. Consider whether the time model needs an absolute-watt path for
+  near-flat routes.
 
 -----
 
