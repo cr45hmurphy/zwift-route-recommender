@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Zwift Route Recommender</title>
   <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#e47000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ZwiftBuckets">
+  <link rel="apple-touch-icon" href="./assets/favicon.svg">
   <link rel="stylesheet" href="./assets/style.css">
 </head>
 <body>
@@ -83,6 +90,7 @@
       <span class="header-title">Zwift Route Recommender</span>
       <div class="header-actions">
         <span id="last-updated"></span>
+        <button id="install-btn" class="btn-secondary" style="display:none">Install app</button>
         <button id="refresh-btn" class="btn-secondary">↻ Refresh</button>
         <button id="logout-btn" class="btn-secondary">Sign out</button>
       </div>
