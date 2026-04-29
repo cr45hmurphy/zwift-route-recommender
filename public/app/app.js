@@ -5,7 +5,7 @@ import { getTodaysPortalRoad } from './core/portal.js';
 import { scaleProfilePoints } from './core/profile.js';
 import { getSegmentsForRoute } from './core/segments.js';
 import { expandTimelineForLaps, getRouteTimeline, recommendedLapCount, uniqueTimelineSegments, withRecoveryGaps } from './core/timelines.js';
-import { analyzeTrainingDay, deriveRouteBucketSupport, generateRideCue, optimizeRoutes, routeHonestyLabel, wotdTerrainScore } from './core/scorer.js';
+import { analyzeTrainingDay, BUCKET_FILL_THRESHOLD, deriveRouteBucketSupport, generateRideCue, optimizeRoutes, routeHonestyLabel, wotdTerrainScore } from './core/scorer.js';
 import { countRouteCards, formatWorldContextLabel, formatWorldContextSourceDetail } from './core/ui.js';
 import { DATA_SOURCE_OPTIONS, MOCK_SCENARIOS } from './data/mock-data.js';
 
@@ -2126,11 +2126,12 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     total: targetXSS?.total ?? 0,
   };
 
+  const bucketFilled = (actual, target) => target > 0 && actual >= target * BUCKET_FILL_THRESHOLD;
   const remaining = {
-    low: Math.max(targets.low - completed.low, 0),
-    high: Math.max(targets.high - completed.high, 0),
-    peak: Math.max(targets.peak - completed.peak, 0),
-    total: Math.max(targets.total - completed.total, 0),
+    low:   bucketFilled(completed.low,   targets.low)   ? 0 : Math.max(targets.low   - completed.low,   0),
+    high:  bucketFilled(completed.high,  targets.high)  ? 0 : Math.max(targets.high  - completed.high,  0),
+    peak:  bucketFilled(completed.peak,  targets.peak)  ? 0 : Math.max(targets.peak  - completed.peak,  0),
+    total: bucketFilled(completed.total, targets.total) ? 0 : Math.max(targets.total - completed.total, 0),
   };
   console.log('[coverage-debug] daily summary', {
     targetXSS_low: targets.low,

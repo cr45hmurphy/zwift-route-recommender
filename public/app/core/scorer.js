@@ -21,6 +21,7 @@ const OPTIMIZER_SORT_EPSILON = 0.001;
 const FAVORITE_BOOST         = 0.08; // utility multiplier for starred routes (self-limiting: only matters when close to top)
 const WOTD_SIGNAL_BOOST      = 1.6; // deficit multiplier when Xert has explicitly targeted HIGH or PEAK work today
 const TIME_HARD_CUTOFF_RATIO = 1.6; // routes estimated at more than this multiple of availableMinutes are excluded
+const BUCKET_FILL_THRESHOLD  = 0.92; // treat a bucket as filled when completed XSS ≥ 92% of target (mirrors Xert's lenient green-checkmark logic)
 
 // Segment bucket classification thresholds
 const PUNCHY_GRADE_MIN    = 8;   // % — climbs at/above this grade are PEAK-capable when short
@@ -57,7 +58,10 @@ export const DEFAULTS = {
   TIME_HARD_CUTOFF_RATIO,
   PUNCHY_GRADE_MIN,
   PUNCHY_DISTANCE_MAX,
+  BUCKET_FILL_THRESHOLD,
 };
+
+export { BUCKET_FILL_THRESHOLD };
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -412,11 +416,15 @@ export function classifyWOTD(wotd, ftp = null) {
   return 'aerobic_endurance';
 }
 
+function isBucketFilled(actual, target) {
+  return target > 0 && actual >= target * BUCKET_FILL_THRESHOLD;
+}
+
 function detectMixedDeficits(tl, targetXSS) {
   const deficits = {
-    low:  Math.max((targetXSS.low  ?? 0) - (tl.low  ?? 0), 0),
-    high: Math.max((targetXSS.high ?? 0) - (tl.high ?? 0), 0),
-    peak: Math.max((targetXSS.peak ?? 0) - (tl.peak ?? 0), 0),
+    low:  isBucketFilled(tl.low  ?? 0, targetXSS.low  ?? 0) ? 0 : Math.max((targetXSS.low  ?? 0) - (tl.low  ?? 0), 0),
+    high: isBucketFilled(tl.high ?? 0, targetXSS.high ?? 0) ? 0 : Math.max((targetXSS.high ?? 0) - (tl.high ?? 0), 0),
+    peak: isBucketFilled(tl.peak ?? 0, targetXSS.peak ?? 0) ? 0 : Math.max((targetXSS.peak ?? 0) - (tl.peak ?? 0), 0),
   };
   const total = deficits.low + deficits.high + deficits.peak;
   if (total <= 0) return false;
@@ -448,9 +456,9 @@ export function analyzeTrainingDay(tl, targetXSS, wotd, ftp = null) {
  */
 export function detectBucket(tl, targetXSS) {
   const deficits = {
-    low:  targetXSS.low  - tl.low,
-    high: targetXSS.high - tl.high,
-    peak: targetXSS.peak - tl.peak,
+    low:  isBucketFilled(tl.low,  targetXSS.low)  ? 0 : targetXSS.low  - tl.low,
+    high: isBucketFilled(tl.high, targetXSS.high) ? 0 : targetXSS.high - tl.high,
+    peak: isBucketFilled(tl.peak, targetXSS.peak) ? 0 : targetXSS.peak - tl.peak,
   };
 
   if (targetXSS.high > 0) deficits.high *= WOTD_SIGNAL_BOOST;
