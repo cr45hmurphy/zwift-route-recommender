@@ -2090,7 +2090,9 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
 
     const detail = result?.status === 'fulfilled' ? result.value : null;
     const timestampMs = activityTimestampMs(activity, detail);
-    if (timestampMs !== null && getLocalDayKey(timestampMs) !== todayKey) {
+    // Exclude activities with no parseable timestamp — we can't confirm they're today,
+    // and the buffer window (±12 h) could otherwise pull in yesterday's rides.
+    if (timestampMs === null || getLocalDayKey(timestampMs) !== todayKey) {
       continue;
     }
 
@@ -2106,7 +2108,7 @@ async function fetchTodaysDailySummary(targetXSS, username, password) {
     if (!activity?.summary) continue;
 
     const timestampMs = activityTimestampMs(activity, null);
-    if (timestampMs !== null && getLocalDayKey(timestampMs) !== todayKey) {
+    if (timestampMs === null || getLocalDayKey(timestampMs) !== todayKey) {
       continue;
     }
 
