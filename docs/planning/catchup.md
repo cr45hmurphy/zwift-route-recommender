@@ -2,10 +2,10 @@
 
 ## Current State
 
-The core Zwift route recommender / cue-generator overhaul is complete enough to move from buildout into polish, validation, and calibration. The app runs as a browser-based Xert-aware recommender with live or mock data, Zwift world filtering, route cards, time guidance, route profiles, route inspector, share/favorite controls, and Sauce-derived route/timeline data.
+The core Zwift route recommender / cue-generator overhaul is complete enough to move from buildout into polish, validation, and calibration. The app runs as a browser-based Xert-aware recommender with live or mock data, Zwift world filtering, route cards, time guidance, route profiles, route inspector, share/favorite controls, Sauce-derived route/timeline data, and PWA install support.
 
-- Active branch: `claude/add-truncation-checks-6D1xi` (cue copy overhaul + display fixes)
-- Last merged PRs: #13 inspector filters + browsing caps, #14 visual polish, #15 and #16 favicon
+- Active branch: `claude/fix-sw-cache-stale` (SW network-first + cache v2 bump)
+- Last merged PRs: #32 BUCKET_FILL_THRESHOLD, #33 undatable-activity filter, #34 "met" label fix
 
 The active future-work list is now `docs/planning/parkinglot.md`. The former Route Recommender design brief has been archived under `docs/planning/archive/`.
 
@@ -55,6 +55,11 @@ The active future-work list is now `docs/planning/parkinglot.md`. The former Rou
 
 ## Recently Completed
 
+- **SW cache stale fix (PR pending):** service worker switched from cache-first to network-first for same-origin assets; `CACHE_NAME` bumped to `v2`. Different devices were serving different stale snapshots of `app.js` depending on when they last cached it — soft refresh served old code while hard refresh showed new code. Network-first ensures fresh JS on every load; cache is retained as an offline fallback.
+- **Undatable-activity filter (#33):** `activityTimestampMs()` returning `null` previously bypassed the date guard, causing yesterday's rides (pulled in by the 12-hour query buffer) to inflate today's completed XSS. Guard inverted to exclude activities with no parseable timestamp.
+- **"met" label fix (#34):** bucket bar showed "met" whenever `remaining ≤ 0`, including when the target was never set (`target = 0`). Now only shown when `target > 0` and the athlete has reached it.
+- **BUCKET_FILL_THRESHOLD (#32):** Xert marks buckets done when you're close to target (~92–97%), not only at 100%. Without this, the app showed open deficits on days Xert had already marked green. `BUCKET_FILL_THRESHOLD = 0.92` exported from `scorer.js` and applied in both `detectBucket` / `detectMixedDeficits` and the remaining-XSS calculation in `app.js`.
+- **PWA (#29–#31):** `manifest.json`, service worker, and `<link rel="manifest">` added; app is now installable on mobile. Icons generated from the SVG logo at 192×512px. Copy-image in PWA fixed to use the Promise-based `ClipboardItem` API.
 - Cue copy overhaul (Track C): established a four-level effort taxonomy (full gas / hard but controlled / steady threshold / Zone 2) and applied it consistently across all `generateRideCue()` branches. Segment lists capped at 3 named efforts with overflow rewritten as "repeat that pattern for the remaining N". `spacingNote()` rewritten as a rider instruction rather than a passive description. Mixed-route branches now give sprint intent and climb intent as two explicit sentences. LOW+HIGH honesty branches stripped of internal jargon. Recovery cue preserved unchanged.
 - `renderTimeSummary()` display fix: when `bucketOverride` is set (Tired / Very Tired / Detraining override), the XSS fill calculation is skipped and recovery language is shown instead. `applyFreshnessOverride()` and all override logic untouched.
 - `orderedTimelineEfforts()` defensive filter: explicit `type === 'segment'` guard added so named route-section segments (Hilly Loop Rev., London Loop, Crit City, etc.) cannot appear in effort cue lists regardless of future data changes.
