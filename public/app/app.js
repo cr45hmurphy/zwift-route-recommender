@@ -678,7 +678,7 @@ function renderBucketBar(name, completed, target, remaining, highlighted) {
   valEl.innerHTML = `${current.toFixed(1)} done / ${target.toFixed(1)} target`;
   if (remaining > 0) {
     valEl.innerHTML += ` <span class="deficit ${name}">${remaining.toFixed(1)} left</span>`;
-  } else {
+  } else if (target > 0) {
     valEl.innerHTML += ' met';
   }
 }
