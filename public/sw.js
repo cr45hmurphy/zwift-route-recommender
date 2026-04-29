@@ -1,4 +1,4 @@
-const CACHE_NAME = 'zwiftbuckets-v1';
+const CACHE_NAME = 'zwiftbuckets-v2';
 
 const STATIC_ASSETS = [
   '/',
@@ -62,17 +62,16 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // App shell and static assets: cache-first
+  // App shell and static assets: network-first, fall back to cache for offline
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-      return fetch(event.request).then(response => {
+    fetch(event.request)
+      .then(response => {
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });
