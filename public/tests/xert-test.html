@@ -35,6 +35,7 @@
 
   <button onclick="runTest()">Authenticate + fetch training_info</button>
   <button class="secondary" onclick="runTestWithFormat('zwo')">training_info?format=zwo</button>
+  <button class="secondary" onclick="probeActivitiesToday()">GET /oauth/activity (today, raw)</button>
   <button class="secondary" onclick="probeEndpoint('/oauth/workouts')">GET /oauth/workouts</button>
   <button class="secondary" onclick="probeEndpoint('/oauth/workout/0irdnmnyyxzsbpmg')">GET single workout (MIXEDMODE sample)</button>
   <button class="secondary" onclick="clearAndRun()">Clear token + re-auth</button>
@@ -248,6 +249,46 @@
         result.innerHTML = `<span class="pass">SUCCESS (format=${format})</span>\n\n<span class="label">raw.wotd:</span>\n${JSON.stringify(raw.wotd, null, 2)}`;
         rawDetails.style.display = 'block';
         rawJson.textContent = JSON.stringify(raw, null, 2);
+      } catch (err) {
+        result.innerHTML = `<span class="fail">ERROR: ${err.message}</span>`;
+      }
+    };
+
+    window.probeActivitiesToday = async function() {
+      const result = document.getElementById('result');
+      const rawDetails = document.getElementById('raw-details');
+      const rawJson = document.getElementById('raw-json');
+
+      const now = new Date();
+      const start = new Date(now); start.setHours(0, 0, 0, 0);
+      const end   = new Date(now); end.setHours(23, 59, 59, 999);
+      const from = Math.floor(start.getTime() / 1000);
+      const to   = Math.floor(end.getTime()   / 1000);
+
+      const path = `/oauth/activity?from=${from}&to=${to}`;
+      result.innerHTML = `<span class="info">Fetching ${path}…</span>`;
+
+      try {
+        const token = localStorage.getItem('xert_token');
+        if (!token) throw new Error('No token — run "Authenticate + fetch training_info" first.');
+
+        const res  = await fetch(`${PROXY_BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        const activities = Array.isArray(data.activities) ? data.activities : [];
+
+        const rangeStr = `from=${from} (${start.toISOString()})  to=${to} (${end.toISOString()})`;
+        const summary  = activities.map((a, i) =>
+          `[${i}] keys: ${Object.keys(a).join(', ')}\n     path=${a.path ?? '(none)'}  start_date=${a.start_date ?? a.startDate ?? a.date ?? a.timestamp ?? '?'}`
+        ).join('\n');
+
+        result.innerHTML =
+          `<span class="pass">GET ${path} → HTTP ${res.status}</span>\n\n` +
+          `<span class="label">Date range:</span> ${rangeStr}\n` +
+          `<span class="label">Activities returned:</span> ${activities.length}\n\n` +
+          (activities.length ? `<span class="label">Per-activity field inventory:</span>\n${summary}` : '(empty list)');
+
+        rawDetails.style.display = 'block';
+        rawJson.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
         result.innerHTML = `<span class="fail">ERROR: ${err.message}</span>`;
       }

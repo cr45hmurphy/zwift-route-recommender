@@ -2008,6 +2008,27 @@ function getSummaryQueryRangeLocal() {
 function parseTimestampMs(value) {
   if (value === null || value === undefined || value === '') return null;
 
+  // PHP DateTimeImmutable serialization: { date: "2026-05-07 23:20:11.000000", timezone_type: 3, timezone: "UTC" }
+  if (typeof value === 'object' && !Array.isArray(value) && typeof value.date === 'string') {
+    const iso = value.timezone === 'UTC'
+      ? value.date.replace(' ', 'T') + 'Z'
+      : value.date.replace(' ', 'T');
+    const parsed = Date.parse(iso);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  // MongoDB extended JSON: { $date: { $numberLong: "1234567890000" } }
+  if (typeof value === 'object' && !Array.isArray(value) && value.$date != null) {
+    const inner = value.$date;
+    if (typeof inner === 'number') return inner;
+    if (typeof inner === 'string') { const n = Number(inner); return Number.isFinite(n) ? n : null; }
+    if (typeof inner === 'object' && inner.$numberLong != null) {
+      const n = Number(inner.$numberLong);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value > 1e12 ? value : value * 1000;
   }
@@ -2041,6 +2062,7 @@ function activityTimestampMs(activity, detail) {
     detail?.timestamp,
     detail?.datetime,
     detail?.summary?.start_date,
+    detail?.summary?.session?.start_time,
     activity?.start_date,
     activity?.startDate,
     activity?.date,
